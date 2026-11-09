@@ -285,9 +285,9 @@ The order matters: a pin change without a rebuild leaves Modal jobs queued until
 
 ## Testing
 
-`bun run test:regressions` runs every `scripts/*-regressions.ts` against a Neon branch it creates from production for that run, and deletes the branch when the run ends. The branch expires after 2 hours, so a crashed run cannot leak one. Pass a name prefix to run a subset, for example `bun run test:regressions ingest`. It needs the `neon` CLI signed in, and the project id from `.neon` or `NEON_PROJECT_ID`.
+`bun run test:regressions` runs every `scripts/*-regressions.ts` against an empty `hive_test_<time>_<random>` database. It creates the database on the server `TEST_DATABASE_URL` names (for example `postgres://localhost/postgres`; that URL's database is only the maintenance connection), applies this checkout's migrations, and drops it when the run ends, including on Ctrl-C. Each run first drops any `hive_test_*` database older than 2 hours, so a killed run cannot leak one for long. The role in `TEST_DATABASE_URL` needs the CREATEDB privilege. Pass a name prefix to run a subset, for example `bun run test:regressions ingest`.
 
-Each script starts with `import "./test-guard"`, which exits before any write unless the harness started it and `DATABASE_URL` points at the harness's branch. The `.env.local` database is always refused. During a regression the real Linear client, the GitHub App, `t3 thread` commands and the deployed ingest URL throw (`lib/test-mode.ts`); tests use fakes such as `threads` in `runner/ops.ts` and `github` in `lib/github/pulls.ts`.
+Each script starts with `import "./test-guard"`, which exits before any write unless the harness started it and `DATABASE_URL` points at the harness's test database. The `.env.local` database is always refused, including through aliases such as `127.0.0.1` for `localhost` or an explicit `:5432`. During a regression the real Linear client, the GitHub App, `t3 thread` commands and the deployed ingest URL throw (`lib/test-mode.ts`); tests use fakes such as `threads` in `runner/ops.ts` and `github` in `lib/github/pulls.ts`.
 
 ## Research
 

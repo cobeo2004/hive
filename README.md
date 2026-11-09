@@ -310,9 +310,9 @@ It waits for Vercel's production deploy (which runs the migrations), stops the r
 
 ## Developing
 
-Work in a separate clone or worktree, never in the live checkout. Run `bun dev` for the panel against a Neon branch of your own, not `main`.
+Work in a separate clone or worktree, never in the live checkout. Run `bun dev` for the panel against a database of your own, not production.
 
-`bun run test:regressions` runs every `scripts/*-regressions.ts` against a throwaway Neon branch made from production. It deletes the branch when the run ends. Pass a prefix to run a subset, for example `bun run test:regressions ingest`. During a test run, the real Linear client, the GitHub App and `t3` commands refuse to run, so a test can't touch real work.
+`TEST_DATABASE_URL=postgres://localhost/postgres bun run test:regressions` runs every `scripts/*-regressions.ts` against a throwaway `hive_test_*` database it creates on that server, migrates, and drops when the run ends. The role needs the CREATEDB privilege. Pass a prefix to run a subset, for example `bun run test:regressions ingest`. During a test run, the real Linear client, the GitHub App and `t3` commands refuse to run, so a test can't touch real work.
 
 ## Further reading
 

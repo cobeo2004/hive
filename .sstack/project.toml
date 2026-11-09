@@ -2,7 +2,7 @@
 brief  = ".sstack/product.md"
 docs   = ["docs/prd.md", "docs/glossary.md", "docs/operations.md"]
 # bun 1.4.4 (package.json packageManager); next typegen writes route types into .next/ for tsc.
-# ponytail: test:regressions left out — it needs Neon (CLI, project, NEON_REALTIME_SECRET) and
+# ponytail: test:regressions left out — it needs a Postgres in TEST_DATABASE_URL, and
 # playbook-regressions fails until R13 (M4). Run it by hand via [test.code].
 verify = [
   "bun run lint",
@@ -12,8 +12,8 @@ check  = "bunx eslint {path}"
 graph  = true
 
 [test.code]
-framework = "bun scripts, scripts/<name>-regressions.ts, each against a temporary Neon branch (docs/operations.md § Testing)"
-run       = "bun run test:regressions {path}"   # {path} = name prefix, e.g. ingest
+framework = "bun scripts, scripts/<name>-regressions.ts, each against a throwaway hive_test_* database on TEST_DATABASE_URL (docs/operations.md § Testing)"
+run       = "TEST_DATABASE_URL=postgres://localhost/postgres bun run test:regressions {path}"   # {path} = name prefix, e.g. ingest
 
 # No e2e runner: UI changes get a live check in the T3 Code browser (preview_* tools).
 [test.browser]
