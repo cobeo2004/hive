@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hive: UNI-482</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hive.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0}
+.ck{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--border)}
+.ck:first-child{border-top:0}
+</style>
+</helmet>
+<div class="{{themeClass}}">
+<div class="hv-app">
+<aside class="hv-sb" aria-label="Hive">
+  <div class="sb-head"><svg class="sb-hex" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="#cbfd80"></path></svg><b>Hive</b><span class="org">Unibuz</span></div>
+  <input class="sb-search" type="search" placeholder="Search" aria-label="Search jobs">
+  <nav class="sb-nav" aria-label="Main">
+    <a href="Main.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"></rect><rect x="10" y="4" width="5" height="11" rx="1.5"></rect><rect x="17" y="4" width="4" height="7" rx="1.5"></rect></svg>Jobs</a>
+    <a href="Inbox.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 13l3-8h12l3 8v6H3z"></path><path d="M3 13h5l1 3h6l1-3h5"></path></svg>Inbox<span class="n">3</span></a>
+    <a href="Repositories.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3z"></path></svg>Repositories</a>
+    <a href="Settings.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"></path></svg>Settings</a>
+  </nav>
+  <div class="sb-sec"><span>Working</span><span>4</span></div>
+  <a class="sb-row on" href="RunDetail.dc.html"><span class="top"><span class="rb rb-m">MO</span>unibuz-mobile<span class="t">18m</span></span><span class="ti">Tribe invite deep link opens the wrong screen</span><span class="br"><span>hive/UNI-482</span><span class="hm">CC</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-a">AP</span>unibuz-api<span class="t">4m</span></span><span class="ti">Tribe search ignores Vietnamese diacritics</span><span class="br"><span>hive/UNI-486</span><span class="hm">CC</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-a">AP</span>unibuz-api<span class="t">31m</span></span><span class="ti">Rate-limit message sends per user</span><span class="br"><span>hive/UNI-480</span><span class="hm">CX</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-m">MO</span>unibuz-mobile<span class="t">52m</span></span><span class="ti">Profile photo upload fails over 5 MB</span><span class="br"><span>hive/UNI-479</span><span class="hm">CC</span></span></a>
+  <div class="sb-sec"><span>Waiting on you</span><span>3 ›</span></div>
+  <div class="sb-sec"><span>Settled</span><span>43 ›</span></div>
+  <div class="sb-foot"><span class="hv-avatar">SN</span><span style="color: var(--ink)">Simon</span><span style="margin-left: auto; display: flex; align-items: center; gap: 6px"><span class="sb-dot"></span>tailnet</span></div>
+</aside>
+<div class="hv-pane">
+<div class="hv-crumb"><span class="rb rb-m">MO</span><span class="c">unibuz-mobile</span><span class="sep">/</span><span class="cur">Tribe invite deep link opens the wrong screen on iOS</span><span class="act"><button class="hv-iconbtn" aria-label="Toggle side panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg></button></span></div>
+
+<main class="hv-page" style="gap: 18px">
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <a class="hv-meta" href="Main.dc.html" style="color: var(--muted)">← Jobs · Esc</a>
+    <div class="hv-row" style="justify-content: space-between; align-items: flex-start; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 8px; flex: 1 1 560px; min-width: 0">
+        <div class="hv-row"><span class="hv-card__id" style="font-size: 13px">UNI-482 · hive/UNI-482</span><span class="hv-badge hv-badge--active"><span class="dot"></span>Implementing</span><span class="hv-meta">attempt 1 · started 18 min ago</span></div>
+        <h1 class="hv-h1" style="font-size: 28px; line-height: 32px">Tribe invite deep link opens the wrong screen on iOS</h1>
+        <div class="hv-row">
+          <span class="hv-model">opus-5-5</span>
+          <span class="hv-chip">Lead: Claude Code · sstack work</span>
+          <span class="hv-chip">Billed to Simon’s Claude Max</span>
+          <span class="hv-chip">unibuz-mobile</span>
+          <span class="hv-chip">Mac mini 1 · iPhone 16 Pro sim · Pixel 9 emu</span>
+        </div>
+      </div>
+      <div class="hv-row">
+        <a class="hv-ext" href="#">Linear ↗</a>
+        <a class="hv-ext" href="#">Branch ↗</a>
+        <a class="hv-ext" href="#">Open in T3 ↗</a>
+        <button class="hv-btn hv-btn--ghost">Stop job</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="hv-layout">
+    <div class="hv-main" style="gap: 16px">
+      <section class="hv-panel" style="padding: 18px; gap: 14px" aria-label="Live">
+        <div class="hv-row" style="justify-content: space-between">
+          <h2 class="hv-h2">Live</h2>
+          <div class="hv-seg" role="group" aria-label="Live view">
+            <button class="{{devCls}}" onClick="{{showDev}}">Device</button>
+            <button class="{{logCls}}" onClick="{{showLog}}">Thread</button>
+          </div>
+        </div>
+        <sc-if value="{{isDev}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch">
+            <div class="hv-vid" style="width: 210px; height: 430px; border-radius: 34px; border: 6px solid #1c1b3d">
+              <div style="position: absolute; inset: 0; display: flex; flex-direction: column; background: #f8f7f9; color: #060028">
+                <div style="height: 92px; background: #3224f2; color: #fff; padding: 40px 14px 0; font: 700 15px var(--font-sans)">Hanoi Foodies</div>
+                <div style="padding: 12px; display: flex; flex-direction: column; gap: 8px">
+                  <div style="height: 56px; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.08)"></div>
+                  <div style="height: 56px; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.08)"></div>
+                  <div style="height: 34px; border-radius: 9999px; background: #cbfd80; display: grid; place-items: center; font: 700 12px var(--font-sans); color: #3224f2">Join tribe</div>
+                </div>
+              </div>
+              <span class="tag hv-badge hv-badge--active" style="top: 14px; left: 50%; transform: translateX(-50%)"><span class="dot"></span>Agent driving</span>
+            </div>
+            <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+              <div class="hv-well" style="display: flex; flex-direction: column; gap: 6px">
+                <span class="hv-label">T3 device · iPhone 16 Pro · iOS 19.1</span>
+                <span class="hv-meta" style="color: var(--ink-2)">Streamed from Mac mini 1 over the tailnet. The agent drives it with <span class="hv-mono">agent-device</span>; you can tap too.</span>
+              </div>
+              <div class="hv-log" style="flex: 1; min-height: 200px">
+                <div><span class="t">17:44:02</span> <span class="tool">device_open</span> ios · iPhone 16 Pro</div>
+                <div><span class="t">17:44:20</span> <span class="cmd">$ xcrun simctl openurl booted https://unibuz.com.au/t/8812</span></div>
+                <div><span class="t">17:44:23</span> <span class="tool">device_screenshot</span> → TribeScreen “Hanoi Foodies”</div>
+                <div><span class="t">17:44:24</span> <span class="ok">✓ cold-start link opens the tribe</span></div>
+                <div><span class="t">17:44:25</span> <span class="warn">● recording after.mp4 (0:21)</span></div>
+              </div>
+              <div class="hv-row"><button class="hv-btn hv-btn--secondary hv-btn--sm">Take over device</button><button class="hv-btn hv-btn--ghost hv-btn--sm">Switch to Android</button></div>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{isLog}}" hint-placeholder-val="{{false}}">
+          <div class="hv-log" style="min-height: 430px">
+            <div><span class="t">17:39:52</span> <span class="think">report_stage implementing: holding the pending link in AuthGate.</span></div>
+            <div><span class="t">17:40:41</span> <span class="tool">Edit</span> AuthGate.tsx: keep pending deep link until session restores</div>
+            <div><span class="t">17:41:02</span> <span class="tool">Task</span> subagent · android-intent-filter (sonnet-5-5)</div>
+            <div><span class="t">17:41:30</span> <span class="cmd">$ pnpm --filter mobile test navigation</span></div>
+            <div><span class="t">17:41:52</span> <span class="ok">✓ 42 passed</span></div>
+            <div><span class="t">17:42:02</span> <span class="tool">Write</span> e2e/invite-link.yaml (Maestro)</div>
+          </div>
+        </sc-if>
+        <form class="hv-row" style="flex-wrap: nowrap" aria-label="Message the thread">
+          <label for="steer" style="position: absolute; left: -9999px">Message the thread</label>
+          <input id="steer" class="hv-input" placeholder="Message the thread. It reads it before its next step." style="border-radius: 9999px; padding: 0 16px">
+          <button class="hv-btn hv-btn--primary" type="button">Send</button>
+        </form>
+      </section>
+
+      <section class="hv-panel" style="padding: 18px; gap: 14px" aria-label="Evidence">
+        <div class="hv-row" style="justify-content: space-between">
+          <h2 class="hv-h2">Evidence</h2>
+          <span class="hv-meta">attached to the PR</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px">
+          <figure style="margin: 0; display: flex; flex-direction: column; gap: 6px">
+            <div class="hv-vid" style="aspect-ratio: 9 / 16"><svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#cbfd80"></circle><path d="M10 8l6 4-6 4z" fill="#3224f2"></path></svg><span class="tag hv-badge hv-badge--failed">Before</span><span class="dev">iOS</span><span class="len">0:18</span></div>
+            <figcaption class="hv-meta" style="color: var(--ink-2)">Cold start lands on Home</figcaption>
+          </figure>
+          <figure style="margin: 0; display: flex; flex-direction: column; gap: 6px">
+            <div class="hv-vid" style="aspect-ratio: 9 / 16"><svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#cbfd80"></circle><path d="M10 8l6 4-6 4z" fill="#3224f2"></path></svg><span class="tag hv-badge hv-badge--passed">After</span><span class="dev">iOS</span><span class="len">0:21</span></div>
+            <figcaption class="hv-meta" style="color: var(--ink-2)">Opens “Hanoi Foodies”</figcaption>
+          </figure>
+          <figure style="margin: 0; display: flex; flex-direction: column; gap: 6px">
+            <div class="hv-vid" style="aspect-ratio: 9 / 16; background: var(--surface-1); border: 1.5px dashed var(--border-strong)"><span class="hv-meta" style="padding: 12px; text-align: center">Android after · recording next</span></div>
+            <figcaption class="hv-meta" style="color: var(--ink-2)">Pixel 9 emulator</figcaption>
+          </figure>
+        </div>
+        <div>
+          <div class="hv-row" style="justify-content: space-between; margin-bottom: 4px"><span class="hv-label">factory-verify · 3f9a1c2 · clean tree</span><span class="hv-meta">producer: agent</span></div>
+          <div class="ck"><span class="hv-badge hv-badge--passed">✓</span><span class="hv-mono" style="color: var(--ink)">pnpm lint</span><span class="hv-meta">exit 0</span><span class="hv-meta">8s</span></div>
+          <div class="ck"><span class="hv-badge hv-badge--passed">✓</span><span class="hv-mono" style="color: var(--ink)">pnpm typecheck</span><span class="hv-meta">exit 0</span><span class="hv-meta">21s</span></div>
+          <div class="ck"><span class="hv-badge hv-badge--passed">✓</span><span class="hv-mono" style="color: var(--ink)">pnpm test</span><span class="hv-meta">exit 0</span><span class="hv-meta">1m 04s</span></div>
+          <div class="ck"><span class="hv-badge hv-badge--queued">…</span><span class="hv-mono" style="color: var(--ink)">maestro test e2e/invite-link.yaml</span><span class="hv-meta">not run yet</span><span class="hv-meta"></span></div>
+        </div>
+      </section>
+    </div>
+
+    <aside class="hv-side" aria-label="Run sidebar">
+      <section class="hv-panel" style="padding: 18px; gap: 12px">
+        <h2 class="hv-h2" style="font-size: 17px">Timeline</h2>
+        <ol class="hv-tl">
+          <li><span class="hv-sdot s-queued"></span><div class="h"><span>Queued</span><span class="hv-mono hv-meta">17:22</span></div><p>Assigned to Hive by Simon. Claimed by Mac mini 1.</p></li>
+          <li><span class="hv-sdot s-merged"></span><div class="h"><span>Triage</span><span class="hv-mono hv-meta">17:24</span></div><p>Bug. Acceptance: a cold-start tap on unibuz.com.au/t/:id opens that tribe on iOS and Android.</p></li>
+          <li><span class="hv-sdot s-merged"></span><div class="h"><span>Investigating</span><span class="hv-mono hv-meta">17:26</span></div><p>Reproduced on the iOS sim. AuthGate drops the link before the session restores.</p></li>
+          <li><span class="hv-sdot s-work"></span><div class="h"><span>Implementing</span><span class="hv-mono hv-meta">17:39</span></div><p>Failing Maestro flow committed first, then the fix. Android intent filter in a subagent.</p></li>
+          <li><span class="hv-sdot s-queued" style="opacity: .4"></span><div class="h" style="color: var(--muted)"><span>Verifying → PR · CI</span><span></span></div></li>
+        </ol>
+      </section>
+      <section class="hv-panel" style="padding: 18px; gap: 10px">
+        <div class="hv-row" style="justify-content: space-between"><h2 class="hv-h2">Lineage · 2 running</h2><span class="hv-meta">sstack dispatch</span></div>
+        <div class="hv-row" style="flex-wrap: nowrap"><span class="hm" style="margin: 0">CC</span><span style="flex: 1">Lead · sstack work</span><span class="hv-model">opus</span><span class="hv-meta">18m</span></div>
+        <div class="hv-row" style="flex-wrap: nowrap"><span class="hm" style="margin: 0">CC</span><span style="flex: 1; color: var(--muted)">investigate · done</span><span class="hv-model">sonnet</span><span class="hv-meta">4m</span></div>
+        <div class="hv-row" style="flex-wrap: nowrap"><span class="hm" style="margin: 0">PI</span><span style="flex: 1">implement · worktree</span><span class="hv-model">deepseek-v4.1</span><span class="hv-meta">6m</span></div>
+        <div class="hv-row" style="flex-wrap: nowrap"><span class="hm" style="margin: 0">CX</span><span style="flex: 1; color: var(--muted)">review panel · next</span><span class="hv-model">gpt-6.1-sol</span><span class="hv-meta">queued</span></div>
+        <div class="hv-row" style="justify-content: space-between"><span class="hv-meta">Simon’s 5-hour window</span><span class="hv-meta">62% used</span></div>
+        <div class="hv-meter"><span style="width: 62%"></span></div>
+      </section>
+      <section class="hv-panel" style="padding: 18px; gap: 10px">
+        <h2 class="hv-h2" style="font-size: 17px">Merge decision</h2>
+        <p class="hv-sub">Comes with the PR: the agent’s confidence, how it read the issue, and the assumptions it made.</p>
+        <div class="hv-row" style="justify-content: space-between"><span>unibuz-mobile merge mode</span><span class="hv-chip">Trial</span></div>
+        <p class="hv-hint">Trial: shows “Would merge” but always hands over to a person.</p>
+      </section>
+      <section class="hv-panel" style="padding: 18px; gap: 8px">
+        <h2 class="hv-h2" style="font-size: 17px">Audit</h2>
+        <span class="hv-meta">17:22 · claimed by mac-mini-1</span>
+        <span class="hv-meta">17:31 · Simon messaged the thread</span>
+        <span class="hv-meta">17:44 · device opened by agent</span>
+      </section>
+    </aside>
+  </div>
+</main>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { view: 'dev' }; }
+  renderVals() {
+    const v = this.state.view;
+    return {
+      isDev: v === 'dev', isLog: v === 'log',
+      devCls: v === 'dev' ? 'on' : '', logCls: v === 'log' ? 'on' : '',
+      showDev: () => this.setState({ view: 'dev' }),
+      showLog: () => this.setState({ view: 'log' }),
+      themeClass: (this.props.dark ?? true) ? 'hv dark' : 'hv'
+    };
+  }
+}
+</script>
+</body>
+</html>

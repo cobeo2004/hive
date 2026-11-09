@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hive: Inbox</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hive.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0}
+.it{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:16px;font-family:var(--font-sans);color:var(--ink);border:1.5px solid transparent}
+.it:hover{background:var(--surface-2)}
+.it:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.it.sel{background:var(--primary-soft);border-color:var(--primary)}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:14px;border:1.5px solid var(--border);cursor:pointer}
+.opt:has(input:checked){border-color:var(--primary);background:var(--primary-soft)}
+.opt input{margin-top:3px;accent-color:var(--primary)}
+.fl{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;padding:6px 0;border-top:1px solid var(--border)}
+</style>
+</helmet>
+<div class="{{themeClass}}">
+<div class="hv-app">
+<aside class="hv-sb" aria-label="Hive">
+  <div class="sb-head"><svg class="sb-hex" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="#cbfd80"></path></svg><b>Hive</b><span class="org">Unibuz</span></div>
+  <input class="sb-search" type="search" placeholder="Search" aria-label="Search jobs">
+  <nav class="sb-nav" aria-label="Main">
+    <a href="Main.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"></rect><rect x="10" y="4" width="5" height="11" rx="1.5"></rect><rect x="17" y="4" width="4" height="7" rx="1.5"></rect></svg>Jobs</a>
+    <a class="on" href="Inbox.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 13l3-8h12l3 8v6H3z"></path><path d="M3 13h5l1 3h6l1-3h5"></path></svg>Inbox<span class="n">3</span></a>
+    <a href="Repositories.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3z"></path></svg>Repositories</a>
+    <a href="Settings.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"></path></svg>Settings</a>
+  </nav>
+  <div class="sb-sec"><span>Working</span><span>4</span></div>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-m">MO</span>unibuz-mobile<span class="t">18m</span></span><span class="ti">Tribe invite deep link opens the wrong screen</span><span class="br"><span>hive/UNI-482</span><span class="hm">CC</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-a">AP</span>unibuz-api<span class="t">4m</span></span><span class="ti">Tribe search ignores Vietnamese diacritics</span><span class="br"><span>hive/UNI-486</span><span class="hm">CC</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-a">AP</span>unibuz-api<span class="t">31m</span></span><span class="ti">Rate-limit message sends per user</span><span class="br"><span>hive/UNI-480</span><span class="hm">CX</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-m">MO</span>unibuz-mobile<span class="t">52m</span></span><span class="ti">Profile photo upload fails over 5 MB</span><span class="br"><span>hive/UNI-479</span><span class="hm">CC</span></span></a>
+  <div class="sb-sec"><span>Waiting on you</span><span>3 ›</span></div>
+  <div class="sb-sec"><span>Settled</span><span>43 ›</span></div>
+  <div class="sb-foot"><span class="hv-avatar">SN</span><span style="color: var(--ink)">Simon</span><span style="margin-left: auto; display: flex; align-items: center; gap: 6px"><span class="sb-dot"></span>tailnet</span></div>
+</aside>
+<div class="hv-pane">
+<div class="hv-crumb"><span class="c">Unibuz</span><span class="sep">/</span><span class="cur">Inbox</span></div>
+
+<main class="hv-page" style="gap: 16px">
+  <div class="hv-row" style="justify-content: space-between; align-items: flex-end">
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <h1 class="hv-h1">Inbox</h1>
+      <p class="hv-sub">What’s waiting on you: your questions, PRs to review, failures. The same buttons arrive in Slack.</p>
+    </div>
+    <div class="hv-seg" role="group" aria-label="Show"><button class="on">Mine · 3</button><button>Everyone · 5</button></div>
+  </div>
+
+  <div class="hv-layout" style="align-items: flex-start">
+    <nav aria-label="Inbox items" style="flex: 1 1 340px; max-width: 420px; display: flex; flex-direction: column; gap: 4px">
+      <sc-for list="{{items}}" as="i" hint-placeholder-count="4">
+        <button class="{{i.cls}}" onClick="{{i.pick}}" aria-pressed="{{i.pressed}}">
+          <span class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><span class="{{i.badgeCls}}">{{i.kind}}</span><span class="hv-meta">{{i.at}}</span></span>
+          <span class="hv-card__title">{{i.title}}</span>
+          <span class="hv-meta" style="color: var(--ink-2)">{{i.id}} · {{i.repo}} · {{i.why}}</span>
+        </button>
+      </sc-for>
+    </nav>
+
+    <section class="hv-panel hv-main" aria-label="Item detail">
+      <div class="hv-row" style="justify-content: space-between">
+        <span class="hv-card__id">{{sel.id}} · {{sel.repo}}</span>
+        <div class="hv-row"><a class="hv-ext" href="#">Linear ↗</a><a class="hv-ext" href="RunDetail.dc.html">Run ↗</a></div>
+      </div>
+      <h2 class="hv-h2" style="font-size: 24px; line-height: 30px">{{sel.title}}</h2>
+
+      <sc-if value="{{isQ}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column; gap: 12px">
+          <div class="hv-well"><span class="hv-label">The agent asked · also posted on Linear</span><p style="margin-top: 6px">The issue says expired listings should “go away”, but sellers relist often. Which behaviour do you want?</p></div>
+          <label class="opt"><input type="radio" name="a" checked><span><b>Grey out with a Relist button</b><br><span class="hv-meta">Stays on the seller’s profile only. Buyers never see it.</span></span></label>
+          <label class="opt"><input type="radio" name="a"><span><b>Hide everywhere</b><br><span class="hv-meta">Seller relists from a new Expired filter in My listings.</span></span></label>
+          <label class="opt"><input type="radio" name="a"><span><b>Move to a Past tab</b><br><span class="hv-meta">Visible to everyone, marked expired.</span></span></label>
+          <div class="hv-field"><label for="note">Add a note (optional)</label><input id="note" class="hv-input" placeholder="Anything else the agent should know"></div>
+          <div class="hv-row"><button class="hv-btn hv-btn--primary">Answer and resume</button><button class="hv-btn hv-btn--ghost">Close job</button></div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isPR}}" hint-placeholder-val="{{true}}">
+        <div style="display: flex; flex-direction: column; gap: 16px">
+          <div class="hv-row"><span class="hv-badge hv-badge--ready">{{sel.pr}}</span><span class="hv-badge hv-badge--passed">Checks green at head</span><span class="hv-badge hv-badge--passed">No conflicts</span><span class="hv-badge hv-badge--passed">Bugbot · 0 open</span></div>
+          <div class="hv-well" style="display: flex; flex-direction: column; gap: 6px">
+            <span class="hv-label">Why it’s here</span>
+            <p>{{sel.reason}}</p>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px">
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <span class="hv-label">Agent’s reading</span>
+              <p class="hv-sub">Prices are stored as integer cents but formatted with maximumFractionDigits 0. Show cents everywhere a price renders; keep whole-dollar input allowed.</p>
+              <span class="hv-label" style="margin-top: 6px">Assumptions it made</span>
+              <ul style="margin: 0; padding-left: 18px; color: var(--ink-2); display: flex; flex-direction: column; gap: 4px">
+                <li>AUD only. No currency switcher.</li>
+                <li>$5 shows as “$5.00”, not “$5”.</li>
+              </ul>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <span class="hv-label">Changed files · +38 −11</span>
+              <div>
+                <div class="fl" style="border-top: 0"><a class="hv-mono" href="#">web/lib/format-price.ts</a><span class="hv-mono" style="color: var(--success)">+12</span><span class="hv-mono" style="color: var(--danger)">−4</span></div>
+                <div class="fl"><a class="hv-mono" href="#">web/components/ListingCard.tsx</a><span class="hv-mono" style="color: var(--success)">+3</span><span class="hv-mono" style="color: var(--danger)">−3</span></div>
+                <div class="fl"><a class="hv-mono" href="#">web/lib/format-price.test.ts</a><span class="hv-mono" style="color: var(--success)">+23</span><span class="hv-mono" style="color: var(--danger)">−4</span></div>
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <span class="hv-label">Evidence</span>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px">
+              <div class="hv-vid" style="aspect-ratio: 16 / 10"><span class="tag hv-badge hv-badge--failed">Before</span><span class="dev">Web · Chromium</span></div>
+              <div class="hv-vid" style="aspect-ratio: 16 / 10"><span class="tag hv-badge hv-badge--passed">After</span><span class="dev">Web · Chromium</span></div>
+              <div class="hv-vid" style="aspect-ratio: 16 / 10"><svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#cbfd80"></circle><path d="M10 8l6 4-6 4z" fill="#3224f2"></path></svg><span class="dev">Checkout flow</span><span class="len">0:34</span></div>
+            </div>
+          </div>
+          <div class="hv-row"><button class="hv-btn hv-btn--lime">Approve and merge</button><button class="hv-btn hv-btn--secondary">Request changes</button><button class="hv-btn hv-btn--ghost">Close</button></div>
+          <p class="hv-hint">Merging pins to head 7d21e0a. It only stops for facts: a red or running check, or a conflict.</p>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isF}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column; gap: 12px">
+          <div class="hv-well" style="background: var(--danger-soft)"><span class="hv-label" style="color: var(--danger)">Why it failed</span><p style="margin-top: 6px; color: var(--ink)">Watchdog: no progress in Verifying for 30 minutes after a nudge. The Android 15 emulator never finished booting on Mac mini 2.</p></div>
+          <div class="hv-field"><label for="retry">Note for the next attempt (optional)</label><input id="retry" class="hv-input" value="Use the Pixel 9 API 35 image; the API 36 one is broken on mini 2."></div>
+          <div class="hv-row"><button class="hv-btn hv-btn--primary">Retry as attempt 2</button><button class="hv-btn hv-btn--ghost">Dismiss</button></div>
+          <p class="hv-hint">The worktree is kept for 3 days so you can see what it did.</p>
+        </div>
+      </sc-if>
+    </section>
+  </div>
+</main>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":1040}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { picked: 'UNI-477' }; }
+  renderVals() {
+    const raw = [
+      { id: 'UNI-476', type: 'q', kind: 'Question', badge: 'input', at: '13:40', title: 'Expired Unibazaar listings: hide or grey out?', repo: 'unibuz-web', why: 'you filed it' },
+      { id: 'UNI-477', type: 'pr', kind: 'Would merge', badge: 'ready', at: '12:05', title: 'Unibazaar price rounds to whole dollars', repo: 'unibuz-web', why: 'you’re reviewer', pr: 'PR #1309', reason: 'The agent is confident and every hard limit is clear. unibuz-web is on Trial, so the factory says it would merge and hands it to you.' },
+      { id: 'UNI-474', type: 'pr', kind: 'Handover', badge: 'testing', at: '11:20', title: 'Dark mode contrast on chat bubbles', repo: 'unibuz-mobile', why: 'CODEOWNER', pr: 'PR #1306', reason: 'Not confident: it changed two shared colour tokens that other screens use. It wants a person to check the side effects.' },
+      { id: 'UNI-468', type: 'f', kind: 'Failed', badge: 'failed', at: '09:31', title: 'Push notification deep links on Android 15', repo: 'unibuz-mobile', why: 'you’re assignee' }
+    ];
+    const picked = this.state.picked;
+    const items = raw.map((r) => ({ ...r, badgeCls: 'hv-badge hv-badge--' + r.badge, cls: r.id === picked ? 'it sel' : 'it', pressed: r.id === picked ? 'true' : 'false', pick: () => this.setState({ picked: r.id }) }));
+    const sel = items.find((i) => i.id === picked) || items[1];
+    return { items, sel: { ...sel, pr: sel.pr || '', reason: sel.reason || '' }, isQ: sel.type === 'q', isPR: sel.type === 'pr', isF: sel.type === 'f', themeClass: (this.props.dark ?? true) ? 'hv dark' : 'hv' };
+  }
+}
+</script>
+</body>
+</html>

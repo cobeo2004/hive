@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hive: Repositories</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hive.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0}
+.rp{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;padding:14px;border-radius:16px;font-family:var(--font-sans);color:var(--ink);border:1.5px solid transparent}
+.rp:hover{background:var(--surface-2)}
+.rp:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.rp.sel{background:var(--primary-soft);border-color:var(--primary)}
+.hv-y .k{color:#a29bff}.hv-y .s{color:#cbfd80}.hv-y .c{color:#8f8cab}
+.surf{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:14px;border:1px solid var(--border)}
+</style>
+</helmet>
+<div class="{{themeClass}}">
+<div class="hv-app">
+<aside class="hv-sb" aria-label="Hive">
+  <div class="sb-head"><svg class="sb-hex" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="#cbfd80"></path></svg><b>Hive</b><span class="org">Unibuz</span></div>
+  <input class="sb-search" type="search" placeholder="Search" aria-label="Search jobs">
+  <nav class="sb-nav" aria-label="Main">
+    <a href="Main.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"></rect><rect x="10" y="4" width="5" height="11" rx="1.5"></rect><rect x="17" y="4" width="4" height="7" rx="1.5"></rect></svg>Jobs</a>
+    <a href="Inbox.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 13l3-8h12l3 8v6H3z"></path><path d="M3 13h5l1 3h6l1-3h5"></path></svg>Inbox<span class="n">3</span></a>
+    <a class="on" href="Repositories.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3z"></path></svg>Repositories</a>
+    <a href="Settings.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"></path></svg>Settings</a>
+  </nav>
+  <div class="sb-sec"><span>Working</span><span>4</span></div>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-m">MO</span>unibuz-mobile<span class="t">18m</span></span><span class="ti">Tribe invite deep link opens the wrong screen</span><span class="br"><span>hive/UNI-482</span><span class="hm">CC</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-a">AP</span>unibuz-api<span class="t">4m</span></span><span class="ti">Tribe search ignores Vietnamese diacritics</span><span class="br"><span>hive/UNI-486</span><span class="hm">CC</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-a">AP</span>unibuz-api<span class="t">31m</span></span><span class="ti">Rate-limit message sends per user</span><span class="br"><span>hive/UNI-480</span><span class="hm">CX</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-m">MO</span>unibuz-mobile<span class="t">52m</span></span><span class="ti">Profile photo upload fails over 5 MB</span><span class="br"><span>hive/UNI-479</span><span class="hm">CC</span></span></a>
+  <div class="sb-sec"><span>Waiting on you</span><span>3 ›</span></div>
+  <div class="sb-sec"><span>Settled</span><span>43 ›</span></div>
+  <div class="sb-foot"><span class="hv-avatar">SN</span><span style="color: var(--ink)">Simon</span><span style="margin-left: auto; display: flex; align-items: center; gap: 6px"><span class="sb-dot"></span>tailnet</span></div>
+</aside>
+<div class="hv-pane">
+<div class="hv-crumb"><span class="c">Repositories</span><span class="sep">/</span><span class="cur">unibuz-mobile</span></div>
+
+<main class="hv-page" style="gap: 16px">
+  <div class="hv-row" style="justify-content: space-between; align-items: flex-end">
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <h1 class="hv-h1">Repositories</h1>
+      <p class="hv-sub">Hive onboards each repo by itself: an agent writes the setup recipe, opens a PR with it, and a warm sandbox image is built.</p>
+    </div>
+    <button class="hv-btn hv-btn--primary">Add repository</button>
+  </div>
+
+  <div class="hv-layout" style="align-items: flex-start">
+    <nav aria-label="Repositories" style="flex: 1 1 300px; max-width: 360px; display: flex; flex-direction: column; gap: 4px">
+      <sc-for list="{{repos}}" as="r" hint-placeholder-count="4">
+        <button class="{{r.cls}}" onClick="{{r.pick}}" aria-pressed="{{r.pressed}}">
+          <span class="hv-card__title hv-mono" style="font-size: 13px">{{r.name}}</span>
+          <span class="{{r.badgeCls}}">{{r.state}}</span>
+          <span class="hv-meta" style="grid-column: 1 / -1; color: var(--ink-2)">{{r.meta}}</span>
+        </button>
+      </sc-for>
+    </nav>
+
+    <section class="hv-main" style="gap: 16px" aria-label="Repository detail">
+      <div class="hv-panel" style="gap: 14px">
+        <div class="hv-row" style="justify-content: space-between">
+          <div><h2 class="hv-h2" style="font-size: 24px; line-height: 30px">unibuz-mobile</h2><span class="hv-meta">unibuz/unibuz-mobile · default branch main · Linear label <span class="hv-mono">Repository › unibuz-mobile</span></span></div>
+          <span class="hv-badge hv-badge--passed">Ready</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+          <div class="hv-field"><span class="lbl">Merging</span>
+            <div class="hv-seg" role="group" aria-label="Merging"><button>Off</button><button class="on">Trial</button><button>When confident</button></div>
+            <span class="hv-hint">Trial shows “Would merge” but always hands over.</span>
+          </div>
+          <div class="hv-field"><span class="lbl">Workflow</span><a class="hv-btn hv-btn--secondary" href="Workflow.dc.html" style="justify-content: space-between">implement: pi · review: panel<span aria-hidden="true">→</span></a><span class="hv-hint">sstack roles in <span class="hv-mono">.sstack/roles/</span>.</span></div>
+          <div class="hv-field"><label for="p">Runs on</label><select id="p" class="hv-input"><option>Mac pool (needs simulators)</option><option>Modal sandbox</option></select></div>
+        </div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="bb">Require Bugbot review before merging</label><input id="bb" class="hv-switch" type="checkbox" checked></div>
+      </div>
+
+      <div class="hv-panel" style="gap: 12px">
+        <div class="hv-row" style="justify-content: space-between"><h2 class="hv-h2" style="font-size: 17px">Test surfaces</h2><span class="hv-meta">agents use these in Investigating and Verifying</span></div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px">
+          <label class="surf"><input class="hv-switch" type="checkbox" checked><span><b>iOS Simulator</b><br><span class="hv-meta">T3 devices · iPhone 16 Pro, iOS 19.1</span></span></label>
+          <label class="surf"><input class="hv-switch" type="checkbox" checked><span><b>Android Emulator</b><br><span class="hv-meta">T3 devices · Pixel 9, API 35</span></span></label>
+          <label class="surf"><input class="hv-switch" type="checkbox"><span><b>Web · Playwright</b><br><span class="hv-meta">Expo web on localhost</span></span></label>
+        </div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="rec">Record before and after videos of every flow in the acceptance check</label><input id="rec" class="hv-switch" type="checkbox" checked></div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="seed">Sign in with seeded test accounts only</label><input id="seed" class="hv-switch" type="checkbox" checked></div>
+      </div>
+
+      <div class="hv-layout" style="gap: 16px">
+        <div class="hv-panel hv-main" style="gap: 10px; flex-basis: 420px">
+          <div class="hv-row" style="justify-content: space-between"><h2 class="hv-h2">Project setup</h2><a class="hv-ext" href="#">PR #1288 · merged ↗</a></div>
+          <p class="hv-hint">Written by sstack <span class="hv-mono">setup</span> during onboarding. <span class="hv-mono">factory-verify</span> runs the <span class="hv-mono">verify</span> list at the pushed commit. Runtimes, install and secret names stay in <span class="hv-mono">.factory/setup.json</span>.</p>
+          <pre class="hv-log hv-y" style="margin: 0; white-space: pre"><span class="c"># .sstack/project.toml</span>
+<span class="k">brief</span>  = <span class="s">".sstack/product.md"</span>
+<span class="k">verify</span> = [<span class="s">"pnpm lint"</span>, <span class="s">"pnpm typecheck"</span>, <span class="s">"pnpm test"</span>]
+<span class="k">graph</span>  = true
+<span class="k">check</span>  = <span class="s">"pnpm eslint {path}"</span>
+
+[<span class="k">test.code</span>]
+framework = <span class="s">"jest, *.test.ts next to the module"</span>
+run       = <span class="s">"pnpm jest {path}"</span>
+
+[<span class="k">test.mobile</span>]
+framework = <span class="s">"maestro, .maestro/*.yaml"</span>
+build     = <span class="s">"npx expo run:ios"</span>
+run       = <span class="s">"maestro test {path}"</span>
+
+[<span class="k">practices</span>]
+<span class="s">"src/screens/*"</span> = [<span class="s">"react-native-way"</span>]</pre>
+        </div>
+        <div class="hv-side" style="flex-basis: 300px">
+          <div class="hv-panel" style="gap: 10px; padding: 18px">
+            <h2 class="hv-h2" style="font-size: 17px">Secrets</h2>
+            <div class="hv-row" style="justify-content: space-between"><span class="hv-mono" style="color: var(--ink)">EXPO_PUBLIC_API_URL</span><span class="hv-badge hv-badge--passed">Set</span></div>
+            <div class="hv-row" style="justify-content: space-between"><span class="hv-mono" style="color: var(--ink)">SEED_USER_PASSWORD</span><span class="hv-badge hv-badge--passed">Set</span></div>
+            <p class="hv-hint">Values go straight to the runner’s secret store. Hive only keeps the names.</p>
+          </div>
+          <div class="hv-panel" style="gap: 8px; padding: 18px">
+            <h2 class="hv-h2" style="font-size: 17px">Warm image</h2>
+            <span class="hv-meta">Built 2 days ago at 4be19a0 · 3 m 12 s</span>
+            <span class="hv-meta">Rebuilds when the recipe or lockfile changes on main</span>
+            <button class="hv-btn hv-btn--secondary hv-btn--sm" style="align-self: flex-start">Rebuild image</button>
+          </div>
+          <div class="hv-panel" style="gap: 8px; padding: 18px">
+            <h2 class="hv-h2" style="font-size: 17px">Repo notes for agents</h2>
+            <span class="hv-meta"><span class="hv-mono">.sstack/playbooks/factory.md</span> adds repo-only notes on top of the Hive playbook. Accepted sstack lessons live in AGENTS.md under “Things agents get wrong”.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { picked: 'unibuz-mobile' }; }
+  renderVals() {
+    const raw = [
+      { name: 'unibuz-mobile', state: 'Ready', badge: 'passed', meta: 'Mac pool · 4 open jobs · Trial' },
+      { name: 'unibuz-web', state: 'Ready', badge: 'passed', meta: 'Modal · 3 open jobs · Trial' },
+      { name: 'unibuz-api', state: 'Rebuilding', badge: 'active', meta: 'Modal · 2 open jobs · When confident' },
+      { name: 'unibuz-admin', state: 'Needs input', badge: 'input', meta: 'Recipe PR open · 1 secret missing' }
+    ];
+    const picked = this.state.picked;
+    const repos = raw.map((r) => ({ ...r, badgeCls: 'hv-badge hv-badge--' + r.badge, cls: r.name === picked ? 'rp sel' : 'rp', pressed: r.name === picked ? 'true' : 'false', pick: () => this.setState({ picked: r.name }) }));
+    return { repos, themeClass: (this.props.dark ?? true) ? 'hv dark' : 'hv' };
+  }
+}
+</script>
+</body>
+</html>

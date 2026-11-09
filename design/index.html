@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hive design</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+  :root { --bg:#fcfcfd; --card:#ffffff; --ink:#18181b; --muted:#6b6b74; --border:#e4e4e7; --accent:#3224f2; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#09090b; --card:#0d0d0e; --ink:#f5f5f5; --muted:#9a9aa2; --border:rgba(255,255,255,.09); --accent:#a7a0ff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/21px "Inter", system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+  main { max-width:1200px; margin:0 auto; padding:48px 24px 64px; display:flex; flex-direction:column; gap:36px; }
+  h1 { margin:0; font-size:24px; line-height:30px; font-weight:600; letter-spacing:-.015em; }
+  h2 { margin:0 0 12px; font-size:15px; font-weight:600; }
+  p { margin:6px 0 0; color:var(--muted); max-width:65ch; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:16px; }
+  a.card { display:flex; flex-direction:column; gap:10px; padding:10px; border:1px solid var(--border); border-radius:14px; background:var(--card); color:inherit; text-decoration:none; }
+  a.card:hover { border-color:var(--muted); }
+  a.card:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  a.card img { width:100%; aspect-ratio:16/10; object-fit:cover; object-position:top; border-radius:8px; border:1px solid var(--border); background:#0b0b0c; }
+  a.card span { padding:0 4px 4px; font-weight:500; }
+  a.card small { display:block; color:var(--muted); font-weight:400; }
+  code { font:12.5px "JetBrains Mono", ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Hive design</h1>
+    <p>Each card opens the live screen. Clicks work. Add <code>?dark=false</code> for light mode; the sign-in screen also takes <code>?state=wrong-domain</code> or <code>?state=no-access</code>, and setup takes <code>?role=engineer</code>. Full-page renders of every screen in both themes are in <code>png/</code>.</p>
+  </header>
+
+  <section>
+    <h2>Sign in and first run</h2>
+    <div class="grid">
+      <a class="card" href="screens/Login.dc.html"><img src="png/01-sign-in-dark.png" alt="Sign in screen"><span>Sign in<small>Tailscale identity, three states</small></span></a>
+      <a class="card" href="screens/Onboarding.dc.html"><img src="png/02b-setup-agents-dark.png" alt="First-run setup, agents step"><span>First-run setup<small>Account, agents, Linear, done</small></span></a>
+    </div>
+  </section>
+
+  <section>
+    <h2>Work the issues</h2>
+    <div class="grid">
+      <a class="card" href="screens/Main.dc.html"><img src="png/03-jobs-dark.png" alt="Jobs board"><span>Jobs<small>Board by stage, run side panel</small></span></a>
+      <a class="card" href="screens/RunDetail.dc.html"><img src="png/04-run-detail-dark.png" alt="Run detail"><span>Run detail<small>Live device, evidence, lineage</small></span></a>
+      <a class="card" href="screens/Inbox.dc.html"><img src="png/05-inbox-dark.png" alt="Inbox"><span>Inbox<small>Questions, PRs, failures</small></span></a>
+    </div>
+  </section>
+
+  <section>
+    <h2>Set it up</h2>
+    <div class="grid">
+      <a class="card" href="screens/Repositories.dc.html"><img src="png/06-repositories-dark.png" alt="Repositories"><span>Repositories<small>Merge mode, test surfaces, setup</small></span></a>
+      <a class="card" href="screens/Workflow.dc.html"><img src="png/07-workflow-dark.png" alt="Workflow"><span>Workflow<small>sstack roles and gates</small></span></a>
+      <a class="card" href="screens/Settings.dc.html"><img src="png/08-settings-dark.png" alt="Settings"><span>Settings<small>Linear, GitHub, accounts, access, machines</small></span></a>
+    </div>
+  </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hive: Workflow</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hive.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0}
+.ph{display:flex;flex-direction:column;gap:8px;min-width:0;padding:12px;border-radius:12px;background:var(--card);border:1px solid var(--border)}
+.ph .n{font-size:13.5px;font-weight:600;color:var(--ink)}
+.rl{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:8px;font:500 12.5px/1.2 var(--font-sans);color:var(--ink-2);border:1px solid transparent}
+.rl:hover{background:var(--row-hover)}
+.rl:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.rl.on{background:var(--primary-soft);color:var(--ink);border-color:var(--primary)}
+.rl .m{margin-left:auto;font:400 11px/1 var(--font-mono);color:var(--muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hs{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:5px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);font-family:var(--font-sans);color:var(--ink);background:var(--card)}
+.hs:hover{border-color:var(--border-strong)}
+.hs:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.hs.on{border-color:var(--primary);background:var(--primary-soft)}
+.gate{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:center;padding:12px 0;border-top:1px solid var(--border)}
+.gate:first-of-type{border-top:0}
+.toml{margin:0;white-space:pre;min-height:300px}
+.tabs{display:flex;gap:2px;flex-wrap:wrap}
+</style>
+</helmet>
+<div class="{{themeClass}}">
+<div class="hv-app">
+<aside class="hv-sb" aria-label="Hive">
+  <div class="sb-head"><svg class="sb-hex" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="#cbfd80"></path></svg><b>Hive</b><span class="org">Unibuz</span></div>
+  <input class="sb-search" type="search" placeholder="Search" aria-label="Search jobs">
+  <nav class="sb-nav" aria-label="Main">
+    <a href="Main.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"></rect><rect x="10" y="4" width="5" height="11" rx="1.5"></rect><rect x="17" y="4" width="4" height="7" rx="1.5"></rect></svg>Jobs</a>
+    <a href="Inbox.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 13l3-8h12l3 8v6H3z"></path><path d="M3 13h5l1 3h6l1-3h5"></path></svg>Inbox<span class="n">3</span></a>
+    <a class="on" href="Repositories.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3z"></path></svg>Repositories</a>
+    <a href="Settings.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"></path></svg>Settings</a>
+  </nav>
+  <div class="sb-sec"><span>Working</span><span>4</span></div>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-m">MO</span>unibuz-mobile<span class="t">18m</span></span><span class="ti">Tribe invite deep link opens the wrong screen</span><span class="br"><span>hive/UNI-482</span><span class="hm">CC</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-a">AP</span>unibuz-api<span class="t">4m</span></span><span class="ti">Tribe search ignores Vietnamese diacritics</span><span class="br"><span>hive/UNI-486</span><span class="hm">CC</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-a">AP</span>unibuz-api<span class="t">31m</span></span><span class="ti">Rate-limit message sends per user</span><span class="br"><span>hive/UNI-480</span><span class="hm">CX</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-m">MO</span>unibuz-mobile<span class="t">52m</span></span><span class="ti">Profile photo upload fails over 5 MB</span><span class="br"><span>hive/UNI-479</span><span class="hm">CC</span></span></a>
+  <div class="sb-sec"><span>Waiting on you</span><span>3 ›</span></div>
+  <div class="sb-sec"><span>Settled</span><span>43 ›</span></div>
+  <div class="sb-foot"><span class="hv-avatar">SN</span><span style="color: var(--ink)">Simon</span><span style="margin-left: auto; display: flex; align-items: center; gap: 6px"><span class="sb-dot"></span>tailnet</span></div>
+</aside>
+<div class="hv-pane">
+<div class="hv-crumb"><a class="c" href="Repositories.dc.html">Repositories</a><span class="sep">/</span><span class="c">unibuz-mobile</span><span class="sep">/</span><span class="cur">Workflow</span></div>
+
+<main class="hv-page" style="gap: 18px">
+  <div class="hv-row" style="justify-content: space-between; align-items: flex-end; gap: 16px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <h1 class="hv-h1">Workflow</h1>
+      <p class="hv-sub">sstack <span class="hv-mono">work</span> runs every job. Pick which harness and model each role gets dispatched to.</p>
+    </div>
+    <div class="hv-row">
+      <div class="hv-seg" role="group" aria-label="Config layer">
+        <button class="{{layerRepo}}" onClick="{{toRepo}}">This repo · .sstack/</button>
+        <button class="{{layerOrg}}" onClick="{{toOrg}}">Hive default · ~/.sstack</button>
+      </div>
+      <button class="hv-btn hv-btn--secondary">Smoke test</button>
+      <button class="hv-btn hv-btn--primary">Save as PR</button>
+    </div>
+  </div>
+
+  <section aria-label="Phases" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px">
+    <sc-for list="{{phases}}" as="p" hint-placeholder-count="5">
+      <div class="ph">
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><span class="hv-label">{{p.num}}</span><span class="{{p.gateCls}}">{{p.gate}}</span></div>
+        <span class="n">{{p.name}}</span>
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <sc-for list="{{p.roles}}" as="r" hint-placeholder-count="1">
+            <button class="{{r.cls}}" onClick="{{r.pick}}" aria-pressed="{{r.pressed}}"><span class="hm" style="margin: 0">{{r.mark}}</span>{{r.id}}<span class="m">{{r.model}}</span></button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </section>
+
+  <div class="hv-layout">
+    <section class="hv-panel hv-main" aria-label="Role settings" style="gap: 18px">
+      <div class="hv-row" style="justify-content: space-between">
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <span class="hv-label hv-mono">{{sel.file}}</span>
+          <h2 class="hv-h1" style="font-size: 19px; line-height: 24px">Role: {{sel.id}}</h2>
+          <p class="hv-sub">{{sel.desc}}</p>
+        </div>
+        <span class="{{sel.modeCls}}">{{sel.mode}}</span>
+      </div>
+
+      <sc-if value="{{sel.isLead}}" hint-placeholder-val="{{false}}">
+        <div class="hv-well" style="display: flex; flex-direction: column; gap: 6px">
+          <span style="color: var(--ink); font-weight: 500">The lead is the job’s T3 thread.</span>
+          <span class="hv-meta" style="color: var(--ink-2)">It runs the sstack router and <span class="hv-mono">work</span>, reports stages to Hive, opens the PR and babysits it. It must be Claude Code or Codex, because those report stages and cost back to Hive.</span>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{sel.isPanel}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column; gap: 12px">
+          <div class="hv-field">
+            <span class="lbl">Mode</span>
+            <div class="hv-seg" role="group" aria-label="Review mode">
+              <button class="{{rv.auto}}" onClick="{{rv.setAuto}}">auto</button>
+              <button class="{{rv.single}}" onClick="{{rv.setSingle}}">single</button>
+              <button class="{{rv.panel}}" onClick="{{rv.setPanel}}">panel</button>
+            </div>
+            <span class="hv-hint">auto: one reviewer, the full panel for security or complex work or a diff over 400 lines.</span>
+          </div>
+          <div class="hv-field">
+            <span class="lbl">Panel</span>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <div class="hv-row" style="flex-wrap: nowrap; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px"><span class="hm" style="margin: 0">CX</span><span style="flex: 1">codex</span><span class="hv-model">gpt-6.1-sol</span><span class="hv-chip">effort high</span></div>
+              <div class="hv-row" style="flex-wrap: nowrap; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px"><span class="hm" style="margin: 0">CC</span><span style="flex: 1">claude</span><span class="hv-model">opus</span><span class="hv-chip">default effort</span></div>
+            </div>
+            <button class="hv-btn hv-btn--ghost hv-btn--sm" style="justify-self: start">+ Add reviewer</button>
+          </div>
+          <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="rni">Drop a reviewer that matches the implementer</label><input id="rni" class="hv-switch" type="checkbox" checked></div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{sel.isRouted}}" hint-placeholder-val="{{true}}">
+        <div style="display: flex; flex-direction: column; gap: 16px">
+          <div class="hv-field">
+            <span class="lbl">Harness · T3 provider on the runners</span>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px">
+              <sc-for list="{{harnessOpts}}" as="h" hint-placeholder-count="4">
+                <button class="{{h.cls}}" onClick="{{h.pick}}" aria-pressed="{{h.pressed}}">
+                  <span class="hv-row" style="flex-wrap: nowrap; gap: 6px"><span class="hm" style="margin: 0">{{h.mark}}</span><b style="font-weight: 600">{{h.id}}</b></span>
+                  <span class="hv-meta hv-mono">{{h.provider}}</span>
+                  <span class="{{h.trackCls}}" style="align-self: flex-start">{{h.track}}</span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px">
+            <div class="hv-field"><label for="model">Model</label><select id="model" class="hv-input"><option>{{sel.model}}</option><option>{{sel.alt}}</option></select></div>
+            <div class="hv-field"><label for="eff">Effort</label><select id="eff" class="hv-input"><option>{{sel.effort}}</option><option>medium</option><option>low</option></select></div>
+            <div class="hv-field"><label for="sk">Skills every child must use</label><input id="sk" class="hv-input" placeholder="none" value="{{sel.skills}}"></div>
+          </div>
+          <sc-if value="{{sel.isImpl}}" hint-placeholder-val="{{false}}">
+            <div class="hv-field">
+              <span class="lbl">Hints · checked before the built-in kinds</span>
+              <div class="hv-row" style="flex-wrap: nowrap; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px">
+                <span class="hv-mono" style="color: var(--ink)">[hint.ui]</span>
+                <span class="hv-meta" style="flex: 1">paths <span class="hv-mono">src/screens/*, src/components/*</span></span>
+                <span class="hm" style="margin: 0">CC</span><span class="hv-model">opus</span>
+              </div>
+              <button class="hv-btn hv-btn--ghost hv-btn--sm" style="justify-self: start">+ Add hint</button>
+            </div>
+          </sc-if>
+          <p class="hv-hint">{{sel.ro}}</p>
+        </div>
+      </sc-if>
+    </section>
+
+    <section class="hv-side" aria-label="Gates and file preview" style="flex-basis: 380px">
+      <div class="hv-panel" style="padding: 16px 18px; gap: 4px">
+        <div class="hv-row" style="justify-content: space-between; margin-bottom: 4px"><h2 class="hv-h2">Gates in unattended runs</h2><span class="hv-chip">new in sstack</span></div>
+        <div class="gate"><span>Gate 0 · recon report</span><span class="hv-badge hv-badge--passed">Auto</span><span class="hv-meta" style="grid-column: 1 / -1">No falsifiable done → asks on Linear instead of running grill.</span></div>
+        <div class="gate"><span>Gate 1 · plan</span>
+          <div class="hv-seg" role="group" aria-label="Plan gate"><button class="{{g.auto}}" onClick="{{g.setAuto}}">Auto</button><button class="{{g.inbox}}" onClick="{{g.setInbox}}">Wait in Inbox</button></div>
+          <span class="hv-meta" style="grid-column: 1 / -1">{{g.note}}</span></div>
+        <div class="gate"><span>Gate 3 · tests + review</span><span class="hv-badge hv-badge--passed">Auto</span><span class="hv-meta" style="grid-column: 1 / -1">Passes when every check is green and no Important finding is open.</span></div>
+        <div class="gate"><span>Gate 4 · commit, push, PR</span><span class="hv-badge hv-badge--passed">Auto</span><span class="hv-meta" style="grid-column: 1 / -1">Always opens the PR. Merging follows the repo’s merge mode.</span></div>
+      </div>
+      <div class="hv-row" style="justify-content: space-between"><span class="hv-label hv-mono">{{previewName}}</span><button class="hv-btn hv-btn--ghost hv-btn--sm">Edit as text</button></div>
+      <pre class="hv-log toml">{{toml}}</pre>
+    </section>
+  </div>
+</main>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":1240}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      picked: 'implement', layer: 'repo', planGate: 'auto', reviewMode: 'auto',
+      cfg: {
+        scout: { harness: 'claude', model: 'haiku', effort: 'medium' },
+        investigate: { harness: 'claude', model: 'sonnet', effort: 'medium' },
+        plan: { harness: 'claude', model: 'opus', effort: 'high' },
+        implement: { harness: 'pi', model: 'opencode-go/deepseek-v4.1-flash', effort: 'high' }
+      }
+    };
+  }
+  renderVals() {
+    const H = {
+      claude: { mark: 'CC', provider: 'claudeAgent', models: ['opus', 'sonnet', 'haiku'], track: 'Stages + cost', tc: 'hv-badge hv-badge--passed' },
+      codex: { mark: 'CX', provider: 'codex', models: ['gpt-6.1-sol', 'gpt-5-codex'], track: 'Cost from logs', tc: 'hv-badge hv-badge--active' },
+      cursor: { mark: 'CU', provider: 'cursor', models: ['auto', 'composer-2'], track: 'Run record only', tc: 'hv-badge hv-badge--queued' },
+      pi: { mark: 'PI', provider: 'pi', models: ['opencode-go/deepseek-v4.1-flash', 'opencode-go/kimi-k2'], track: 'Run record only', tc: 'hv-badge hv-badge--queued' }
+    };
+    const s = this.state, cfg = s.cfg, picked = s.picked;
+    const info = {
+      lead: { desc: 'The job’s own thread. Not a dispatch role.', mode: 'Claude Code · opus', ro: '' },
+      scout: { desc: 'Fans out over many independent sources during recon (swarm).', ro: 'Read-only: runs in T3 plan mode. Hive flags it if the tree changes.' },
+      investigate: { desc: 'Answers the recon questions: system state, cause, pattern.', ro: 'Read-only: runs in T3 plan mode. Hive flags it if the tree changes.' },
+      plan: { desc: 'Drafts plan.md and the answer key. The gate stays with the lead.', ro: 'Read-only: runs in T3 plan mode.' },
+      implement: { desc: 'Writes each plan step in its own worktree. No commits, no PR.', ro: 'Writes in a separate T3 worktree; the lead pulls the diff back before tests.' },
+      review: { desc: 'Reviews the diff against the plan. Findings are Important or Nit; only Important blocks Gate 3.', mode: 'Panel' }
+    };
+    const markOf = (id) => id === 'lead' ? 'CC' : id === 'review' ? 'CX' : H[cfg[id].harness].mark;
+    const modelOf = (id) => id === 'lead' ? 'opus' : id === 'review' ? s.reviewMode : cfg[id].model.replace('opencode-go/', '');
+    const role = (id) => ({ id, mark: markOf(id), model: modelOf(id), cls: id === picked ? 'rl on' : 'rl', pressed: id === picked ? 'true' : 'false', pick: () => this.setState({ picked: id }) });
+    const planAuto = s.planGate === 'auto';
+    const phases = [
+      { num: 'Phase 0', name: 'Recon', gate: 'Auto', ok: true, roles: ['investigate', 'scout'] },
+      { num: 'Phase 1', name: 'Plan', gate: planAuto ? 'Auto' : 'Inbox', ok: planAuto, roles: ['plan'] },
+      { num: 'Phase 2', name: 'Implement', gate: 'No gate', ok: true, none: true, roles: ['implement'] },
+      { num: 'Phase 3', name: 'Test · review', gate: 'Auto', ok: true, roles: ['review'] },
+      { num: 'Phase 4', name: 'PR · babysit', gate: 'Auto', ok: true, roles: ['lead'] }
+    ].map((p) => ({ ...p, gateCls: p.none ? 'hv-badge hv-badge--queued' : (p.ok ? 'hv-badge hv-badge--passed' : 'hv-badge hv-badge--input'), roles: p.roles.map(role) }));
+
+    const routed = picked !== 'lead' && picked !== 'review';
+    const c = routed ? cfg[picked] : null;
+    const hh = c ? H[c.harness] : null;
+    const alt = c ? (hh.models.find((m) => m !== c.model) || hh.models[0]) : '';
+    const dir = s.layer === 'repo' ? '.sstack/' : '~/.sstack/';
+    const sel = {
+      id: picked, desc: info[picked].desc, ro: info[picked].ro || '',
+      file: picked === 'lead' ? 'T3 thread · set in Hive Settings' : dir + 'roles/' + picked + '.toml',
+      isLead: picked === 'lead', isPanel: picked === 'review', isRouted: routed, isImpl: picked === 'implement',
+      mode: routed ? 'Dispatched' : info[picked].mode, modeCls: routed ? 'hv-chip' : 'hv-chip',
+      model: c ? c.model : '', alt, effort: c ? c.effort : '', skills: picked === 'implement' ? 'react-native-way' : ''
+    };
+    const harnessOpts = Object.keys(H).map((id) => ({
+      id, mark: H[id].mark, provider: H[id].provider, track: H[id].track, trackCls: H[id].tc,
+      cls: c && c.harness === id ? 'hs on' : 'hs', pressed: c && c.harness === id ? 'true' : 'false',
+      pick: () => { const next = { ...this.state.cfg }; next[picked] = { ...next[picked], harness: id, model: H[id].models[0] }; this.setState({ cfg: next }); }
+    }));
+
+    let lines, previewName;
+    if (routed) {
+      previewName = dir + 'roles/' + picked + '.toml';
+      lines = ['harness = "' + c.harness + '"', 'model   = "' + c.model + '"', 'effort  = "' + c.effort + '"'];
+      if (picked === 'implement') lines.push('skills  = ["react-native-way"]', '', '[hint.ui]', 'when    = "screens and components"', 'paths   = ["src/screens/*", "src/components/*"]', 'harness = "claude"', 'model   = "opus"');
+    } else if (picked === 'review') {
+      previewName = dir + 'roles/review.toml';
+      lines = ['mode  = "' + s.reviewMode + '"', 'panel = [', '  { harness = "codex",  model = "gpt-6.1-sol", effort = "high" },', '  { harness = "claude", model = "opus" },', ']'];
+    } else {
+      previewName = dir + 'config.toml';
+      lines = ['ade = "t3"', '', '[dispatch]', 'via = "auto"', 'timeout_min = 30', '', '[rules]', 'review_not_implementer = true', 'loop_guard   = 2', 'auto_escalate = true'];
+    }
+    lines.push('', '# ' + dir + 'config.toml', '# used when Hive sets SSTACK_UNATTENDED=1', '[unattended]', 'plan_gate = "' + s.planGate + '"   # auto | inbox');
+
+    const seg = (on) => on ? 'on' : '';
+    return {
+      phases, sel, harnessOpts, previewName, toml: lines.join('\n'),
+      layerRepo: seg(s.layer === 'repo'), layerOrg: seg(s.layer === 'org'),
+      toRepo: () => this.setState({ layer: 'repo' }), toOrg: () => this.setState({ layer: 'org' }),
+      g: { auto: seg(planAuto), inbox: seg(!planAuto), setAuto: () => this.setState({ planGate: 'auto' }), setInbox: () => this.setState({ planGate: 'inbox' }),
+        note: planAuto ? 'The lead approves its own plan once every requirement has a check.' : 'The job posts plan.md to your Inbox and Linear, then waits for Approve.' },
+      rv: { auto: seg(s.reviewMode === 'auto'), single: seg(s.reviewMode === 'single'), panel: seg(s.reviewMode === 'panel'),
+        setAuto: () => this.setState({ reviewMode: 'auto' }), setSingle: () => this.setState({ reviewMode: 'single' }), setPanel: () => this.setState({ reviewMode: 'panel' }) },
+      themeClass: (this.props.dark ?? true) ? 'hv dark' : 'hv'
+    };
+  }
+}
+</script>
+</body>
+</html>

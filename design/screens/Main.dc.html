@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hive: Jobs</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hive.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0}
+.jc{all:unset;box-sizing:border-box;cursor:pointer;display:grid;gap:8px;padding:12px;border-radius:16px;background:var(--bg);border:1.5px solid var(--border);box-shadow:var(--shadow-card);font-family:var(--font-sans);color:var(--ink)}
+.jc:hover{border-color:var(--border-strong)}
+.jc:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.jc.sel{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.jc .sum{font-size:12px;line-height:17px;color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.jc .q{color:var(--warning)}
+</style>
+</helmet>
+<div class="{{themeClass}}">
+<div class="hv-app">
+<aside class="hv-sb" aria-label="Hive">
+  <div class="sb-head"><svg class="sb-hex" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="#cbfd80"></path></svg><b>Hive</b><span class="org">Unibuz</span></div>
+  <input class="sb-search" type="search" placeholder="Search" aria-label="Search jobs">
+  <nav class="sb-nav" aria-label="Main">
+    <a class="on" href="Main.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"></rect><rect x="10" y="4" width="5" height="11" rx="1.5"></rect><rect x="17" y="4" width="4" height="7" rx="1.5"></rect></svg>Jobs</a>
+    <a href="Inbox.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 13l3-8h12l3 8v6H3z"></path><path d="M3 13h5l1 3h6l1-3h5"></path></svg>Inbox<span class="n">3</span></a>
+    <a href="Repositories.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3z"></path></svg>Repositories</a>
+    <a href="Settings.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"></path></svg>Settings</a>
+  </nav>
+  <div class="sb-sec"><span>Working</span><span>4</span></div>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-m">MO</span>unibuz-mobile<span class="t">18m</span></span><span class="ti">Tribe invite deep link opens the wrong screen</span><span class="br"><span>hive/UNI-482</span><span class="hm">CC</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-a">AP</span>unibuz-api<span class="t">4m</span></span><span class="ti">Tribe search ignores Vietnamese diacritics</span><span class="br"><span>hive/UNI-486</span><span class="hm">CC</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-a">AP</span>unibuz-api<span class="t">31m</span></span><span class="ti">Rate-limit message sends per user</span><span class="br"><span>hive/UNI-480</span><span class="hm">CX</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-m">MO</span>unibuz-mobile<span class="t">52m</span></span><span class="ti">Profile photo upload fails over 5 MB</span><span class="br"><span>hive/UNI-479</span><span class="hm">CC</span></span></a>
+  <div class="sb-sec"><span>Waiting on you</span><span>3 ›</span></div>
+  <div class="sb-sec"><span>Settled</span><span>43 ›</span></div>
+  <div class="sb-foot"><span class="hv-avatar">SN</span><span style="color: var(--ink)">Simon</span><span style="margin-left: auto; display: flex; align-items: center; gap: 6px"><span class="sb-dot"></span>tailnet</span></div>
+</aside>
+<div class="hv-pane">
+<div class="hv-crumb"><span class="c">Unibuz</span><span class="sep">/</span><span class="cur">Jobs</span><span class="act"><button class="hv-iconbtn" aria-label="Toggle side panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg></button></span></div>
+
+<main class="hv-page" style="max-width: none; gap: 16px">
+  <div class="hv-row" style="justify-content: space-between; align-items: flex-end; gap: 16px">
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <h1 class="hv-h1">Jobs</h1>
+      <p class="hv-sub">Linear issues labelled <span class="hv-mono" style="color: var(--ink)">hive</span> or assigned to Hive. Live from 3 runners.</p>
+    </div>
+    <div class="hv-row">
+      <div class="hv-seg" role="group" aria-label="Whose jobs">
+        <button class="on">Everyone</button><button>Mine</button>
+      </div>
+      <div class="hv-seg" role="group" aria-label="Layout">
+        <button class="on">Board</button><button>List</button>
+      </div>
+      <select class="hv-input" aria-label="Repository" style="width: 180px; height: 36px; border-radius: 9999px"><option>All repositories</option><option>unibuz-mobile</option><option>unibuz-web</option><option>unibuz-api</option></select>
+      <button class="hv-btn hv-btn--primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>New job</button>
+    </div>
+  </div>
+
+  <section class="hv-stats" aria-label="Today">
+    <div class="hv-stat"><span class="hv-label">Active runs</span><b>5</b><span class="hv-meta">working now</span></div>
+    <div class="hv-stat"><span class="hv-label">Waiting on people</span><b>3</b><span class="hv-meta">1 question · 2 PRs</span></div>
+    <div class="hv-stat"><span class="hv-label">Agents</span><b>11</b><span class="hv-meta">5 leads, 6 children</span></div>
+    <div class="hv-stat"><span class="hv-label">Merged today</span><b>4</b><span class="hv-meta">2 by the factory, confident</span></div>
+    <div class="hv-stat"><span class="hv-label">Your Claude Max</span><b>62%</b><div class="hv-meter"><span style="width: 62%"></span></div></div>
+    <div class="hv-stat"><span class="hv-label">Team pool</span><b>71%</b><div class="hv-meter warn"><span style="width: 71%"></span></div></div>
+  </section>
+
+  <div class="hv-layout" style="flex-wrap: wrap; align-items: flex-start; gap: 16px">
+    <section class="hv-board" aria-label="Jobs by stage" style="flex: 999 1 640px; min-width: 0; grid-auto-columns: minmax(232px, 1fr)">
+      <sc-for list="{{columns}}" as="col" hint-placeholder-count="7">
+        <div class="hv-col" style="min-height: 640px">
+          <div class="hv-col__head">
+            <span class="hv-row" style="gap: 8px; flex-wrap: nowrap"><span class="{{col.dot}}"></span><span class="hv-label" style="color: var(--ink-2)">{{col.name}}</span></span>
+            <span class="hv-count">{{col.count}}</span>
+          </div>
+          <sc-for list="{{col.cards}}" as="c" hint-placeholder-count="2">
+            <button class="{{c.cls}}" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}">
+              <span class="hv-row" style="justify-content: space-between; flex-wrap: nowrap">
+                <span class="hv-card__id">{{c.id}}</span>
+                <span class="hv-meta">{{c.pr}}</span>
+              </span>
+              <span class="hv-card__title">{{c.title}}</span>
+              <span class="{{c.sumCls}}">{{c.sum}}</span>
+              <span class="hv-row" style="flex-wrap: nowrap; gap: 6px">
+                <span class="hv-model">{{c.model}}</span>
+                <span class="hv-meta" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{c.where}}</span>
+                <span class="hv-avatar" style="margin-left: auto" title="{{c.ownerName}}">{{c.owner}}</span>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+      </sc-for>
+    </section>
+
+    <aside class="hv-sidepanel" aria-label="Selected job">
+      <section>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap">
+          <span class="hv-card__id">{{sel.id}} · <span class="hv-mono">{{sel.branch}}</span></span>
+          <a class="hv-ext" href="RunDetail.dc.html" aria-label="Open full view">Full view ↗</a>
+        </div>
+        <h2 class="hv-h2">{{sel.title}}</h2>
+        <div class="hv-row">
+          <span class="{{sel.badgeCls}}">{{sel.stage}}</span>
+          <span class="hv-model">{{sel.model}}</span>
+          <span class="hv-chip">{{sel.repo}}</span>
+          <span class="hv-chip">{{sel.billing}}</span>
+        </div>
+        <div class="hv-row">
+          <a class="hv-ext" href="#">Linear ↗</a>
+          <a class="hv-ext" href="#">Pull request ↗</a>
+          <a class="hv-ext" href="#">Open in T3 ↗</a>
+        </div>
+      </section>
+      <section>
+        <span class="hv-label">Timeline</span>
+        <ol class="hv-tl">
+          <sc-for list="{{sel.timeline}}" as="t" hint-placeholder-count="4">
+            <li><span class="{{t.dot}}"></span>
+              <div class="h"><span>{{t.stage}}</span><span class="hv-mono hv-meta">{{t.at}}</span></div>
+              <p>{{t.text}}</p>
+            </li>
+          </sc-for>
+        </ol>
+      </section>
+      <section>
+        <div class="hv-row" style="justify-content: space-between"><span class="hv-label">Lineage · {{sel.agentCount}}</span><span class="hv-meta">{{sel.tokens}}</span></div>
+        <sc-for list="{{sel.agents}}" as="a" hint-placeholder-count="2">
+          <div class="hv-row" style="flex-wrap: nowrap"><span class="hv-sdot s-work"></span><span style="flex: 1">{{a.name}}</span><span class="hv-model">{{a.model}}</span><span class="hv-meta">{{a.use}}</span></div>
+        </sc-for>
+      </section>
+    </aside>
+  </div>
+</main>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":1040}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { picked: 'UNI-482' }; }
+  renderVals() {
+    const tl = (stage, at, text, dot) => ({ stage, at, text, dot: 'hv-sdot ' + dot });
+    const raw = [
+      { name: 'Queued', dot: 's-queued', cards: [
+        { id: 'UNI-491', title: 'Add "Report listing" to the Unibazaar item menu', sum: 'Waiting for a free sandbox on Modal.', model: 'opus-5-5', where: 'unibuz-web', owner: 'JL', ownerName: 'Jamie L.', stage: 'Queued', badge: 'queued', billing: 'Jamie’s ChatGPT Pro', timeline: [tl('Queued', '15:02', 'Picked up from Linear. Waiting for a runner.', 's-queued')] }
+      ]},
+      { name: 'Triage · Investigating', dot: 's-work', cards: [
+        { id: 'UNI-486', title: 'Tribe search ignores Vietnamese diacritics', sum: 'Bug: search compares raw strings; “Hà Nội” misses “Ha Noi”. Reading the search index.', model: 'opus-5-5', where: 'unibuz-api · Modal', owner: 'SN', ownerName: 'Simon N.', stage: 'Investigating', badge: 'active', billing: 'Simon’s Claude Max', timeline: [tl('Triage', '14:58', 'Bug. Acceptance: searching “Ha Noi” returns tribes named “Hà Nội”.', 's-merged'), tl('Investigating', '14:59', 'Search uses ILIKE on the raw name. Looking at unaccent in Postgres.', 's-work')] }
+      ]},
+      { name: 'Implementing', dot: 's-work', cards: [
+        { id: 'UNI-482', title: 'Tribe invite deep link opens the wrong screen on iOS', sum: 'Holding the pending link in AuthGate until the session restores; adding the Android intent filter.', model: 'opus-5-5', where: 'unibuz-mobile · Mac mini 1', owner: 'SN', ownerName: 'Simon N.', stage: 'Implementing', badge: 'active', billing: 'Simon’s Claude Max', timeline: [
+          tl('Triage', '17:24', 'Bug. Acceptance: tapping unibuz.com.au/t/:id on a cold start opens that tribe, on iOS and Android.', 's-merged'),
+          tl('Investigating', '17:26', 'Reproduced on the iOS Simulator through T3 devices: lands on Home. AuthGate drops the link before the session restores.', 's-merged'),
+          tl('Implementing', '17:39', 'Failing Maestro flow committed first. Now holding the pending link and adding the Android autoVerify filter.', 's-work')] },
+        { id: 'UNI-480', title: 'Rate-limit message sends per user', sum: 'Token bucket in the messages service, 20 a minute.', model: 'gpt-5-codex', where: 'unibuz-api · Modal', owner: 'JL', ownerName: 'Jamie L.', stage: 'Implementing', badge: 'active', billing: 'Team pool · Codex', timeline: [tl('Implementing', '16:51', 'Adding a Redis token bucket in the send path.', 's-work')] }
+      ]},
+      { name: 'Verifying', dot: 's-verify', cards: [
+        { id: 'UNI-479', title: 'Profile photo upload fails over 5 MB on Android', sum: 'Lint, typecheck, 214 tests pass. Recording the upload on the Android emulator.', model: 'opus-5-5', where: 'unibuz-mobile · Mac mini 2', owner: 'MT', ownerName: 'Minh T.', stage: 'Verifying', badge: 'testing', billing: 'Team pool · Claude', timeline: [tl('Verifying', '17:12', 'factory-verify passed at 9c1e2f4. Recording on Pixel 9 emulator.', 's-verify')] }
+      ]},
+      { name: 'Waiting on you', dot: 's-wait', cards: [
+        { id: 'UNI-476', title: 'Expired Unibazaar listings', sum: 'Should expired listings hide, or stay greyed out with “Relist”? Options posted on Linear.', sumCls: 'q', model: 'opus-5-5', where: 'unibuz-web', owner: 'SN', ownerName: 'Simon N.', stage: 'Waiting', badge: 'input', billing: 'Simon’s Claude Max', timeline: [tl('Waiting', '13:40', 'Asked on Linear: hide, grey out with Relist, or move to a Past tab?', 's-wait')] }
+      ]},
+      { name: 'PR · CI', dot: 's-pr', cards: [
+        { id: 'UNI-477', title: 'Unibazaar price rounds to whole dollars', sum: 'Confident. Prices keep cents; 3 recordings, checks green, no Bugbot findings.', model: 'gpt-5-codex', where: 'unibuz-web', owner: 'JL', ownerName: 'Jamie L.', pr: 'PR #1309', stage: 'PR · CI', badge: 'ready', billing: 'Jamie’s ChatGPT Pro', timeline: [tl('PR · CI', '12:05', 'PR #1309 open. Checks green. Handed over: repo is set to Trial.', 's-pr')] },
+        { id: 'UNI-474', title: 'Dark mode contrast on chat bubbles', sum: 'Not confident: changed 2 shared tokens. Handed over for review.', model: 'opus-5-5', where: 'unibuz-mobile', owner: 'HV', ownerName: 'Hive bot', pr: 'PR #1306', stage: 'PR · CI', badge: 'ready', billing: 'Team pool · Claude', timeline: [tl('PR · CI', '11:20', 'PR #1306. Handover: shared colour tokens changed.', 's-pr')] }
+      ]},
+      { name: 'Merged · Failed', dot: 's-merged', cards: [
+        { id: 'UNI-471', title: 'Event RSVP count off by one after cancel', sum: 'Merged by the factory: confident, checks green at head.', model: 'opus-5-5', where: 'unibuz-api', owner: 'MT', ownerName: 'Minh T.', pr: 'PR #1301', stage: 'Merged', badge: 'passed', billing: 'Minh’s Claude Pro', timeline: [tl('Merged', '10:02', 'Merged PR #1301. Main stayed green.', 's-merged')] },
+        { id: 'UNI-468', title: 'Push notification deep links on Android 15', sum: 'Failed: stuck after one nudge in Verifying. Emulator never finished booting.', model: 'opus-5-5', where: 'unibuz-mobile', owner: 'SN', ownerName: 'Simon N.', stage: 'Failed', badge: 'failed', billing: 'Simon’s Claude Max', timeline: [tl('Failed', '09:31', 'Watchdog: no progress for 30 min after a nudge.', 's-failed')] }
+      ]}
+    ];
+    const picked = this.state.picked;
+    let sel = null;
+    const columns = raw.map((col) => ({
+      ...col,
+      dot: 'hv-sdot ' + col.dot,
+      count: String(col.cards.length),
+      cards: col.cards.map((c) => {
+        const on = c.id === picked;
+        const card = { ...c, pr: c.pr || '', sumCls: c.sumCls === 'q' ? 'sum q' : 'sum', cls: on ? 'jc sel' : 'jc', pressed: on ? 'true' : 'false', pick: () => this.setState({ picked: c.id }) };
+        if (on) sel = card;
+        return card;
+      })
+    }));
+    sel = sel || columns[2].cards[0];
+    const agentsFor = sel.id === 'UNI-482'
+      ? [{ name: 'lead · sstack work', model: 'opus-5-5', use: '1.9M tok' }, { name: 'implement · android-intent-filter', model: 'deepseek-v4.1', use: '6m' }]
+      : [{ name: 'lead · sstack work', model: sel.model, use: 'n/a' }];
+    return {
+      columns,
+      sel: { ...sel, repo: sel.where.split(' · ')[0], branch: 'hive/' + sel.id, badgeCls: 'hv-badge hv-badge--' + sel.badge, agents: agentsFor, agentCount: String(agentsFor.length), tokens: sel.billing },
+      themeClass: (this.props.dark ?? true) ? 'hv dark' : 'hv'
+    };
+  }
+}
+</script>
+</body>
+</html>

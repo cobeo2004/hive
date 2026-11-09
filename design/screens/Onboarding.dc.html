@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hive: set up</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hive.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0}
+.ob-wrap{min-height:900px;display:flex;align-items:flex-start;justify-content:center;padding:72px 16px 48px}
+.dlg{width:100%;max-width:720px;background:var(--card);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow-pop);display:flex;flex-direction:column}
+.dlg-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:18px 24px;border-bottom:1px solid var(--border)}
+.dlg-head .id{display:flex;align-items:center;gap:8px}
+.dlg-head .id b{font-size:15px;font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+.dlg-head .id span{font-size:15px;color:var(--muted);font-weight:500}
+.st{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+.st button{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:8px;font:500 12.5px/1 var(--font-sans);color:var(--muted)}
+.st button:hover{background:var(--row-hover)}
+.st button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.st button.on{background:var(--surface-2);color:var(--ink)}
+.st button.done{color:var(--ink-2)}
+.st .k{width:18px;height:18px;border-radius:6px;display:grid;place-items:center;border:1px solid var(--border);font-size:10.5px;font-weight:600}
+.st button.on .k{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.st button.done .k{background:var(--success-soft);color:var(--success);border-color:transparent}
+.dlg-body{padding:28px 24px 8px;display:flex;flex-direction:column;gap:18px;min-height:440px}
+.dlg-body h1{font-size:24px;line-height:30px;font-weight:600;letter-spacing:-.015em;color:var(--ink)}
+.dlg-body .desc{margin-top:-8px;color:var(--muted);font-size:14px;line-height:21px;max-width:60ch}
+.dlg-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:16px 24px;border-top:1px solid var(--border)}
+.dlg-foot .sp{flex:1}
+.rows{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.r{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:14px 16px;border-top:1px solid var(--border);background:var(--card)}
+.r:first-child{border-top:0}
+.r .ic{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:var(--surface-2);border:1px solid var(--border);font:700 10.5px/1 var(--font-mono);color:var(--ink-2)}
+.r .tx{display:flex;flex-direction:column;min-width:0}
+.r .tx b{font-weight:600;color:var(--ink)}
+.r.dim{opacity:.6}
+.code{grid-column:2 / -1;display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:8px;padding:12px 14px;border-radius:10px;background:var(--surface-2)}
+.code .c{font:600 15px/1 var(--font-mono);letter-spacing:.08em;color:var(--ink)}
+.ready{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;color:var(--success)}
+.ready svg{width:14px;height:14px}
+.wait{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+.spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--border-strong);border-top-color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){.spin{animation:sp .9s linear infinite}}
+@keyframes sp{to{transform:rotate(360deg)}}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.tg{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--border)}
+.tg:first-child{border-top:0}
+.tg .tx{display:flex;flex-direction:column}
+.tg .tx span:first-child{color:var(--ink);font-weight:500}
+</style>
+</helmet>
+<div class="{{themeClass}}">
+<div class="ob-wrap">
+<section class="dlg" role="dialog" aria-label="Set up Hive">
+  <header class="dlg-head">
+    <div class="id"><svg class="sb-hex" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="#cbfd80"></path></svg><b>Hive</b><span>setup</span></div>
+    <nav class="st" aria-label="Setup steps">
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+        <button class="{{t.cls}}" onClick="{{t.go}}" aria-current="{{t.current}}"><span class="k">{{t.k}}</span>{{t.name}}</button>
+      </sc-for>
+    </nav>
+  </header>
+
+  <div class="dlg-body">
+    <sc-if value="{{s0}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; flex-direction: column; gap: 18px">
+        <h1>Welcome, Simon</h1>
+        <p class="desc">{{roleDesc}}</p>
+        <div class="grid2">
+          <div class="hv-field"><label for="nm">Name</label><input id="nm" class="hv-input" value="Simon Nguyen"></div>
+          <div class="hv-field"><label for="em">Email</label><input id="em" class="hv-input" value="simon@unibuz.com.au" readonly><span class="hv-hint">From your Tailscale login.</span></div>
+        </div>
+        <div class="rows">
+          <div class="r">
+            <span class="ic">{{roleMark}}</span>
+            <span class="tx"><b>{{roleName}}</b><span class="hv-meta">{{roleLine}}</span></span>
+            <span class="hv-chip">{{roleChip}}</span>
+          </div>
+          <div class="r">
+            <span class="ic">SL</span>
+            <span class="tx"><b>Slack</b><span class="hv-meta">Questions and PRs for you arrive as DMs, with buttons.</span></span>
+            <span class="ready"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>Matched by email</span>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{s1}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 18px">
+        <h1>Connect your agents</h1>
+        <p class="desc">Jobs you own run on your own subscriptions first, then on the team pool. You can add more later in Settings.</p>
+        <div class="rows">
+          <sc-for list="{{agents}}" as="a" hint-placeholder-count="4">
+            <div class="{{a.rowCls}}">
+              <span class="ic">{{a.mark}}</span>
+              <span class="tx"><b>{{a.name}}</b><span class="hv-meta">{{a.line}}</span></span>
+              <span>
+                <sc-if value="{{a.idle}}" hint-placeholder-val="{{true}}"><button class="hv-btn hv-btn--secondary hv-btn--sm" onClick="{{a.start}}">{{a.cta}}</button></sc-if>
+                <sc-if value="{{a.pending}}" hint-placeholder-val="{{false}}"><span class="wait"><span class="spin" aria-hidden="true"></span>Waiting for you</span></sc-if>
+                <sc-if value="{{a.ready}}" hint-placeholder-val="{{false}}"><span class="ready"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>{{a.readyText}}</span></sc-if>
+                <sc-if value="{{a.locked}}" hint-placeholder-val="{{false}}"><span class="hv-chip">Team pool</span></sc-if>
+              </span>
+              <sc-if value="{{a.pending}}" hint-placeholder-val="{{false}}">
+                <div class="code">
+                  <span class="hv-meta" style="flex-basis: 100%; color: var(--ink-2)">{{a.hint}}</span>
+                  <span class="c">{{a.code}}</span>
+                  <button class="hv-btn hv-btn--ghost hv-btn--sm">Copy</button>
+                  <a class="hv-btn hv-btn--secondary hv-btn--sm" href="#">{{a.open}}</a>
+                  <button class="hv-btn hv-btn--ghost hv-btn--sm" onClick="{{a.finish}}" style="margin-left: auto">I’ve signed in</button>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+        <p class="hv-hint">Hive keeps each sign-in on the runners in your own profile. Other engineers can’t use it, and admins only see usage.</p>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{s2}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 18px">
+        <h1>Hand work to Hive</h1>
+        <p class="desc">Link Linear so Hive can pick up issues for you. Nothing runs until you assign or label one.</p>
+        <div class="rows">
+          <div class="r">
+            <span class="ic">LN</span>
+            <span class="tx"><b>Linear</b><span class="hv-meta">{{linearLine}}</span></span>
+            <span>
+              <sc-if value="{{linearIdle}}" hint-placeholder-val="{{true}}"><button class="hv-btn hv-btn--secondary hv-btn--sm" onClick="{{linkLinear}}">Connect</button></sc-if>
+              <sc-if value="{{linearReady}}" hint-placeholder-val="{{false}}"><span class="ready"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>Linked</span></sc-if>
+            </span>
+          </div>
+        </div>
+        <div>
+          <div class="tg"><span class="tx"><span>Pick up issues assigned to me</span><span class="hv-meta">Assign an issue to yourself and Hive starts on it, billed to your agents.</span></span><input class="hv-switch" type="checkbox" checked aria-label="Pick up issues assigned to me"></div>
+          <div class="tg"><span class="tx"><span>Pick up issues I label <span class="hv-mono">hive</span></span><span class="hv-meta">Works for issues assigned to anyone, including the Hive bot.</span></span><input class="hv-switch" type="checkbox" checked aria-label="Pick up issues I label hive"></div>
+          <div class="tg"><span class="tx"><span>Approve plans before code is written</span><span class="hv-meta">Plans land in your Inbox. Off means Hive approves plans that cover every requirement.</span></span><input class="hv-switch" type="checkbox" aria-label="Approve plans before code is written"></div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{s3}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 18px">
+        <h1>You’re set up</h1>
+        <p class="desc">Try a small one first. Assign a Linear issue to Hive or label it <span class="hv-mono" style="color: var(--ink)">hive</span>, and it shows up under Jobs within a minute.</p>
+        <div class="rows">
+          <sc-for list="{{summary}}" as="x" hint-placeholder-count="3">
+            <div class="r">
+              <span class="ic">{{x.mark}}</span>
+              <span class="tx"><b>{{x.name}}</b><span class="hv-meta">{{x.line}}</span></span>
+              <span class="{{x.cls}}">{{x.state}}</span>
+            </div>
+          </sc-for>
+        </div>
+        <sc-if value="{{isAdmin}}" hint-placeholder-val="{{true}}">
+          <div class="hv-well" style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+            <span style="flex: 1 1 320px; color: var(--ink-2)">As the admin, connect GitHub and add your first repository next. Hive onboards it with sstack setup and opens a PR with the recipe.</span>
+            <a class="hv-btn hv-btn--secondary" href="Repositories.dc.html">Add a repository</a>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+  </div>
+
+  <footer class="dlg-foot">
+    <sc-if value="{{canBack}}" hint-placeholder-val="{{false}}"><button class="hv-btn hv-btn--ghost" onClick="{{back}}">Back</button></sc-if>
+    <span class="sp"></span>
+    <sc-if value="{{showSkip}}" hint-placeholder-val="{{false}}"><button class="hv-btn hv-btn--ghost" onClick="{{next}}">Skip, use the team pool</button></sc-if>
+    <sc-if value="{{notLast}}" hint-placeholder-val="{{true}}"><button class="hv-btn hv-btn--primary" onClick="{{next}}">{{nextLabel}}</button></sc-if>
+    <sc-if value="{{isLast}}" hint-placeholder-val="{{false}}"><a class="hv-btn hv-btn--primary" href="Main.dc.html">Open Hive</a></sc-if>
+  </footer>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":true},"role":{"editor":"enum","options":["admin","engineer"],"default":"admin"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { step: 0, ag: { claude: 'ready', codex: 'pending' }, linear: 'idle' };
+  }
+  setAgent(id, v) { this.setState({ ag: { ...this.state.ag, [id]: v } }); }
+  renderVals() {
+    const s = this.state, step = s.step;
+    const admin = (this.props.role ?? 'admin') === 'admin';
+    const names = ['Account', 'Agents', 'Linear'];
+    const tabs = names.map((name, i) => {
+      const done = i < step;
+      return { name, k: done ? '✓' : String(i + 1), cls: i === step ? 'on' : (done ? 'done' : ''), current: i === step ? 'step' : 'false',
+        go: () => { if (i <= step) this.setState({ step: i }); } };
+    });
+    const ag = s.ag;
+    const agentRow = (id, base) => {
+      const st = ag[id];
+      return { ...base, idle: st === 'idle', pending: st === 'pending', ready: st === 'ready', locked: false, rowCls: 'r',
+        start: () => this.setAgent(id, 'pending'), finish: () => this.setAgent(id, 'ready') };
+    };
+    const agents = [
+      agentRow('claude', { mark: 'CC', name: 'Claude Code', line: ag.claude === 'ready' ? 'Claude Max · simon@unibuz.com.au' : 'Claude Pro or Max subscription', cta: 'Sign in', readyText: 'Ready', hint: 'Open the link and enter this code to sign in with Claude.', code: 'QJKF-WRTB', open: 'Open claude.ai' }),
+      agentRow('codex', { mark: 'CX', name: 'Codex', line: ag.codex === 'ready' ? 'ChatGPT Pro · simon@unibuz.com.au' : 'ChatGPT Plus or Pro subscription', cta: 'Sign in with ChatGPT', readyText: 'Ready', hint: 'Open the link and enter this code to sign in with ChatGPT.', code: 'H7MP-2XKD', open: 'Open chatgpt.com' }),
+      { mark: 'PI', name: 'pi', line: 'Runs sstack’s implement role on DeepSeek. Shared by the team.', locked: true, rowCls: 'r dim' },
+      { mark: 'CU', name: 'Cursor', line: 'Not set up on the runners yet. Admins add it in Settings.', locked: true, rowCls: 'r dim' }
+    ];
+    const ok = (t) => ({ cls: 'ready', state: t });
+    const off = (t) => ({ cls: 'hv-chip', state: t });
+    const summary = [
+      { mark: 'CC', name: 'Claude Code', line: 'Your Claude Max, then the team pool', ...(ag.claude === 'ready' ? ok('Ready') : off('Team pool')) },
+      { mark: 'CX', name: 'Codex', line: 'Your ChatGPT Pro, then the team pool', ...(ag.codex === 'ready' ? ok('Ready') : off('Team pool')) },
+      { mark: 'LN', name: 'Linear', line: 'Assigned to you, or labelled hive', ...(s.linear === 'ready' ? ok('Linked') : off('Not linked')) }
+    ];
+    const nextLabels = ['Continue', 'Continue', 'Finish'];
+    return {
+      tabs, agents, summary,
+      s0: step === 0, s1: step === 1, s2: step === 2, s3: step === 3,
+      isAdmin: admin,
+      roleDesc: admin ? 'You’re the first person here, so you’re the admin. Check your details, then connect your agents.' : 'Check your details. Simon Nguyen added you as an engineer.',
+      roleMark: admin ? 'AD' : 'EN',
+      roleName: admin ? 'Admin' : 'Engineer',
+      roleLine: admin ? 'Manages connections, the team pool, repositories and workflows.' : 'Works jobs, connects your own agents, reviews PRs.',
+      roleChip: admin ? 'First user' : 'Set by an admin',
+      linearIdle: s.linear === 'idle', linearReady: s.linear === 'ready',
+      linearLine: s.linear === 'ready' ? 'Simon Nguyen in the Unibuz workspace' : 'Sign in with your Unibuz Linear account',
+      linkLinear: () => this.setState({ linear: 'ready' }),
+      canBack: step > 0 && step < 3, showSkip: step === 1, notLast: step < 3, isLast: step === 3,
+      nextLabel: nextLabels[step] || 'Continue',
+      next: () => this.setState({ step: Math.min(3, step + 1) }),
+      back: () => this.setState({ step: Math.max(0, step - 1) }),
+      themeClass: (this.props.dark ?? true) ? 'hv dark' : 'hv'
+    };
+  }
+}
+</script>
+</body>
+</html>

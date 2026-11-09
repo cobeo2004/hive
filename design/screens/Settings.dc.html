@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hive: Settings</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hive.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0}
+.hv-sn a{display:block;padding:8px 14px;border-radius:9999px;color:var(--ink-2);font-weight:600}
+.hv-sn a:hover{background:var(--surface-2);text-decoration:none}
+.hv-sn a.on{background:var(--primary-soft);color:var(--primary-text)}
+.hv-tr{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1.4fr) auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--border)}
+.hv-conn{display:flex;align-items:center;gap:12px}
+.hv-logo{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;font-weight:800;font-size:15px}
+</style>
+</helmet>
+<div class="{{themeClass}}">
+<div class="hv-app">
+<aside class="hv-sb" aria-label="Hive">
+  <div class="sb-head"><svg class="sb-hex" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="#cbfd80"></path></svg><b>Hive</b><span class="org">Unibuz</span></div>
+  <input class="sb-search" type="search" placeholder="Search" aria-label="Search jobs">
+  <nav class="sb-nav" aria-label="Main">
+    <a href="Main.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"></rect><rect x="10" y="4" width="5" height="11" rx="1.5"></rect><rect x="17" y="4" width="4" height="7" rx="1.5"></rect></svg>Jobs</a>
+    <a href="Inbox.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 13l3-8h12l3 8v6H3z"></path><path d="M3 13h5l1 3h6l1-3h5"></path></svg>Inbox<span class="n">3</span></a>
+    <a href="Repositories.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3z"></path></svg>Repositories</a>
+    <a class="on" href="Settings.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"></path></svg>Settings</a>
+  </nav>
+  <div class="sb-sec"><span>Working</span><span>4</span></div>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-m">MO</span>unibuz-mobile<span class="t">18m</span></span><span class="ti">Tribe invite deep link opens the wrong screen</span><span class="br"><span>hive/UNI-482</span><span class="hm">CC</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-a">AP</span>unibuz-api<span class="t">4m</span></span><span class="ti">Tribe search ignores Vietnamese diacritics</span><span class="br"><span>hive/UNI-486</span><span class="hm">CC</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-a">AP</span>unibuz-api<span class="t">31m</span></span><span class="ti">Rate-limit message sends per user</span><span class="br"><span>hive/UNI-480</span><span class="hm">CX</span></span></a>
+  <a class="sb-row" href="RunDetail.dc.html"><span class="top"><span class="rb rb-m">MO</span>unibuz-mobile<span class="t">52m</span></span><span class="ti">Profile photo upload fails over 5 MB</span><span class="br"><span>hive/UNI-479</span><span class="hm">CC</span></span></a>
+  <div class="sb-sec"><span>Waiting on you</span><span>3 ›</span></div>
+  <div class="sb-sec"><span>Settled</span><span>43 ›</span></div>
+  <div class="sb-foot"><span class="hv-avatar">SN</span><span style="color: var(--ink)">Simon</span><span style="margin-left: auto; display: flex; align-items: center; gap: 6px"><span class="sb-dot"></span>tailnet</span></div>
+</aside>
+<div class="hv-pane">
+<div class="hv-crumb"><span class="c">Unibuz</span><span class="sep">/</span><span class="cur">Settings</span></div>
+
+<main class="hv-page">
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <h1 class="hv-h1">Settings</h1>
+    <p class="hv-sub">You’re an admin. Engineers only see Your accounts and Linear opt-in.</p>
+  </div>
+
+  <div class="hv-layout" style="align-items: flex-start">
+    <nav class="hv-sn" aria-label="Settings sections" style="flex: 1 1 200px; max-width: 220px; display: flex; flex-direction: column; gap: 2px">
+      <a class="on" href="#linear">Linear</a>
+      <a href="#github">GitHub</a>
+      <a href="#subs">Subscriptions</a>
+      <a href="#access">Access</a>
+      <a href="#evidence">Evidence storage</a>
+      <a href="#machines">Machines &amp; devices</a>
+      <a href="#notify">Notifications</a>
+    </nav>
+
+    <div class="hv-main" style="gap: 16px">
+
+      <section id="linear" class="hv-panel" aria-label="Linear">
+        <div class="hv-row" style="justify-content: space-between">
+          <div class="hv-conn"><span class="hv-logo" style="background: var(--night); color: #e9e8f6">L</span><div><h2 class="hv-h2">Linear</h2><span class="hv-meta">Unibuz workspace · webhooks verified</span></div></div>
+          <span class="hv-badge hv-badge--passed">Connected</span>
+        </div>
+        <div class="hv-field">
+          <span class="lbl">Pick up issues assigned to</span>
+          <div class="hv-row">
+            <span class="hv-chip" style="background: var(--lime); color: var(--on-lime)">Hive (bot user)</span>
+            <span class="hv-chip"><span class="hv-avatar" style="width: 18px; height: 18px">SN</span>Simon Nguyen · opted in</span>
+            <span class="hv-chip"><span class="hv-avatar" style="width: 18px; height: 18px">JL</span>Jamie Lee · opted in</span>
+            <span class="hv-chip"><span class="hv-avatar" style="width: 18px; height: 18px">MT</span>Minh Tran · opted in</span>
+            <button class="hv-btn hv-btn--ghost hv-btn--sm">+ Add</button>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+          <div class="hv-field"><label for="teams">Teams</label><input id="teams" class="hv-input" value="Mobile, Web, Platform"></div>
+          <div class="hv-field"><label for="lbl">Pickup label</label><input id="lbl" class="hv-input" value="hive"><span class="hv-hint">An issue in Todo with this label, or assigned to someone above, is picked up.</span></div>
+        </div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap; gap: 16px">
+          <div><label for="ready" style="font-weight: 700">Ask on Linear when the issue is ambiguous</label><p class="hv-hint">The agent posts its question with options, waits, and resumes when someone replies.</p></div>
+          <input id="ready" class="hv-switch" type="checkbox" checked disabled>
+        </div>
+        <p class="hv-hint">Per-ticket overrides use the Linear label groups <span class="hv-mono">Harness</span>, <span class="hv-mono">Runs on</span> and <span class="hv-mono">Repository</span>.</p>
+      </section>
+
+      <section id="github" class="hv-panel" aria-label="GitHub">
+        <div class="hv-row" style="justify-content: space-between">
+          <div class="hv-conn"><span class="hv-logo" style="background: var(--ink); color: var(--bg)">G</span><div><h2 class="hv-h2">GitHub</h2><span class="hv-meta">GitHub App on the unibuz org</span></div></div>
+          <span class="hv-badge hv-badge--passed">Connected</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+          <div class="hv-field"><span class="lbl">Repositories</span><div class="hv-row"><span class="hv-chip hv-mono" style="font-size: 12px">unibuz-mobile</span><span class="hv-chip hv-mono" style="font-size: 12px">unibuz-web</span><span class="hv-chip hv-mono" style="font-size: 12px">unibuz-api</span></div></div>
+          <div class="hv-field"><label for="prefix">Branch prefix</label><input id="prefix" class="hv-input hv-mono" value="hive/"></div>
+        </div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="draft">Open PRs as drafts until tests pass</label><input id="draft" class="hv-switch" type="checkbox" checked></div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="owners">Request reviewers from CODEOWNERS</label><input id="owners" class="hv-switch" type="checkbox" checked></div>
+        <p class="hv-hint">Agents never merge. Hive’s runner does, following each repo’s merge mode in <a href="Repositories.dc.html">Repositories</a>, and reverts a merge that turns main red.</p>
+      </section>
+
+      <section id="subs" class="hv-panel" aria-label="Subscriptions">
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <h2 class="hv-h2">Subscriptions</h2>
+          <p class="hv-sub">Runs bill to the assignee’s own subscription first, then fall back to the team pool.</p>
+        </div>
+
+        <span class="hv-label">Your accounts</span>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px">
+          <div class="hv-well" style="display: flex; flex-direction: column; gap: 10px">
+            <div class="hv-row" style="justify-content: space-between"><b>Claude · Max</b><span class="hv-badge hv-badge--passed">Signed in</span></div>
+            <span class="hv-meta">simon@unibuz.com.au · used by Claude Code</span>
+            <div class="hv-row" style="justify-content: space-between"><span class="hv-meta">5-hour window</span><span class="hv-meta">62%</span></div>
+            <div class="hv-meter"><span style="width: 62%"></span></div>
+            <div class="hv-row" style="justify-content: space-between"><span class="hv-meta">Weekly</span><span class="hv-meta">38%</span></div>
+            <div class="hv-meter"><span style="width: 38%"></span></div>
+            <div class="hv-row"><button class="hv-btn hv-btn--secondary hv-btn--sm">Reconnect</button><button class="hv-btn hv-btn--ghost hv-btn--sm">Disconnect</button></div>
+          </div>
+          <div class="hv-well" style="display: flex; flex-direction: column; gap: 10px">
+            <div class="hv-row" style="justify-content: space-between"><b>ChatGPT · Pro</b><span class="hv-badge hv-badge--passed">Signed in</span></div>
+            <span class="hv-meta">simon@unibuz.com.au · used by Codex</span>
+            <div class="hv-row" style="justify-content: space-between"><span class="hv-meta">5-hour window</span><span class="hv-meta">21%</span></div>
+            <div class="hv-meter"><span style="width: 21%"></span></div>
+            <div class="hv-row" style="justify-content: space-between"><span class="hv-meta">Weekly</span><span class="hv-meta">12%</span></div>
+            <div class="hv-meter"><span style="width: 12%"></span></div>
+            <div class="hv-row"><button class="hv-btn hv-btn--secondary hv-btn--sm">Reconnect</button><button class="hv-btn hv-btn--ghost hv-btn--sm">Disconnect</button></div>
+          </div>
+        </div>
+
+        <div class="hv-row" style="justify-content: space-between; margin-top: 4px">
+          <span class="hv-label">Team pool · admin</span>
+          <button class="hv-btn hv-btn--secondary hv-btn--sm">+ Add account</button>
+        </div>
+        <div>
+          <div class="hv-tr hv-label" style="border-top: 0; padding-top: 0"><span>Account</span><span>Plan</span><span>5-hour window</span><span></span></div>
+          <div class="hv-tr"><span class="hv-mono" style="color: var(--ink)">hive-claude-1@unibuz.com.au</span><span>Claude Max</span><div class="hv-row" style="flex-wrap: nowrap"><div class="hv-meter" style="flex: 1"><span style="width: 45%"></span></div><span class="hv-meta">45%</span></div><button class="hv-btn hv-btn--ghost hv-btn--sm">Edit</button></div>
+          <div class="hv-tr"><span class="hv-mono" style="color: var(--ink)">hive-claude-2@unibuz.com.au</span><span>Claude Max</span><div class="hv-row" style="flex-wrap: nowrap"><div class="hv-meter" style="flex: 1"><span style="width: 58%"></span></div><span class="hv-meta">58%</span></div><button class="hv-btn hv-btn--ghost hv-btn--sm">Edit</button></div>
+          <div class="hv-tr"><span class="hv-mono" style="color: var(--ink)">hive-claude-3@unibuz.com.au</span><span>Claude Max</span><div class="hv-row" style="flex-wrap: nowrap"><div class="hv-meter" style="flex: 1"><span style="width: 66%"></span></div><span class="hv-meta">66%</span></div><button class="hv-btn hv-btn--ghost hv-btn--sm">Edit</button></div>
+          <div class="hv-tr"><span class="hv-mono" style="color: var(--ink)">hive-codex@unibuz.com.au</span><span>ChatGPT Pro</span><div class="hv-row" style="flex-wrap: nowrap"><div class="hv-meter warn" style="flex: 1"><span style="width: 91%"></span></div><span class="hv-meta" style="color: var(--warning)">91%</span></div><button class="hv-btn hv-btn--ghost hv-btn--sm">Edit</button></div>
+        </div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="own">Use the assignee’s own account first</label><input id="own" class="hv-switch" type="checkbox" checked></div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="fall">Fall back to the team pool when theirs is rate-limited</label><input id="fall" class="hv-switch" type="checkbox" checked></div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="pause">Pause the run instead of falling back when the pool is above 90%</label><input id="pause" class="hv-switch" type="checkbox"></div>
+      </section>
+
+      <section id="access" class="hv-panel" aria-label="Access">
+        <div class="hv-row" style="justify-content: space-between">
+          <div class="hv-conn"><span class="hv-logo" style="background: var(--primary-soft); color: var(--primary-text)">TS</span><div><h2 class="hv-h2">Access</h2><span class="hv-meta">Private on the Unibuz tailnet · hive.unibuz-tail.ts.net</span></div></div>
+          <span class="hv-badge hv-badge--passed">Tailscale on</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+          <div class="hv-field"><label for="domain">Allowed sign-in domain</label><input id="domain" class="hv-input" value="@unibuz.com.au"><span class="hv-hint">Checked against the Tailscale login on every request.</span></div>
+          <div class="hv-field"><label for="grp">Tailnet group allowed to reach Hive</label><input id="grp" class="hv-input hv-mono" value="group:engineers"></div>
+        </div>
+        <div class="hv-field">
+          <span class="lbl">Inbound webhooks</span>
+          <div class="hv-seg" role="group" aria-label="Webhook mode"><button class="on">Funnel /webhooks only</button><button>Poll every 30s, no inbound</button></div>
+          <span class="hv-hint">Funnel exposes one path to the internet. Linear and GitHub signatures are verified on every request.</span>
+        </div>
+        <div>
+          <div class="hv-tr hv-label" style="border-top: 0; padding-top: 0"><span>Member</span><span>Role</span><span>Own subscriptions</span><span></span></div>
+          <div class="hv-tr"><span>Simon Nguyen <span class="hv-meta">simon@unibuz.com.au</span></span><span class="hv-chip" style="justify-self: start">Admin</span><span class="hv-meta">Claude Max · ChatGPT Pro</span><button class="hv-btn hv-btn--ghost hv-btn--sm">Edit</button></div>
+          <div class="hv-tr"><span>Jamie Lee <span class="hv-meta">jamie@unibuz.com.au</span></span><span class="hv-chip" style="justify-self: start">Engineer</span><span class="hv-meta">ChatGPT Pro</span><button class="hv-btn hv-btn--ghost hv-btn--sm">Edit</button></div>
+          <div class="hv-tr"><span>Minh Tran <span class="hv-meta">minh@unibuz.com.au</span></span><span class="hv-chip" style="justify-self: start">Engineer</span><span class="hv-meta">None, uses the team pool</span><button class="hv-btn hv-btn--ghost hv-btn--sm">Edit</button></div>
+        </div>
+      </section>
+
+      <section id="evidence" class="hv-panel" aria-label="Evidence storage">
+        <div class="hv-row" style="justify-content: space-between">
+          <div class="hv-conn"><span class="hv-logo" style="background: var(--lime); color: #3224f2">R2</span><div><h2 class="hv-h2">Evidence storage</h2><span class="hv-meta">Public, so recordings render in GitHub and Linear</span></div></div>
+          <span class="hv-badge hv-badge--passed">Connected</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+          <div class="hv-field"><label for="bucket">Bucket</label><input id="bucket" class="hv-input hv-mono" value="hive-evidence"></div>
+          <div class="hv-field"><label for="pub">Public domain</label><input id="pub" class="hv-input hv-mono" value="evidence.unibuz.com.au"></div>
+          <div class="hv-field"><label for="ret">Delete media after the PR closes</label><input id="ret" class="hv-input" value="30 days"></div>
+        </div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="seed">Only record against seeded test accounts</label><input id="seed" class="hv-switch" type="checkbox" checked></div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="noindex">Random unguessable paths, no listing, noindex</label><input id="noindex" class="hv-switch" type="checkbox" checked disabled></div>
+      </section>
+
+      <section id="machines" class="hv-panel" aria-label="Machines and devices">
+        <div class="hv-row" style="justify-content: space-between">
+          <h2 class="hv-h2">Machines &amp; devices</h2>
+          <div class="hv-field" style="gap: 4px"><span class="lbl">Run jobs on, by default</span><div class="hv-seg" role="group" aria-label="Run jobs on"><button class="on">Mac pool</button><button>Modal sandboxes</button></div></div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px">
+          <div class="hv-well" style="display: flex; flex-direction: column; gap: 8px">
+            <div class="hv-row" style="justify-content: space-between"><b>Mac mini 1</b><span class="hv-badge hv-badge--passed">Online</span></div>
+            <span class="hv-meta">Runner + T3 Code · 2 / 3 jobs · heartbeat 4 s ago</span>
+            <div class="hv-meter"><span style="width: 66%"></span></div>
+            <span class="hv-meta" style="color: var(--ink-2)">Devices: iPhone 16 Pro sim (agent) · Pixel 9 emu (idle)</span>
+          </div>
+          <div class="hv-well" style="display: flex; flex-direction: column; gap: 8px">
+            <div class="hv-row" style="justify-content: space-between"><b>Mac mini 2</b><span class="hv-badge hv-badge--passed">Online</span></div>
+            <span class="hv-meta">Runner + T3 Code · 1 / 3 jobs · heartbeat 7 s ago</span>
+            <div class="hv-meter"><span style="width: 33%"></span></div>
+            <span class="hv-meta" style="color: var(--ink-2)">Devices: Pixel 9 emu (agent) · iPad Air sim (off)</span>
+          </div>
+          <div class="hv-well" style="display: flex; flex-direction: column; gap: 8px">
+            <div class="hv-row" style="justify-content: space-between"><b>Modal</b><span class="hv-badge hv-badge--passed">Ready</span></div>
+            <span class="hv-meta">Cloud sandboxes for web and API jobs · 2 / 4 running · idle jobs hibernate after 5 min</span>
+            <div class="hv-meter"><span style="width: 50%"></span></div>
+            <span class="hv-meta" style="color: var(--ink-2)">No simulators: mobile jobs go to the Mac pool</span>
+          </div>
+        </div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="agdev">Agents can use devices (T3 <span class="hv-mono">agent-device</span>)</label><input id="agdev" class="hv-switch" type="checkbox" checked></div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="watch">Engineers can watch and tap a running device from the run</label><input id="watch" class="hv-switch" type="checkbox" checked></div>
+        <div class="hv-row"><button class="hv-btn hv-btn--secondary">Add a Mac</button><button class="hv-btn hv-btn--ghost">Add device host over SSH</button></div>
+      </section>
+
+      <section id="notify" class="hv-panel" aria-label="Notifications">
+        <div class="hv-row" style="justify-content: space-between">
+          <div class="hv-conn"><span class="hv-logo" style="background: var(--surface-2); color: var(--ink)">S</span><div><h2 class="hv-h2">Notifications</h2><span class="hv-meta">Slack · Unibuz workspace</span></div></div>
+          <span class="hv-badge hv-badge--passed">Connected</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+          <div class="hv-field"><label for="where">Send to</label><select id="where" class="hv-input"><option>Each engineer’s DMs</option><option>#hive</option></select></div>
+          <div class="hv-field"><label for="quiet">Quiet hours</label><input id="quiet" class="hv-input" value="10 pm to 8 am"></div>
+        </div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="n1">Questions and PRs for me</label><input id="n1" class="hv-switch" type="checkbox" checked></div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="n2">Merges and reverts the factory makes</label><input id="n2" class="hv-switch" type="checkbox" checked></div>
+        <div class="hv-row" style="justify-content: space-between; flex-wrap: nowrap"><label for="n3">Allow <span class="hv-mono">/hive</span> in Slack to file jobs</label><input id="n3" class="hv-switch" type="checkbox" checked></div>
+      </section>
+
+      <div class="hv-row" style="justify-content: flex-end"><button class="hv-btn hv-btn--ghost">Discard</button><button class="hv-btn hv-btn--primary">Save changes</button></div>
+    </div>
+  </div>
+</main>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":1640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themeClass: (this.props.dark ?? true) ? 'hv dark' : 'hv' };
+  }
+}
+</script>
+</body>
+</html>

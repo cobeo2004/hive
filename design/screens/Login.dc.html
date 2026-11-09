@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hive: sign in</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hive.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0}
+.lg-wrap{min-height:900px;display:flex;flex-direction:column}
+.lg-top{display:flex;align-items:center;gap:10px;padding:20px 28px}
+.lg-top b{font-size:15px;font-weight:700;letter-spacing:-.01em}
+.lg-main{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:96px 16px 48px}
+.lg-card{width:100%;max-width:420px;display:flex;flex-direction:column;gap:20px}
+.idrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+.idrow .av{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);border:1px solid var(--border);font-weight:600;font-size:13px;color:var(--ink)}
+.idrow .who{display:flex;flex-direction:column;min-width:0;flex:1}
+.idrow .who b{font-weight:600;color:var(--ink)}
+.ok{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--success)}
+.ok svg{width:14px;height:14px}
+.steps{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;counter-reset:s}
+.steps li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px;color:var(--ink-2);counter-increment:s}
+.steps li::before{content:counter(s);width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:var(--surface-2);border:1px solid var(--border);font:600 11px/1 var(--font-sans);color:var(--ink)}
+.full{width:100%;height:38px;font-size:14px}
+.lg-foot{padding:20px 28px;font-size:12px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap}
+</style>
+</helmet>
+<div class="{{themeClass}}">
+<div class="lg-wrap">
+  <header class="lg-top">
+    <svg class="sb-hex" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="#cbfd80"></path></svg>
+    <b>Hive</b><span class="org" style="font-size: 11px; font-weight: 600; color: var(--muted); padding: 1px 6px; border: 1px solid var(--border); border-radius: 6px">Unibuz</span>
+  </header>
+
+  <main class="lg-main">
+    <div class="lg-card">
+      <sc-if value="{{isOk}}" hint-placeholder-val="{{true}}">
+        <div style="display: flex; flex-direction: column; gap: 20px">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <h1 class="hv-h1" style="font-size: 24px; line-height: 30px">Sign in to Hive</h1>
+            <p class="hv-sub" style="font-size: 14px; line-height: 21px">Hive is private to the Unibuz tailnet. Your Tailscale login is your Hive account, so there is no password.</p>
+          </div>
+          <div class="idrow">
+            <span class="av">SN</span>
+            <span class="who"><b>Simon Nguyen</b><span class="hv-meta">simon@unibuz.com.au</span></span>
+            <span class="ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>Verified</span>
+          </div>
+          <a class="hv-btn hv-btn--primary full" href="Onboarding.dc.html">Continue as Simon</a>
+          <p class="hv-hint">Signed in from <span class="hv-mono">simon-mbp</span> on <span class="hv-mono">unibuz-tail.ts.net</span>. To use another account, switch accounts in the Tailscale app and reload.</p>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isDomain}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column; gap: 20px">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <h1 class="hv-h1" style="font-size: 24px; line-height: 30px">Use your Unibuz account</h1>
+            <p class="hv-sub" style="font-size: 14px; line-height: 21px">Tailscale says you’re <span style="color: var(--ink)">simon.nguyen@gmail.com</span>. Hive only lets in accounts ending in <span style="color: var(--ink)">@unibuz.com.au</span>.</p>
+          </div>
+          <ol class="steps">
+            <li><span>Open the Tailscale app and switch to your Unibuz account.</span></li>
+            <li><span>Reload this page.</span></li>
+          </ol>
+          <button class="hv-btn hv-btn--primary full">Reload</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isAccess}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column; gap: 20px">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <h1 class="hv-h1" style="font-size: 24px; line-height: 30px">You don’t have access yet</h1>
+            <p class="hv-sub" style="font-size: 14px; line-height: 21px">You’re on the tailnet as <span style="color: var(--ink)">minh@unibuz.com.au</span>, but not in the group that can reach Hive.</p>
+          </div>
+          <div class="idrow">
+            <span class="av">MT</span>
+            <span class="who"><b>Minh Tran</b><span class="hv-meta">Needs <span class="hv-mono">group:engineers</span></span></span>
+          </div>
+          <a class="hv-btn hv-btn--primary full" href="#">Ask an admin for access</a>
+          <p class="hv-hint">Sends Simon Nguyen a Slack message with your email. You’ll get in as soon as they add you.</p>
+        </div>
+      </sc-if>
+    </div>
+  </main>
+
+  <footer class="lg-foot"><span>Unibuz internal tool</span><a href="#" style="color: var(--muted)">Help</a></footer>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":true},"state":{"editor":"enum","options":["signed-in","wrong-domain","no-access"],"default":"signed-in"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = this.props.state ?? 'signed-in';
+    return {
+      isOk: st === 'signed-in', isDomain: st === 'wrong-domain', isAccess: st === 'no-access',
+      themeClass: (this.props.dark ?? true) ? 'hv dark' : 'hv'
+    };
+  }
+}
+</script>
+</body>
+</html>
