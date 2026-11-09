@@ -1,6 +1,6 @@
 /**
  * Session ids are Claude's UUIDs, `evidence:<branch>`, or `mcp:<branch>` for Codex, and branches
- * carry slashes (`mcp:factory/FAC-61`). So an id travels in a query string, never a path segment.
+ * carry slashes (`mcp:hive/FAC-61`). So an id travels in a query string, never a path segment.
  */
 const SESSION_ID = /^[\w.:-]+(?:\/[\w.:-]+)*$/;
 const MAX_SESSION_ID = 128;

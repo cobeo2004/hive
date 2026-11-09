@@ -50,7 +50,7 @@ const asked = (labels: ReturnType<typeof L>[]) =>
 
 // Routing: the Repository label picks the repo, else the default; one that cannot apply goes to the default and says why.
 const routes: { name: string; labels: ReturnType<typeof L>[]; want: ReturnType<typeof repos.routeRepo> }[] = [
-  { name: "no label", labels: [L("factory")], want: { repo: A } },
+  { name: "no label", labels: [L("hive")], want: { repo: A } },
   { name: "by display name", labels: [L("shop APP", "Repository")], want: { repo: B } },
   { name: "by the name part", labels: [L("shop", "repository")], want: { repo: B } },
   { name: "by the full name", labels: [L(B, "Repository")], want: { repo: B } },
@@ -264,7 +264,7 @@ try {
     url: "u",
     description: null,
     writeback: { kind: "linear" as const, issueId: `${OWNER_NS}-${id}` },
-    sourceState: { state: "Todo", labels: ["factory", ...groups.map((g) => g.name)], labelGroups: groups },
+    sourceState: { state: "Todo", labels: ["hive", ...groups.map((g) => g.name)], labelGroups: groups },
   });
   let drafts = [draft("plain", []), draft("shop", [{ name: "Shop", group: "Repository" }]), draft("legacy", [{ name: "legacy", group: "Repository" }])];
   const source = { source: "linear", ready: async () => drafts, overrides: linearOverrides } as unknown as Adapter;

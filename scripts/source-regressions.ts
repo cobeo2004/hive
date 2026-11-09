@@ -24,11 +24,11 @@ const node = (id: string, identifier: string) => ({
   description: "d",
   createdAt: "2026-10-24T00:00:00Z",
   state: { name: "Todo", type: "unstarted" },
-  labels: { nodes: [{ name: "factory" }, { name: "bug" }] },
+  labels: { nodes: [{ name: "hive" }, { name: "bug" }] },
 });
 let readyNodes: ReturnType<typeof node>[] = [];
-let thread = { state: { name: "In Progress", type: "started" }, labels: ["factory"] };
-const labelsById: Record<string, string[]> = { "src-q2": ["factory", "factory-failed"] };
+let thread = { state: { name: "In Progress", type: "started" }, labels: ["hive"] };
+const labelsById: Record<string, string[]> = { "src-q2": ["hive", "factory-failed"] };
 const fakeClient = {
   team: record("team", team),
   update: record("update", undefined),
@@ -77,13 +77,13 @@ const EXPECTED = {
         "comment",
         "src-pr",
         "368968ca-5f44-4b9f-8953-4b89e8bcd24c",
-        "marshal-factory has a pull request ready for review: https://g/pr/1\n\ndone"
+        "Hive has a pull request ready for review: https://g/pr/1\n\ndone"
       ],
       [
         "comment",
         "src-wait",
         "4ac8711f-b5ac-4093-b778-86a8e21f9bab",
-        "marshal-factory stopped and needs an answer before it can continue:\n\nWhich layout?"
+        "Hive stopped and needs an answer before it can continue:\n\nWhich layout?"
       ],
       [
         "labelsOf",
@@ -103,7 +103,7 @@ const EXPECTED = {
             "label:factory-failed"
           ],
           "removedLabelIds": [
-            "label:factory"
+            "label:hive"
           ]
         }
       ],
@@ -111,7 +111,7 @@ const EXPECTED = {
         "comment",
         "src-fail",
         "b1e0641a-e8ae-43b6-a329-344171e78538",
-        "marshal-factory gave up on this issue (attempt 2): boom\n\nAdd the `factory` label again to retry."
+        "Hive gave up on this issue (attempt 2): boom\n\nAdd the `hive` label again to retry."
       ],
       [
         "update",
@@ -131,7 +131,7 @@ const EXPECTED = {
         "comment",
         "src-q1",
         "e859071b-d221-4990-bacb-cdf002be4667",
-        "Picked up by marshal-factory."
+        "Picked up by Hive."
       ],
       [
         "labelsOf",
@@ -152,7 +152,7 @@ const EXPECTED = {
         "comment",
         "src-q2",
         "fbadf7f5-f936-4d2c-ab88-0d811cc8d183",
-        "Picked up by marshal-factory again (attempt 2, branch factory/SRC-7-a2)."
+        "Picked up by Hive again (attempt 2, branch hive/SRC-7-a2)."
       ]
     ],
     "rows": [
@@ -247,7 +247,7 @@ const EXPECTED = {
       [
         "readyIssues",
         "FAC",
-        "factory"
+        "hive"
       ]
     ],
     "rows": [
@@ -258,7 +258,7 @@ const EXPECTED = {
         "state": "Todo",
         "synced_event_id": null,
         "labels": [
-          "factory",
+          "hive",
           "bug"
         ],
         "previous_failure": null,
@@ -272,7 +272,7 @@ const EXPECTED = {
         "state": "Todo",
         "synced_event_id": null,
         "labels": [
-          "factory",
+          "hive",
           "bug"
         ],
         "previous_failure": "earlier failure",

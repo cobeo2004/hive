@@ -46,7 +46,7 @@ const source = {
       url: "u",
       description: "Fix the list.",
       writeback: { kind: "linear" as const, issueId: key },
-      sourceState: { state: "Todo", labels: ["factory"], labelGroups: [] },
+      sourceState: { state: "Todo", labels: ["hive"], labelGroups: [] },
     })),
 };
 const claimReady = () => claim({ sources: [source], repos: async () => [REPO], registry: async () => [] });

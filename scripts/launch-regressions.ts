@@ -32,7 +32,7 @@ await db.insert(jobs).values(linearJob(id, id));
 try {
   assert.equal(await claimLaunch(id, "pending:1", slot), true, "the first launch claims the job");
   assert.equal(await claimLaunch(id, "pending:2", slot), false, "a second launch, after a crash or timeout, does not");
-  assert.deepEqual((await pendingLaunches()).find((p) => p.key === id), { key: id, repo: "ski043/factory-demo", marker: "pending:1", branch: `factory/${id}`, stage: "queued", execution: null, sandbox_id: null, codex_slot: null });
+  assert.deepEqual((await pendingLaunches()).find((p) => p.key === id), { key: id, repo: "ski043/factory-demo", marker: "pending:1", branch: `hive/${id}`, stage: "queued", execution: null, sandbox_id: null, codex_slot: null });
   await releaseLaunch(id, "pending:2");
   assert.equal((await db.select().from(jobs).where(eq(jobs.key, id)))[0]!.t3_thread_id, "pending:1", "only the holder's marker is released");
   await releaseLaunch(id, "pending:1");
@@ -112,7 +112,7 @@ try {
     archivedAt: null,
     trashed: null,
     state: { type: "started", name: "In Progress" },
-    labels: { nodes: [{ name: "factory" }] },
+    labels: { nodes: [{ name: "hive" }] },
     ...over,
   });
   const sourceReading = (issuesByIds: () => Promise<unknown[]>) =>
@@ -128,7 +128,7 @@ try {
   const working = () => db.update(jobs).set({ stage: "implementing", stage_event_id: "e" }).where(eq(jobs.id, jid));
   const cases = [
     { name: "still labeled and open", fetch: async () => [node()], stop: undefined },
-    { name: "label removed", fetch: async () => [node({ labels: { nodes: [{ name: "bug" }] } })], stop: "the factory label was removed in Linear" },
+    { name: "label removed", fetch: async () => [node({ labels: { nodes: [{ name: "bug" }] } })], stop: "the hive label was removed in Linear" },
     { name: "canceled", fetch: async () => [node({ state: { type: "canceled", name: "Canceled" } })], stop: "issue moved to Canceled in Linear" },
     { name: "archived", fetch: async () => [node({ archivedAt: "2026-10-24T00:00:00Z" })], stop: "the issue was archived or deleted in Linear" },
     { name: "deleted (not returned)", fetch: async () => [], stop: "the issue was deleted in Linear" },
@@ -177,13 +177,13 @@ try {
     remove: async () => {},
   };
   const harness = { provider: "codex", model: "gpt-5.5" };
-  assert.equal(await startThread(fake, "/sandbox/repo", "factory/FAC-1", "FAC-1 Title", "Work FAC-1", harness), "mcp:fake");
+  assert.equal(await startThread(fake, "/sandbox/repo", "hive/FAC-1", "FAC-1 Title", "Work FAC-1", harness), "mcp:fake");
   assert.deepEqual(
     calls,
     [
       {
         command: "/sandbox/t3",
-        args: ["thread", "start", "/sandbox/repo", "-", "--worktree", "origin/main", "--branch", "factory/FAC-1", "--title", "FAC-1 Title", "--provider", "codex", "--model", "gpt-5.5", "--json"],
+        args: ["thread", "start", "/sandbox/repo", "-", "--worktree", "origin/main", "--branch", "hive/FAC-1", "--title", "FAC-1 Title", "--provider", "codex", "--model", "gpt-5.5", "--json"],
         options: { input: "Work FAC-1", timeoutMs: 60_000, maxBuffer: 16 * 1024 * 1024 },
       },
     ],
@@ -216,7 +216,7 @@ try {
   assert.equal(await realThreads.state("pending:1", fake), "running", "a pending launch asks no host");
   assert.equal(calls.length, 0);
   await assert.rejects(realThreads.state("mcp:real", localHost), /t3 thread show was called during a regression run/, "the local host still refuses T3 in a regression");
-  await assert.rejects(startThread(localHost, "/repo", "factory/X", "X", "m", harness), /t3 thread start was called during a regression run/);
+  await assert.rejects(startThread(localHost, "/repo", "hive/X", "X", "m", harness), /t3 thread start was called during a regression run/);
   await assert.rejects(realThreads.send("mcp:real", "m", localHost), /t3 thread send was called during a regression run/);
 
   // The job's host comes from the resolver: a stop is shown and sent on the host it names.
@@ -239,7 +239,7 @@ try {
   // One failed start does not stop the batch; a clear failure frees its marker, a timeout keeps it.
   const markers = new Map<string, string>();
   const released: string[] = [];
-  const entry = (key: string) => ({ key, sandbox_id: null, attempt: 1, source: "linear" as const, repo: "ski043/factory-demo", branch: `factory/${key}`, threadTitle: key, message: "m", harness, ticket: null });
+  const entry = (key: string) => ({ key, sandbox_id: null, attempt: 1, source: "linear" as const, repo: "ski043/factory-demo", branch: `hive/${key}`, threadTitle: key, message: "m", harness, ticket: null });
   const results = await launchEntries([entry("A"), entry("B"), entry("C")], {
     claim: async (key, marker) => (markers.set(key, marker), true),
     start: async ({ key }) => {

@@ -10,15 +10,15 @@ process.env.NEON_AUTH_COOKIE_SECRET ??= "x".repeat(32);
 process.env.NEXT_PUBLIC_LIVE_UPDATES = "off";
 delete process.env.NEON_REALTIME_SECRET;
 
-const CODEX = "mcp:factory/FAC-61";
-for (const id of [CODEX, "mcp:factory/FAC-10-a2", "evidence:factory/FAC-10-a2", "5f0c1e2a-9b7d-4c3e-8a1f-2d6b7c8e9f01", "mcp:factory/FAC-7"]) {
+const CODEX = "mcp:hive/FAC-61";
+for (const id of [CODEX, "mcp:hive/FAC-10-a2", "evidence:hive/FAC-10-a2", "5f0c1e2a-9b7d-4c3e-8a1f-2d6b7c8e9f01", "mcp:hive/FAC-7"]) {
   assert.equal(parseSessionId(id), id, `${id} is a session id`);
 }
-for (const junk of [undefined, null, "", "/", "mcp:factory/", "/mcp:factory", "mcp:factory//FAC-1", "a b", "a?b", "a#b", "a&b=c", "x".repeat(129)]) {
+for (const junk of [undefined, null, "", "/", "mcp:hive/", "/mcp:factory", "mcp:hive//FAC-1", "a b", "a?b", "a#b", "a&b=c", "x".repeat(129)]) {
   assert.equal(parseSessionId(junk), undefined, `${JSON.stringify(junk)} is not a session id`);
 }
 
-assert.equal(activityHref(CODEX), "/activity?run=mcp%3Afactory%2FFAC-61");
+assert.equal(activityHref(CODEX), "/activity?run=mcp%3Ahive%2FFAC-61");
 assert.equal(new URL(activityHref(CODEX), "http://x").searchParams.get("run"), CODEX, "the activity link round-trips the id");
 assert.equal(new URL(jobsHref("list", CODEX), "http://x").searchParams.get("run"), CODEX, "the jobs link round-trips the id");
 const opened = new URL(jobsHref("board", CODEX), "http://x");

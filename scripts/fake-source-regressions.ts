@@ -143,7 +143,7 @@ try {
   assert.deepEqual(calls, [
     ["ready"],
     ["announce", key, draft.writeback],
-    ["note", key, "ticket-overrides:1", "marshal-factory could not apply this issue's override labels as they are:\n\n- Runs on fell back."],
+    ["note", key, "ticket-overrides:1", "Hive could not apply this issue's override labels as they are:\n\n- Runs on fell back."],
     ["writeBack", key, "triage"],
     ["writeBack", key, "pr"],
     ["stopWanted", [key]],

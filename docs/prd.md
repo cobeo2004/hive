@@ -100,7 +100,7 @@ Each milestone is one `grill` session and one or more `work` runs, in order. "Bu
 
 | # | Requirement | Builds on | Check |
 |---|---|---|---|
-| R1 | The fork is marshal-factory at `999ad20` with an `upstream` remote, renamed to Hive in package name, panel title and launch messages only. Linear label default `hive`, branch prefix `hive/`. | `package.json`, `lib/config.ts` (`label`, branch naming), `lib/playbook.ts` | `bun run test:regressions` passes, with only the renamed defaults changed in the scripts. |
+| R1 | The fork is marshal-factory at `999ad20` with an `upstream` remote, renamed to Hive in package name, panel title and launch messages only. Linear label default `hive`, branch prefix `hive/`. | `package.json`, `lib/config.ts` and `lib/sources/linear.ts` (`label`), `lib/factory.ts` (branch prefix, one constant used by `lib/branch-sql.ts`, `lib/worktrees.ts`, `runner/post-merge.ts`, `runner/onboarding.ts`), panel titles, runner prompts | `bun run test:regressions` passes, with only the renamed defaults changed in the scripts, except `playbook-regressions`, which stays red until R13. |
 
 ### M1. Access: Tailscale and many users
 

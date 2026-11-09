@@ -351,7 +351,7 @@ try {
   assert.deepEqual([d.run?.kind, d.run?.threadId, d.run?.slot], ["agent", "thread-onb", slotA]);
   const agentBox = sandboxOf(d.run?.sandboxId);
   const startExec = agentBox.execs.find((e) => e.argv.slice(0, 3).join(" ") === "t3 thread start")!;
-  assert.ok(startExec.argv.includes("factory/onboarding"), "the thread works on factory/onboarding");
+  assert.ok(startExec.argv.includes("hive/onboarding"), "the thread works on hive/onboarding");
   assert.match(startExec.input, /# Onboarding a repository/, "with the onboarding playbook");
   assert.match(startExec.input, /\/work\/onboarding\/result\.json/);
   assert.equal(agentBox.files.has("/root/.config/marshal-factory/config.json"), false, "an onboarding run reports to no job");
@@ -559,7 +559,7 @@ try {
   const slot = { id: TEST_MACHINE_ID, repos: [LAUNCH], maxInFlight: 1000 };
   sandboxRuntime.slots = () => [slotA, slotB];
   config.factory.sandbox.maxParallel = 100;
-  const entry = (i: number) => ({ key: `ONB${i}-${stamp % 100000}`, sandbox_id: null, attempt: 1, source: "linear" as const, repo: LAUNCH, branch: `factory/ONB${i}`, threadTitle: "t", message: "Work it", harness: { provider: "codex", model: "gpt-6-astra" }, ticket: null });
+  const entry = (i: number) => ({ key: `ONB${i}-${stamp % 100000}`, sandbox_id: null, attempt: 1, source: "linear" as const, repo: LAUNCH, branch: `hive/ONB${i}`, threadTitle: "t", message: "Work it", harness: { provider: "codex", model: "gpt-6-astra" }, ticket: null });
   fake.answer = (_sandbox, argv) => (argv.slice(0, 3).join(" ") === "t3 thread start" ? { stdout: '{"threadId":"thread-warm"}' } : argv[0] === "claude" ? { stdout: "[]" } : {});
   const registryNow = async () => db.select().from(repoSettings).where(eq(repoSettings.repo, LAUNCH));
   const [warmLaunch] = await launchInSandboxes([entry(0)], slot, async () => {}, await registryNow());

@@ -137,7 +137,7 @@ export function capabilities(): Omit<Capabilities, "checkout"> {
 export const fallbackNoteKey = (attempt: number) => `ticket-overrides:${attempt}`;
 
 export const fallbackComment = (notes: readonly string[]) =>
-  ["marshal-factory could not apply this issue's override labels as they are:", "", ...notes.map((n) => `- ${n}`)].join("\n");
+  ["Hive could not apply this issue's override labels as they are:", "", ...notes.map((n) => `- ${n}`)].join("\n");
 
 /**
  * Tells the issue and the audit log about this attempt's fallbacks, once: the comment and the

@@ -83,9 +83,9 @@ export function appendEvent(
       appendFileSync(droppedLog(state), `${new Date().toISOString()} dropped ${kind} ${eventId} (outbox over ${hardCap})\n`);
       rmSync(join(dir, old), { force: true });
     }
-    warn(`marshal-factory outbox: dropped ${dropped.length} undelivered events past ${hardCap}; see ${droppedLog(state)}`);
+    warn(`Hive outbox: dropped ${dropped.length} undelivered events past ${hardCap}; see ${droppedLog(state)}`);
   } else if (names.length > highWater) {
-    warn(`marshal-factory outbox: ${names.length} undelivered events in ${dir}; ingest has not answered for a while`);
+    warn(`Hive outbox: ${names.length} undelivered events in ${dir}; ingest has not answered for a while`);
   }
   return { file: name, pending: names.length - dropped.length, dropped };
 }

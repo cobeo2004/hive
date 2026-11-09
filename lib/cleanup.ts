@@ -1,4 +1,4 @@
-/** What the factory knows about one factory/<KEY> branch in a target repo. */
+/** What the factory knows about one hive/<KEY> branch in a target repo. */
 export type BranchState = {
   key: string;
   branch: string;

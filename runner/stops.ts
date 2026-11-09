@@ -147,7 +147,7 @@ async function checkThread(row: JobRow, stop: StopRecord, threadId: string, timi
     ...(parent.state === "running" ? [{ threadId, runId: parent.activeRunId }] : []),
     ...running.map((s) => ({ threadId: s.threadId, runId: s.latestRunId })),
   ];
-  const reason = `marshal-factory stopped ${row.key}: ${stop.reason}`;
+  const reason = `Hive stopped ${row.key}: ${stop.reason}`;
   const results = [];
   for (const target of targets) {
     const requestId = `marshal-factory:stop:${row.id}:${stop.requestedAt}:retry-${stop.retries}:${target.threadId}:${target.runId ?? "latest"}`;

@@ -125,9 +125,9 @@ assert.equal(githubIntent("pull_request_review", review({}, { login: "cursor[bot
 assert.equal(githubIntent("pull_request_review", review({}, { login: "marshal-factory-ski043[bot]", type: "Bot" })), null, "nor is the factory's App");
 assert.equal(githubIntent("pull_request_review", review({ state: "approved" })), null, "an approval asks for nothing");
 assert.equal(githubIntent("pull_request_review", { ...review(), action: "edited" }), null, "an edit is not a new review");
-const onBranch = githubIntent("pull_request_review", { ...review(), pull_request: { html_url: "https://github.com/o/r/pull/1", head: { ref: "factory/FAC-5" } } });
+const onBranch = githubIntent("pull_request_review", { ...review(), pull_request: { html_url: "https://github.com/o/r/pull/1", head: { ref: "hive/FAC-5" } } });
 const branchDetail = feedbackDetailSchema.parse(JSON.parse(onBranch!.detail!));
-assert.equal(branchDetail.from === "github" ? branchDetail.branch : null, "factory/FAC-5", "the head branch finds a job that has not recorded its PR yet");
+assert.equal(branchDetail.from === "github" ? branchDetail.branch : null, "hive/FAC-5", "the head branch finds a job that has not recorded its PR yet");
 
 const followUp = followUpIssue(
   { key: "FAC-9", url: "https://linear.app/x/issue/FAC-9", pr_url: "https://github.com/o/r/pull/9" },
@@ -218,7 +218,7 @@ hosts.wake = async (job) => {
   return localHost;
 };
 ingestClient.post = async (event) => ingest(db, [eventSchema.parse(event)]);
-SOURCES.linear.labels = async () => ["factory"];
+SOURCES.linear.labels = async () => ["hive"];
 SOURCES.linear.note = async () => {};
 
 // --- database
@@ -475,10 +475,10 @@ try {
   };
   const EARLY = await job("EARLY", { stage: "implementing" });
   const early = await reviewIntentRow("early", { pr_url: prUrl(9) });
-  const earlyFeedback = { ...reviewFeedback, id: "review:early", branch: `factory/${EARLY}` };
+  const earlyFeedback = { ...reviewFeedback, id: "review:early", branch: `hive/${EARLY}` };
   assert.deepEqual(await forward(early, earlyFeedback), { waiting: "the job has no pull request yet" }, "a review before the job records its PR waits");
   assert.equal((await db.select().from(intents).where(eq(intents.id, early.id)))[0]!.job_id, (await row(EARLY)).id, "the branch ties the intent to the job, so it routes to the job's machine");
-  assert.deepEqual(await forward({ ...early, job_id: null }, { ...earlyFeedback, branch: `factory/${EARLY}-a2` }), { skipped: "the pull request is not a factory job's" }, "another attempt's branch is not this job's");
+  assert.deepEqual(await forward({ ...early, job_id: null }, { ...earlyFeedback, branch: `hive/${EARLY}-a2` }), { skipped: "the pull request is not a factory job's" }, "another attempt's branch is not this job's");
   pulls.set(keyOf(REPO, 9), { repo: REPO, number: 9, head: "h9", state: "open", merged: null, mergeable: true, behind: 0, checks: "success", files: [], merge: { status: 200, body: {} } });
   await db.update(jobs).set({ stage: "pr", pr_url: prUrl(9) }).where(eq(jobs.key, EARLY));
   assert.deepEqual(await forward({ ...early, job_id: null }, earlyFeedback), { sent: EARLY, moved: true }, "the retry finds the job by its PR now and forwards it");

@@ -4,6 +4,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
 import { repoSettings, type RepoSettingsRow } from "../db/schema";
+import { BRANCH_PREFIX } from "../lib/factory";
 import type { RepoName } from "../lib/github/app";
 import { fileOnDefaultBranch } from "../lib/github/installation";
 import { github } from "../lib/github/pulls";
@@ -54,7 +55,7 @@ import { threads } from "./threads";
 //   onboard   main has a valid recipe: take it (its checks run in the image build). Otherwise an
 //             agent run: a sandbox from the base image, T3 started as for a job, one thread on the
 //             Settings harness with playbooks/onboarding.md, which commits the recipe on
-//             factory/onboarding, opens its PR and writes ONBOARDING_RESULT
+//             hive/onboarding, opens its PR and writes ONBOARDING_RESULT
 //   agent     the tick waits for the thread to settle, reads the result, hands the login back and
 //             ends the sandbox; the recipe then needs secrets (needs_input) or goes to building
 //   build     a sandbox from the base image clones origin/main, installs and sets up in the
@@ -64,7 +65,7 @@ import { threads } from "./threads";
 // One build at a time per machine. A push that touches the recipe or its warmKey, a base image
 // rebuilt or re-pinned, or the owner's Rebuild image starts another; the old image serves meanwhile.
 
-export const ONBOARDING_BRANCH = "factory/onboarding";
+export const ONBOARDING_BRANCH = `${BRANCH_PREFIX}onboarding`;
 export const ONBOARDING_RESULT = `${BUILD_DIR}/result.json`;
 const AGENT_GIVE_UP_MS = 90 * 60_000;
 /** An agent run on another machine still without a sandbox after this died before creating it. */
@@ -215,7 +216,7 @@ async function applyRecipe(repo: string, recipe: Recipe, extra: Partial<Onboardi
 
 function agentMessage(repo: string, detail: OnboardingDetail, committedError: string | undefined) {
   return [
-    `Onboard ${repo} to marshal-factory: write its setup recipe, ${RECIPE_PATH}, prove it, and open a pull request with it.`,
+    `Onboard ${repo} to Hive: write its setup recipe, ${RECIPE_PATH}, prove it, and open a pull request with it.`,
     "",
     `This is an unattended onboarding run. Follow the playbook below. The repo is cloned at ${REPO_DIR}; your worktree is on branch ${ONBOARDING_BRANCH}. Write the result to ${ONBOARDING_RESULT} last, then end the turn.`,
     ...(committedError ? ["", `main already has a ${RECIPE_PATH}, but the factory cannot use it: ${committedError} Fix it in your recipe.`] : []),
