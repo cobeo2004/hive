@@ -52,7 +52,8 @@ export const session = {
  * the session, so reading headers() then finds the deleted session and /setup sends the user to sign-in. */
 async function currentHeaders() {
   const current = new Headers(await headers());
-  current.set("cookie", (await cookies()).toString());
+  // toString() would give Set-Cookie text (with Path, Expires…) inside a server action; a Cookie header is name=value pairs.
+  current.set("cookie", (await cookies()).getAll().map((c) => `${c.name}=${encodeURIComponent(c.value)}`).join("; "));
   return current;
 }
 
