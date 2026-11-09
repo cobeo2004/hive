@@ -1,0 +1,41 @@
+# .sstack/project.toml — repo-only project settings. Replaced whole by `local/project.toml`.
+brief  = ".sstack/product.md"
+docs   = ["docs/prd.md", "docs/glossary.md", "docs/operations.md"]
+# bun 1.4.4 (package.json packageManager); next typegen writes route types into .next/ for tsc.
+# test:regressions needs the neon CLI signed in and a project id (.neon or NEON_PROJECT_ID).
+verify = [
+  "bun run lint",
+  "bunx next typegen && bunx tsc --noEmit",
+  "bun run test:regressions",
+]
+check  = "bunx eslint {path}"
+graph  = true
+
+[test.code]
+framework = "bun scripts, scripts/<name>-regressions.ts, each against a temporary Neon branch (docs/operations.md § Testing)"
+run       = "bun run test:regressions {path}"   # {path} = name prefix, e.g. ingest
+
+# No e2e runner: UI changes get a live check in the T3 Code browser (preview_* tools).
+[test.browser]
+framework = "none: live check in the T3 Code browser"
+serve     = "bun run dev"                        # needs .env.local (database, auth)
+url       = "http://localhost:3000"
+run       = ""
+
+# No native app: the panel is checked in a mobile browser on a T3 Code device (device_* tools).
+[test.mobile]
+framework = "none: panel in a mobile browser on a T3 Code device"
+build     = ""
+run       = ""
+
+# Read by dispatched children whose --files match. Repo docs outrank third-party skills.
+[practices]
+"app/**"        = ["vercel-react-best-practices", "docs/operations.md"]
+"components/**" = ["vercel-react-best-practices", "docs/operations.md"]
+"db/**"         = ["docs/operations.md"]
+"drizzle/**"    = ["docs/operations.md"]
+"lib/**"        = ["docs/operations.md"]
+"runner/**"     = ["docs/operations.md"]
+"functions/**"  = ["docs/operations.md"]
+"docs/**"       = ["docs/glossary.md"]
+"playbooks/**"  = ["docs/glossary.md"]

@@ -11,3 +11,8 @@ next-env.d.ts
 /out/
 .neon
 .neon
+
+# sstack and OMC local state
+.sstack/local/
+.sstack/runs/
+.omc/
