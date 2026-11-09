@@ -59,7 +59,7 @@ export type SandboxLimits = z.infer<typeof sandboxSchema>;
 export const factorySchema = z
   .object({
     teamKey: z.string().default("FAC"),
-    label: z.string().default("factory"),
+    label: z.string().default("hive"),
     maxInFlight: z.number().int().positive().default(4),
     /** A working job with no event for this long, or whose thread stopped, gets one nudge. */
     stuckAfterMinutes: z.number().positive().default(30),

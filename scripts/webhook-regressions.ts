@@ -23,7 +23,7 @@ assert.equal(verifyGithub("{}", `sha256=${sign("{}")}`, secret).ok, true);
 assert.equal(verifyGithub("{}", sign("{}"), secret).ok, false, "GitHub signatures need the sha256= prefix");
 assert.equal(verifyGithub("{}", `sha256=${createHmac("sha256", "").update("{}").digest("hex")}`, "").ok, false, "an empty secret verifies nothing");
 
-const opts = { FACTORY_TEAM_KEY: "FAC", FACTORY_LABEL: "factory" };
+const opts = { FACTORY_TEAM_KEY: "FAC", FACTORY_LABEL: "hive" };
 const linearIntent = (body: unknown, env: typeof opts) => webhook.intent(body, env);
 const issue = (over: Record<string, unknown> = {}, updatedFrom?: Record<string, unknown>) => ({
   action: "update",
@@ -33,7 +33,7 @@ const issue = (over: Record<string, unknown> = {}, updatedFrom?: Record<string, 
     id: "i1",
     identifier: "FAC-11",
     team: { key: "FAC" },
-    labels: [{ id: "l1", name: "factory" }],
+    labels: [{ id: "l1", name: "hive" }],
     labelIds: ["l1"],
     state: { type: "unstarted", name: "Todo" },
     ...over,
@@ -74,7 +74,7 @@ assert.deepEqual(
 );
 assert.equal(githubIntent("pull_request", { action: "closed", pull_request: { html_url: "u", merged: false } }), null, "a closed, unmerged PR is not a merge");
 assert.equal(githubIntent("push", { ref: "refs/heads/main", repository: { default_branch: "main" } })?.kind, "recheck_conflicts");
-assert.equal(githubIntent("push", { ref: "refs/heads/factory/FAC-1", repository: { default_branch: "main" } }), null);
+assert.equal(githubIntent("push", { ref: "refs/heads/hive/FAC-1", repository: { default_branch: "main" } }), null);
 assert.equal(githubIntent("ping", {}), null);
 for (const event of ["installation", "installation_repositories", "issues", "check_suite", "check_run"]) {
   assert.equal(githubIntent(event, { action: "created" }), null, `a ${event} delivery carries no intent`);

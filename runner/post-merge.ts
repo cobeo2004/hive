@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { jobs } from "../db/schema";
+import { BRANCH_PREFIX } from "../lib/factory";
 import { installationTokens, type RepoName } from "../lib/github/app";
 import { github, parsePullUrl } from "../lib/github/pulls";
 import { localHost, type JobHost } from "../lib/host";
@@ -46,7 +47,7 @@ type Reverted = { ok: true; url: string } | { ok: false; reason: string; url: st
 /** Reverts the merge on its base branch with a factory PR that merges at once; idempotent for a merged revert. */
 export async function revertMerge(prUrl: string, merged: FactoryMerge, failed: readonly string[]): Promise<Reverted> {
   const { repo, number } = parsePullUrl(prUrl);
-  const branch = `factory/revert-${number}`;
+  const branch = `${BRANCH_PREFIX}revert-${number}`;
   const existing = await github.pullRequestForBranch(repo, branch);
   if (existing?.state === "merged") return { ok: true, url: existing.url };
   const checkout = await revertDeps.checkout(repo);

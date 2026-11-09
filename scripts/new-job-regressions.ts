@@ -58,7 +58,7 @@ const draft = { title: "Show the item count", description: "On the weight sort b
     if (query.includes("issue(id:")) return Response.json({ data: { issue: { identifier: "FAC-77", url: "https://linear.app/x/issue/FAC-77" } } });
     throw new Error(`unexpected query ${query.slice(0, 60)}`);
   }) as unknown as typeof fetch;
-  const file = linearFiler("key", "FAC", "factory", { fetch: fetchFake, sleep: async () => {} });
+  const file = linearFiler("key", "FAC", "hive", { fetch: fetchFake, sleep: async () => {} });
 
   assert.deepEqual(await file(draft), { key: "FAC-77", url: "https://linear.app/x/issue/FAC-77" }, "the issue is filed");
   const creates = () => sent.filter((r) => r.query.includes("issueCreate")).map((r) => r.variables.input as Record<string, unknown>);

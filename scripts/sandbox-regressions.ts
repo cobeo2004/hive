@@ -136,7 +136,7 @@ Object.assign(sandboxRuntime, {
   slotHealthPath: join(mkdtempSync(join(tmpdir(), "slot-health-")), "codex-slots.json"),
 });
 const claudeCode = { provider: "claudeAgent", model: "claude-opus-5-5" };
-const entry = (key: string, harness = claudeCode) => ({ key, sandbox_id: null, attempt: 1, source: "linear" as const, repo: "ski043/factory-demo", branch: `factory/${key}`, threadTitle: `${key} t`, message: `Work ${key}`, harness, ticket: null });
+const entry = (key: string, harness = claudeCode) => ({ key, sandbox_id: null, attempt: 1, source: "linear" as const, repo: "ski043/factory-demo", branch: `hive/${key}`, threadTitle: `${key} t`, message: `Work ${key}`, harness, ticket: null });
 const row = async (key: string) => (await db.select().from(jobs).where(eq(jobs.key, key)))[0]!;
 const ids = keys.map((k) => `sandbox-regress-${k}`);
 
@@ -235,7 +235,7 @@ try {
   const order = (needle: string) => argvs.findIndex((a) => a.includes(needle));
   assert.ok(order("git clone") < order("t3 serve") && order("t3 serve") < order("t3 project add") && order("t3 project add") < order("t3 thread start"), "clone, serve, project, then the thread");
   const startExec = sbA.execs.find((e) => e.argv[2] === "start")!;
-  assert.deepEqual(startExec.argv, ["t3", "thread", "start", REPO_DIR, "-", "--worktree", "origin/main", "--branch", `factory/${keys[0]}`, "--title", `${keys[0]} t`, "--provider", "codex", "--model", "gpt-6-astra", "--json"]);
+  assert.deepEqual(startExec.argv, ["t3", "thread", "start", REPO_DIR, "-", "--worktree", "origin/main", "--branch", `hive/${keys[0]}`, "--title", `${keys[0]} t`, "--provider", "codex", "--model", "gpt-6-astra", "--json"]);
   assert.ok(startExec.input.startsWith(`Work ${keys[0]}\n\n## Factory playbook\n`), "the message, then the playbook the image holds");
 
   // The only slot is held now: the next job stays queued.
@@ -298,7 +298,7 @@ try {
   await db.update(jobs).set({ t3_thread_id: "pending:1" }).where(eq(jobs.key, keys[3]!));
   fake.answer = (_sandbox, argv) => {
     if (argv.join(" ") === `t3 thread list --project ${REPO_DIR} --json`) return { stdout: '[{"threadId":"thread-late"}]' };
-    if (argv.join(" ") === "t3 thread show thread-late --json") return { stdout: JSON.stringify({ thread: { branch: `factory/${keys[3]}` } }) };
+    if (argv.join(" ") === "t3 thread show thread-late --json") return { stdout: JSON.stringify({ thread: { branch: `hive/${keys[3]}` } }) };
     return {};
   };
   const checkouts = new Map([["ski043/factory-demo", "/unused"]]);

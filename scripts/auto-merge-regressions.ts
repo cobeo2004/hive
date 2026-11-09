@@ -235,7 +235,7 @@ ingestClient.post = async (event) => ingest(db, [eventSchema.parse(event)]);
 hosts.wake = async (j) => {
   throw new Error(`woke ${j.key}`);
 };
-SOURCES.linear.labels = async () => ["factory"];
+SOURCES.linear.labels = async () => ["hive"];
 const notes: { key: string; id: string; body: string }[] = [];
 SOURCES.linear.note = async (j, id, body) => void notes.push({ key: j.key, id, body });
 const notesOf = (k: string) => notes.filter((n) => n.key === k).map((n) => n.body);
@@ -363,11 +363,11 @@ try {
   assert.equal((await decision(GOOD)).watch!.state, "green");
   assert.equal((await decision(ALREADY)).watch!.state, "watching", "pending checks keep watching");
   const mc = (await decision(MC)).watch!;
-  const revertPull = [...pulls.values()].find((p) => p.branch === "factory/revert-5")!;
+  const revertPull = [...pulls.values()].find((p) => p.branch === "hive/revert-5")!;
   assert.deepEqual(mc, { state: "reverted", until: mc.until, failed: ["build", "ci/lint"], revertPr: prUrl(MERGE_ONLY, revertPull.number), reason: null });
   assert.equal(revertPull.title, 'Revert "Title 5" (#5)');
   const created = writes.find((w) => w.method === "POST" && w.path === `/repos/${MERGE_ONLY}/pulls`)!;
-  assert.deepEqual([created.body.head, created.body.base], ["factory/revert-5", "main"]);
+  assert.deepEqual([created.body.head, created.body.base], ["hive/revert-5", "main"]);
   assert.match(String(created.body.body), /- build\n- ci\/lint/);
   assert.deepEqual(putsTo(MERGE_ONLY, revertPull.number).map((w) => [w.body.sha, w.body.merge_method]), [["revert-head", "merge"]], "the revert merges at once");
 
@@ -375,11 +375,11 @@ try {
   const argv = gitCalls.map((c) => c.args.filter((a) => !a.startsWith("credential.helper=!")).join(" "));
   const expect = [
     `fetch origin main`,
-    `worktree add -B factory/revert-5 ${dir} origin/main`,
+    `worktree add -B hive/revert-5 ${dir} origin/main`,
     `rev-list --parents -n 1 m5`,
     `-c user.name=marshal-factory -c user.email=marshal-factory@users.noreply.github.com revert --no-edit -m 1 m5`,
     `rev-parse HEAD`,
-    `-c credential.helper= -c push --force https://github.com/${MERGE_ONLY}.git HEAD:refs/heads/factory/revert-5`,
+    `-c credential.helper= -c push --force https://github.com/${MERGE_ONLY}.git HEAD:refs/heads/hive/revert-5`,
   ];
   let from = 0;
   for (const step of expect) {

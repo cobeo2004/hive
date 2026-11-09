@@ -46,7 +46,7 @@ async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
 }
 
 const stageEvent = (k: string, eventId: string, over: Record<string, unknown> = {}) =>
-  ({ eventId, sessionId: `mcp:factory/${k}`, at: Date.now(), kind: "stage", stage: "implementing", summary: "Building it.", jobKey: k, branch: `factory/${k}`, ...over }) as FactoryEvent;
+  ({ eventId, sessionId: `mcp:hive/${k}`, at: Date.now(), kind: "stage", stage: "implementing", summary: "Building it.", jobKey: k, branch: `hive/${k}`, ...over }) as FactoryEvent;
 
 // A local stand-in for the deployed ingest function: same auth, same body schema, same projection.
 const SECRET = "test-secret";
@@ -117,7 +117,7 @@ try {
       // Every event of the batch is on disk before the POST.
       assert.equal(pending(unit).length >= batch.length, true, "appended before sent");
       if (batch.some((e) => e.eventId === "bad")) return { kind: "rejected" as const, reason: "ingest answered 400" };
-      return answer === "delivered" ? { kind: "delivered" as const, spend: { "factory/X-1": 1 } } : { kind: "failed" as const, reason: "ingest answered 503" };
+      return answer === "delivered" ? { kind: "delivered" as const, spend: { "hive/X-1": 1 } } : { kind: "failed" as const, reason: "ingest answered 503" };
     };
     for (const id of ["e1", "e2", "e3"]) appendEvent(unit, stageEvent("X-1", id));
     const failed = await flushOutbox(localFs, unit, send, { budgetMs: 5_000 });
@@ -129,7 +129,7 @@ try {
     const flushed = await flushOutbox(localFs, unit, send, { budgetMs: 5_000 });
     assert.deepEqual(sent[1], ["e1", "e2", "e3", "bad", "e5"], "oldest first, in append order");
     assert.deepEqual([flushed.delivered, flushed.rejected, flushed.left], [4, ["bad"], 0], "a refused batch is retried one by one; only the refused event is set aside");
-    assert.deepEqual(flushed.spend, { "factory/X-1": 1 });
+    assert.deepEqual(flushed.spend, { "hive/X-1": 1 });
     assert.equal(pending(unit).length, 0, "delivered events leave the outbox");
     assert.equal(readdirSync(rejectedDir(unit)).length, 1, "the refused one waits in outbox-rejected");
     const empty = await flushOutbox(localFs, unit, send, { budgetMs: 0 });
@@ -162,15 +162,15 @@ try {
   assert.equal(mcpPosts({ FACTORY_REPORTER: "hook" }), false);
   assert.equal(mcpPosts({ CLAUDECODE: "1" }), false, "wiring without the variable stays quiet under Claude Code");
   assert.equal(mcpPosts({}), true);
-  assert.deepEqual(mcpIdentity({ FACTORY_JOB_KEY: "FAC-5", FACTORY_ATTEMPT: "2" }, "/nowhere"), { jobKey: "FAC-5", branch: "factory/FAC-5-a2", sessionId: "mcp:factory/FAC-5-a2" });
-  assert.deepEqual(mcpIdentity({}, "/x", () => "factory/FAC-6"), { jobKey: "FAC-6", branch: "factory/FAC-6", sessionId: "mcp:factory/FAC-6" }, "else the checked-out branch");
+  assert.deepEqual(mcpIdentity({ FACTORY_JOB_KEY: "FAC-5", FACTORY_ATTEMPT: "2" }, "/nowhere"), { jobKey: "FAC-5", branch: "hive/FAC-5-a2", sessionId: "mcp:hive/FAC-5-a2" });
+  assert.deepEqual(mcpIdentity({}, "/x", () => "hive/FAC-6"), { jobKey: "FAC-6", branch: "hive/FAC-6", sessionId: "mcp:hive/FAC-6" }, "else the checked-out branch");
   assert.equal(mcpIdentity({}, "/x", () => "main"), undefined, "off a factory branch it reports nothing");
   assert.equal(mcpIdentity({ FACTORY_JOB_KEY: "FAC-5", FACTORY_ATTEMPT: "0" }, "/x"), undefined);
 
   // Codex: the MCP server posts every stage through the outbox, and the job moves.
   const CODEX = await insert("CODEX", {});
   const codexEnv = { FACTORY_REPORTER: "mcp", FACTORY_JOB_KEY: CODEX, FACTORY_ATTEMPT: "1", FACTORY_REPO: "factory-demo" };
-  const session = `mcp:factory/${CODEX}`;
+  const session = `mcp:hive/${CODEX}`;
   const first = await mcp(codexEnv);
   ingestDown = true;
   assert.match(await first.report({ stage: "triage", summary: "Reading the issue." }), /queued and will be delivered later/);
@@ -187,7 +187,7 @@ try {
   const stagesOf = async (k: string) => (await db.select().from(events).where(eq(events.job_key, k))).filter((e) => e.kind === "stage").map((e) => (e.payload as { stage: string }).stage);
   assert.deepEqual((await stagesOf(CODEX)).sort(), ["implementing", "triage"]);
   const [run] = await db.select().from(runs).where(eq(runs.session_id, session));
-  assert.deepEqual([run!.job_key, run!.branch, run!.repo, run!.stage], [CODEX, `factory/${CODEX}`, "factory-demo", "implementing"], "a tracked run for the attempt");
+  assert.deepEqual([run!.job_key, run!.branch, run!.repo, run!.stage], [CODEX, `hive/${CODEX}`, "factory-demo", "implementing"], "a tracked run for the attempt");
 
   const prUrl = `https://github.com/ski043/factory-demo/pull/${stamp}`;
   const prReply = await first.report({ stage: "pr", summary: "PR is up.", prUrl, assessment });
@@ -219,7 +219,7 @@ try {
 
   // Claude Code: its hooks report, the server only validates, so a stage lands once.
   const CLAUDE = await insert("CLAUDE", { provider: "claudeAgent" });
-  const repo = gitRepo(`factory/${CLAUDE}`);
+  const repo = gitRepo(`hive/${CLAUDE}`);
   for (const env of [{ CLAUDECODE: "1" }, { FACTORY_REPORTER: "hook" }] as Record<string, string>[]) {
     const quiet = await mcp(env, repo);
     assert.equal(await quiet.report({ stage: "triage", summary: "Reading." }), "Recorded stage triage.");
@@ -307,7 +307,7 @@ try {
   const END = await insert("END", {});
   const sbEnd = await sandboxFor(END);
   await db.update(jobs).set({ stage: "failed", sandbox_id: sbEnd.sandboxId }).where(eq(jobs.key, END));
-  queue(sbEnd, { eventId: `abc${stamp}end`, sessionId: `mcp:factory/${END}`, at: Date.now(), kind: "session_end", reason: "other" }, 1);
+  queue(sbEnd, { eventId: `abc${stamp}end`, sessionId: `mcp:hive/${END}`, at: Date.now(), kind: "session_end", reason: "other" }, 1);
   await teardownFinished();
   assert.ok(sbEnd.terminated);
   assert.deepEqual(await eventIds([`abc${stamp}end`]), [`abc${stamp}end`], "delivered before teardown");
@@ -319,7 +319,7 @@ try {
   const sbRefused = await sandboxFor(REFUSED);
   await db.update(jobs).set({ stage: "failed", sandbox_id: sbRefused.sandboxId }).where(eq(jobs.key, REFUSED));
   queue(sbRefused, stageEvent(REFUSED, `abc${stamp}refused`, { stage: "pr", summary: "PR is up.", prUrl: `${prUrl}5`, at: Date.now() - 60_000 }), 1);
-  queue(sbRefused, { eventId: `abc${stamp}after`, sessionId: `mcp:factory/${REFUSED}`, at: Date.now(), kind: "session_end", reason: "other" }, 2);
+  queue(sbRefused, { eventId: `abc${stamp}after`, sessionId: `mcp:hive/${REFUSED}`, at: Date.now(), kind: "session_end", reason: "other" }, 2);
   const realSend = outboxClient.send;
   outboxClient.send = async (batch) =>
     batch.some((e) => e.eventId === `abc${stamp}refused`) ? { kind: "rejected", reason: "ingest answered 400" } : { kind: "delivered", spend: (await ingest(db, batch)).spend };
@@ -340,8 +340,8 @@ try {
   process.exitCode = 1;
 } finally {
   await server.close();
-  await db.delete(events).where(or(inArray(events.job_key, keys), like(events.session_id, `mcp:factory/OB%-${stamp}`), like(events.session_id, `claude-OB%-${stamp}`)));
-  await db.delete(runs).where(or(inArray(runs.job_key, keys), like(runs.session_id, `mcp:factory/OB%-${stamp}`)));
+  await db.delete(events).where(or(inArray(events.job_key, keys), like(events.session_id, `mcp:hive/OB%-${stamp}`), like(events.session_id, `claude-OB%-${stamp}`)));
+  await db.delete(runs).where(or(inArray(runs.job_key, keys), like(runs.session_id, `mcp:hive/OB%-${stamp}`)));
   await db.delete(jobs).where(like(jobs.id, `${jobId("linear", "outbox-regress-")}%`));
   process.exit(process.exitCode ?? 0);
 }

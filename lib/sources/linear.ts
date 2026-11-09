@@ -90,7 +90,7 @@ const webhook: SourceWebhook = {
   deliveryHeader: "Linear-Delivery",
   eventHeader: "Linear-Event",
   verify: (raw, headers, secret, now) => verifyLinear(raw, headers.get("linear-signature"), secret, now),
-  intent: (body, env) => linearIntent(body, { teamKey: env.FACTORY_TEAM_KEY ?? "FAC", label: env.FACTORY_LABEL ?? "factory" }),
+  intent: (body, env) => linearIntent(body, { teamKey: env.FACTORY_TEAM_KEY ?? "FAC", label: env.FACTORY_LABEL ?? "hive" }),
 };
 
 /** Linear state types that end an issue; a waiting run on one of them never resumes. */
@@ -196,7 +196,7 @@ const writeBackTable = (factoryLabel: string): Partial<Record<Stage, WriteBack>>
     state: "In Review",
     comment: (i) =>
       [
-        `marshal-factory has a pull request ready for review: ${i.pr_url}`,
+        `Hive has a pull request ready for review: ${i.pr_url}`,
         i.stage_summary ?? "",
         i.merge_assessment?.assumptions.length ? `**Assumptions I made**\n\n${i.merge_assessment.assumptions.map((a) => `- ${a}`).join("\n")}` : "",
       ]
@@ -205,7 +205,7 @@ const writeBackTable = (factoryLabel: string): Partial<Record<Stage, WriteBack>>
   },
   waiting: {
     comment: (i) =>
-      `marshal-factory stopped and needs an answer before it can continue:\n\n${i.question ?? i.stage_summary}`,
+      `Hive stopped and needs an answer before it can continue:\n\n${i.question ?? i.stage_summary}`,
   },
   // Back to Todo without the factory label, so the runner does not pick it up again in a loop.
   // Adding the label again retries it as a new attempt.
@@ -213,7 +213,7 @@ const writeBackTable = (factoryLabel: string): Partial<Record<Stage, WriteBack>>
     state: "Todo",
     labels: { add: [FAILED_LABEL], remove: [factoryLabel] },
     comment: (i) =>
-      `marshal-factory gave up on this issue (attempt ${i.attempt}): ${i.stage_summary}\n\nAdd the \`${factoryLabel}\` label again to retry.`,
+      `Hive gave up on this issue (attempt ${i.attempt}): ${i.stage_summary}\n\nAdd the \`${factoryLabel}\` label again to retry.`,
   },
   merged: { state: "Done" },
 });
@@ -293,8 +293,8 @@ export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>
         job,
         claimCommentId(job.writeback.issueId, job.attempt),
         job.attempt > 1
-          ? `Picked up by marshal-factory again (attempt ${job.attempt}, branch ${attemptBranch(job.key, job.attempt)}).`
-          : "Picked up by marshal-factory.",
+          ? `Picked up by Hive again (attempt ${job.attempt}, branch ${attemptBranch(job.key, job.attempt)}).`
+          : "Picked up by Hive.",
       );
       await recordState(d, job, ANNOUNCED, { updated_at: new Date() });
     },
@@ -484,7 +484,7 @@ export function linearUploader(apiKey: string, options?: LinearOptions & { put?:
 const fileFromEnv = (draft: FileDraft) => {
   const key = process.env.LINEAR_API_KEY;
   if (!key) throw new Error("LINEAR_API_KEY is not set, so the panel cannot file jobs in Linear");
-  return linearFiler(key, process.env.FACTORY_TEAM_KEY ?? "FAC", process.env.FACTORY_LABEL ?? "factory")(draft);
+  return linearFiler(key, process.env.FACTORY_TEAM_KEY ?? "FAC", process.env.FACTORY_LABEL ?? "hive")(draft);
 };
 
 /** Adds the label groups and children the team is missing, as the runner's label sync does, from the panel. */

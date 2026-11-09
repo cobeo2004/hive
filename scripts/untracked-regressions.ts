@@ -61,9 +61,9 @@ try {
   const TRACKED = await insert("TRACKED", { provider: "claudeAgent", stage_at: hourAgo });
   const ASLEEP = await insert("ASLEEP", { stage_at: hourAgo, sandbox_snapshot: "im-snap-asleep" });
   const only = { only: keys.slice() };
-  prs.set(`factory/${PR}`, { url: prUrl(1), state: "open" });
-  prs.set(`factory/${MERGED}`, { url: prUrl(2), state: "merged" });
-  prs.set(`factory/${TRACKED}`, { url: prUrl(3), state: "open" });
+  prs.set(`hive/${PR}`, { url: prUrl(1), state: "open" });
+  prs.set(`hive/${MERGED}`, { url: prUrl(2), state: "merged" });
+  prs.set(`hive/${TRACKED}`, { url: prUrl(3), state: "open" });
   shown.set(`thread-${DONE}`, { state: "stopped", status: "completed", lastMessage: "Done. The token ghs_abcdefghijklmnopqrstuvwxyz0123 did not work, so no PR. Should I use the v2 API?" });
   shown.set(`thread-${FRESH}`, { state: "stopped", status: "completed", lastMessage: "finished" });
   shown.set(`thread-${FAILED}`, { state: "stopped", status: "failed", lastMessage: "crashed" });
@@ -94,10 +94,10 @@ try {
   assert.deepEqual([failed.stage, failed.stage_summary], ["failed", "Watchdog stopped this run: its T3 thread failed (stage implementing)."], "a failed thread fails the job as the watchdog would");
   assert.match(failed.stage_event_id!, /^watchdog:/);
   assert.equal((await row(TRACKED)).stage, "queued", "a tracked harness reports its own stages");
-  assert.ok(!lookedUp.includes(`factory/${TRACKED}`) && !read.includes(`thread-${TRACKED}`), "and is not looked up");
+  assert.ok(!lookedUp.includes(`hive/${TRACKED}`) && !read.includes(`thread-${TRACKED}`), "and is not looked up");
   const asleep = await row(ASLEEP);
   assert.deepEqual([asleep.stage, asleep.sandbox_snapshot], ["queued", "im-snap-asleep"], "a hibernated job is left asleep");
-  assert.ok(!read.includes(`thread-${ASLEEP}`) && !lookedUp.includes(`factory/${ASLEEP}`), "and never read");
+  assert.ok(!read.includes(`thread-${ASLEEP}`) && !lookedUp.includes(`hive/${ASLEEP}`), "and never read");
 
   const before = await Promise.all([PR, MERGED, DONE, FAILED].map(eventsOf));
   assert.deepEqual(before.map((ids) => ids.length), [1, 1, 1, 1], "one event per job");
@@ -124,7 +124,7 @@ try {
   shown.set(`thread-${CONFLICT}`, { state: "stopped", status: "completed", lastMessage: "Merged main." });
   assert.deepEqual(await inferUntracked({ only: [CONFLICT], now: later() }), [`${CONFLICT}:pr`]);
   assert.deepEqual([(await row(CONFLICT)).stage, (await row(CONFLICT)).pr_url], ["pr", prUrl(4)]);
-  assert.ok(!lookedUp.includes(`factory/${CONFLICT}`), "a job with a PR is not looked up again");
+  assert.ok(!lookedUp.includes(`hive/${CONFLICT}`), "a job with a PR is not looked up again");
 
   // The owner answers: the thread gets the answer, and a second settle without a PR asks again.
   SOURCES.linear.replies = async (job) =>
@@ -143,22 +143,22 @@ try {
   // A stage the agent reported through the MCP server stands within the grace: its own pr report,
   // with the assessment, comes first. After the grace the gap is filled as before.
   const REPORTED = await insert("REPORTED", {});
-  const mcpReport = { sessionId: `mcp:factory/${REPORTED}`, kind: "stage", jobKey: REPORTED, branch: `factory/${REPORTED}` } as const;
+  const mcpReport = { sessionId: `mcp:hive/${REPORTED}`, kind: "stage", jobKey: REPORTED, branch: `hive/${REPORTED}` } as const;
   await ingest(db, [eventSchema.parse({ ...mcpReport, eventId: `abc${stamp}verifying`, at: Date.now(), stage: "verifying", summary: "Running the checks." })]);
   assert.equal((await row(REPORTED)).stage, "verifying");
-  prs.set(`factory/${REPORTED}`, { url: prUrl(5), state: "open" });
+  prs.set(`hive/${REPORTED}`, { url: prUrl(5), state: "open" });
   shown.set(`thread-${REPORTED}`, { state: "stopped", status: "completed", lastMessage: "Opened the PR." });
   lookedUp.length = 0;
   assert.deepEqual(await inferUntracked({ only: [REPORTED] }), [], "inference does not override a stage reported inside the grace");
-  assert.ok(!lookedUp.includes(`factory/${REPORTED}`), "nor looks for its PR yet");
+  assert.ok(!lookedUp.includes(`hive/${REPORTED}`), "nor looks for its PR yet");
   await ingest(db, [eventSchema.parse({ ...mcpReport, eventId: `abc${stamp}pr`, at: Date.now(), stage: "pr", summary: "PR is up.", prUrl: prUrl(5) })]);
   assert.deepEqual(await inferUntracked({ only: [REPORTED], now: later() }), [], "a job the agent moved to pr is no longer inferred");
   const reported = await row(REPORTED);
   assert.deepEqual([reported.stage, reported.stage_summary, reported.stage_event_id], ["pr", "PR is up.", `abc${stamp}pr`], "the reported pr stands");
 
   const GAP = await insert("GAP", {});
-  await ingest(db, [eventSchema.parse({ ...mcpReport, sessionId: `mcp:factory/${GAP}`, jobKey: GAP, branch: `factory/${GAP}`, eventId: `abc${stamp}gap`, at: Date.now(), stage: "implementing", summary: "Building it." })]);
-  prs.set(`factory/${GAP}`, { url: prUrl(6), state: "open" });
+  await ingest(db, [eventSchema.parse({ ...mcpReport, sessionId: `mcp:hive/${GAP}`, jobKey: GAP, branch: `hive/${GAP}`, eventId: `abc${stamp}gap`, at: Date.now(), stage: "implementing", summary: "Building it." })]);
+  prs.set(`hive/${GAP}`, { url: prUrl(6), state: "open" });
   assert.deepEqual(await inferUntracked({ only: [GAP] }), [], "inside the grace the reported stage stands");
   assert.deepEqual(await inferUntracked({ only: [GAP], now: later() }), [`${GAP}:pr`], "past it, a PR the agent never reported fills the gap");
   const gap = await row(GAP);

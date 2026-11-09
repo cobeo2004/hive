@@ -58,7 +58,7 @@ const check = (name: EvidenceCheck["name"], passed: boolean, over: Partial<Evide
 const evidence = (k: string, sha: string, at: number, over: Record<string, unknown> = {}) =>
   eventSchema.parse({
     eventId: `evidence-regress-${k}-${sha}-${at}`,
-    sessionId: `evidence:factory/${k}`,
+    sessionId: `evidence:hive/${k}`,
     at,
     kind: "evidence",
     jobKey: k,
@@ -238,7 +238,7 @@ try {
     [SHA_B, false, 2, "verifying"],
     "the job's summary follows its newest evidence; the stage is the agent's and stays",
   );
-  assert.equal((await db.select().from(runs).where(eq(runs.session_id, `evidence:factory/${INGEST}`))).length, 0, "evidence opens no run");
+  assert.equal((await db.select().from(runs).where(eq(runs.session_id, `evidence:hive/${INGEST}`))).length, 0, "evidence opens no run");
   const [event] = await db.select().from(events).where(eq(events.event_id, `evidence-regress-${INGEST}-${SHA_A}-1000`));
   assert.equal(event!.job_key, INGEST, "the event is kept under the job");
   await ingest(db, [evidence(INGEST, "c".repeat(40), 6000, { attempt: 2 })]);
@@ -248,7 +248,7 @@ try {
 
   // The CLI: passing, failing and dirty runs, each at the exact HEAD, posted through the outbox.
   const CLI = await insert("CLI", { stage: "verifying" });
-  const passing = repoWith(`factory/${CLI}`, { test: "echo all good", lint: "true" });
+  const passing = repoWith(`hive/${CLI}`, { test: "echo all good", lint: "true" });
   const passed = await runVerify(passing, ["--json"]);
   assert.equal(passed.code, 0, passed.stderr);
   const posted = eventSchema.parse(JSON.parse(passed.stdout));
@@ -263,7 +263,7 @@ try {
   assert.equal(received.at(-1)![0]!.eventId, posted.eventId, "posted to ingest through the outbox");
   assert.deepEqual((await evidenceRows(CLI)).map((r) => [r.sha, r.clean]), [[posted.sha, true]], "and stored for that commit");
 
-  const failing = repoWith(`factory/${CLI}`, { test: `echo "token $GITHUB_TOKEN"; echo boom >&2; exit 3`, lint: "true" });
+  const failing = repoWith(`hive/${CLI}`, { test: `echo "token $GITHUB_TOKEN"; echo boom >&2; exit 3`, lint: "true" });
   const failed = await runVerify(failing, ["--json", "--no-post"], { GITHUB_TOKEN: SECRET_TOKEN });
   assert.equal(failed.code, 1, "a failing check exits 1");
   const failedEvent = eventSchema.parse(JSON.parse(failed.stdout));
@@ -280,7 +280,7 @@ try {
   assert.ok(dirtyEvent.kind === "evidence" && !dirtyEvent.clean && dirtyEvent.checks.every((c) => c.passed), "the checks pass, but the evidence is dirty");
   assert.match(dirty.stderr, /uncommitted changes/);
 
-  const recipeRepo = repoWith(`factory/${CLI}-a2`, { test: "exit 1" }, { ".factory/setup.json": JSON.stringify({ setup: [], checks: { test: "true", typecheck: "true" } }) });
+  const recipeRepo = repoWith(`hive/${CLI}-a2`, { test: "exit 1" }, { ".factory/setup.json": JSON.stringify({ setup: [], checks: { test: "true", typecheck: "true" } }) });
   const fromRecipe = eventSchema.parse(JSON.parse((await runVerify(recipeRepo, ["--json", "--no-post"])).stdout));
   assert.ok(fromRecipe.kind === "evidence");
   assert.deepEqual([fromRecipe.source, fromRecipe.attempt, fromRecipe.checks.map((c) => c.name)], ["recipe", 2, ["test", "typecheck"]], "the recipe wins over package.json; the attempt comes from the branch");
@@ -321,9 +321,9 @@ try {
   const LOCAL = await insert("LOCAL");
   const TRIAL = await insert("TRIAL", { repo: TRIAL_REPO });
   const heads = new Map<string, string>([
-    [RUNNER, pushBranch(`factory/${RUNNER}`, { test: "echo runner ran", lint: "true" })],
-    [ASLEEP, pushBranch(`factory/${ASLEEP}`, { test: "true", lint: "exit 4" })],
-    [BROKEN, (pushBranch(`factory/${BROKEN}`, { test: "true" }), "d".repeat(40))],
+    [RUNNER, pushBranch(`hive/${RUNNER}`, { test: "echo runner ran", lint: "true" })],
+    [ASLEEP, pushBranch(`hive/${ASLEEP}`, { test: "true", lint: "exit 4" })],
+    [BROKEN, (pushBranch(`hive/${BROKEN}`, { test: "true" }), "d".repeat(40))],
     [GONE, "e".repeat(40)],
     [LOCAL, "f".repeat(40)],
     [TRIAL, "1".repeat(40)],
@@ -352,7 +352,7 @@ try {
   github.bugbotFindings = async () => [];
   github.upsertComment = async () => "created";
   github.mergeCandidate = async () => ({ state: "open", headSha: "moved", baseRef: "main", title: "t", number: 1, commits: 1, mergeCommitSha: null, mergedByBot: false });
-  SOURCES.linear.labels = async () => ["factory"];
+  SOURCES.linear.labels = async () => ["hive"];
   SOURCES.linear.note = async () => undefined;
   ingestClient.post = async (e) => ingest(db, [eventSchema.parse(e)]);
   const woke: string[] = [];
@@ -430,7 +430,7 @@ try {
   const verified = await decisionOf(RUNNER);
   assert.deepEqual([verified.outcome, verified.evidence], ["merge", { state: "verified", sha: heads.get(RUNNER), passed: 3, total: 3, producer: "runner" }], "with the runner's evidence it merges");
   assert.deepEqual((await decisionOf(ASLEEP)).reasons, [`Checks failed at ${heads.get(ASLEEP)!.slice(0, 7)}: lint.`], "the runner's failing evidence hands over");
-  assert.match((await decisionOf(BROKEN)).reasons.join(" "), /couldn't run the checks itself: commit ddddddd isn't on factory\//, "a head the branch doesn't have");
+  assert.match((await decisionOf(BROKEN)).reasons.join(" "), /couldn't run the checks itself: commit ddddddd isn't on hive\//, "a head the branch doesn't have");
   assert.match((await decisionOf(GONE)).reasons.join(" "), /couldn't run the checks itself/, "a sandbox that can't run anything");
   assert.equal((await decisionOf(BROKEN)).verification?.state, "failed", "the failure is kept, so it is not retried for this head");
   forgetVerifications();
@@ -440,7 +440,7 @@ try {
   assert.equal(woke.length, 1);
 
   // A new head moves the decision back to the runner, once.
-  heads.set(RUNNER, pushBranch(`factory/${RUNNER}`, { test: "true", lint: "true" }));
+  heads.set(RUNNER, pushBranch(`hive/${RUNNER}`, { test: "true", lint: "true" }));
   await decideMerges({ only: [RUNNER], now: Date.now() });
   assert.deepEqual([(await decisionOf(RUNNER)).outcome, (await decisionOf(RUNNER)).evidence?.state], ["pending", "stale"], "evidence for the old head is stale");
   await verificationsSettled();

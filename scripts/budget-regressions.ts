@@ -17,7 +17,7 @@ const write = (path: string, text: string) => {
 
 write(join(home, ".config/marshal-factory/config.json"), JSON.stringify({ factory: { budgetUsd: 1 } }));
 const worktree = join(home, "worktree");
-write(join(worktree, ".git/HEAD"), "ref: refs/heads/factory/TST-1\n");
+write(join(worktree, ".git/HEAD"), "ref: refs/heads/hive/TST-1\n");
 // What the old reporter cached for the old hook: far over the old config's cap.
 write(join(home, ".cache/marshal-factory/spend/factory_TST-1.json"), JSON.stringify({ usd: 50, at: Date.now() }));
 

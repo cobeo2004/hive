@@ -81,13 +81,13 @@ const stub = await serve(0, async (request) => {
       mints++;
       return Response.json({ token: `ghs_stub${mints}`, expires_at: new Date(nowMs + 3_600_000).toISOString() }, { status: 201 });
     }
-    if (url.pathname === "/repos/o/r/pulls" && url.searchParams.get("head") === "o:factory/FAC-1" && url.searchParams.get("state") === "all") {
+    if (url.pathname === "/repos/o/r/pulls" && url.searchParams.get("head") === "o:hive/FAC-1" && url.searchParams.get("state") === "all") {
       return Response.json([pulls[3], { ...pulls[2], state: "closed", closed_at: "2026-10-23T09:00:00Z" }]);
     }
-    if (url.pathname === "/repos/o/r/pulls" && url.searchParams.get("head") === "o:factory/FAC-2" && url.searchParams.get("state") === "all") {
+    if (url.pathname === "/repos/o/r/pulls" && url.searchParams.get("head") === "o:hive/FAC-2" && url.searchParams.get("state") === "all") {
       return Response.json([pulls[3], pulls[2]]);
     }
-    if (url.pathname === "/repos/o/r/pulls" && url.searchParams.get("head") === "o:factory/FAC-3") {
+    if (url.pathname === "/repos/o/r/pulls" && url.searchParams.get("head") === "o:hive/FAC-3") {
       return Response.json([{ ...pulls[2], state: "closed", closed_at: "2026-10-23T09:00:00Z" }]);
     }
     if (url.pathname === "/repos/o/r/pulls/6" || (url.pathname === "/repos/o/r/pulls/5" && revoked.has(auth!.slice(7)))) {
@@ -166,16 +166,16 @@ try {
   assert.deepEqual([read.auth, read.version], ["Bearer ghs_stub", "2026-03-10"], "calls carry the installation token and the API version");
 
   assert.deepEqual(
-    await client.pullsForHead("o/r", "factory/FAC-1"),
+    await client.pullsForHead("o/r", "hive/FAC-1"),
     [
       { state: "merged", headSha: "h3", mergedAt: new Date("2026-10-24T10:00:00Z"), closedAt: new Date("2026-10-24T10:00:00Z") },
       { state: "closed", headSha: "h2", mergedAt: null, closedAt: new Date("2026-10-23T09:00:00Z") },
     ],
   );
 
-  assert.deepEqual(await client.pullRequestForBranch("o/r", "factory/FAC-2"), { url: url(2), state: "open" }, "an open PR wins over a merged one");
-  assert.deepEqual(await client.pullRequestForBranch("o/r", "factory/FAC-1"), { url: url(3), state: "merged" }, "else the merged one; a closed one never counts");
-  assert.equal(await client.pullRequestForBranch("o/r", "factory/FAC-3"), null, "a branch with only a closed PR has none");
+  assert.deepEqual(await client.pullRequestForBranch("o/r", "hive/FAC-2"), { url: url(2), state: "open" }, "an open PR wins over a merged one");
+  assert.deepEqual(await client.pullRequestForBranch("o/r", "hive/FAC-1"), { url: url(3), state: "merged" }, "else the merged one; a closed one never counts");
+  assert.equal(await client.pullRequestForBranch("o/r", "hive/FAC-3"), null, "a branch with only a closed PR has none");
 
   assert.deepEqual(await client.mergePull(url(1), "h1"), { kind: "merged", sha: "merge-sha" }, "200 is merged");
   assert.deepEqual(await client.mergePull(url(2), "h2"), { kind: "not_mergeable", message: "Pull Request is not mergeable" }, "405 is not mergeable");

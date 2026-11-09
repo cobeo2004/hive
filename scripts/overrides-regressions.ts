@@ -39,8 +39,8 @@ const asked = (labels: ReturnType<typeof L>[]) =>
 // ticketOverrides: groups and children by name, case-insensitive; labels outside the groups are not overrides.
 const table: { name: string; labels: ReturnType<typeof L>[]; want: ReturnType<typeof ticketOverrides> }[] = [
   { name: "no labels", labels: [], want: { problems: [] } },
-  { name: "labels outside the groups", labels: [L("factory"), L("bug"), L("Codex"), L("Cloud")], want: { problems: [] } },
-  { name: "a harness", labels: [L("factory"), L("Codex", "Harness")], want: { provider: "codex", problems: [] } },
+  { name: "labels outside the groups", labels: [L("hive"), L("bug"), L("Codex"), L("Cloud")], want: { problems: [] } },
+  { name: "a harness", labels: [L("hive"), L("Codex", "Harness")], want: { provider: "codex", problems: [] } },
   { name: "case does not matter", labels: [L("cLAUDE code", "harness"), L("cLOUD", "RUNS ON")], want: { provider: "claudeAgent", execution: "modal", problems: [] } },
   { name: "both groups", labels: [L("Cursor", "Harness"), L("Local", "Runs on")], want: { provider: "cursor", execution: "local", problems: [] } },
   { name: "a child of another group", labels: [L("Codex", "Team")], want: { problems: [] } },
@@ -70,12 +70,12 @@ assert.deepEqual(ticketOverrides(asked([L("Modal", "Runs on")]), harnesses), { e
 assert.deepEqual(ticketOverrides(asked([L("Codex", "Harness")]), null).problems.length, 1, "with no reported harnesses a Harness label cannot apply");
 
 assert.deepEqual(
-  linearOverrides({ state: null, labels: ["factory", "Codex", "Modal"] }),
+  linearOverrides({ state: null, labels: ["hive", "Codex", "Modal"] }),
   { harness: [], runsOn: [], repository: [] },
   "a row stored before groups were read has no groups, so it has no overrides",
 );
 assert.deepEqual(
-  linearOverrides({ state: null, labels: ["factory", "Codex", "shop"], labelGroups: [{ name: "Codex", group: "harness" }, { name: "shop", group: "Repository" }, { name: "x", group: "Team" }] }),
+  linearOverrides({ state: null, labels: ["hive", "Codex", "shop"], labelGroups: [{ name: "Codex", group: "harness" }, { name: "shop", group: "Repository" }, { name: "x", group: "Team" }] }),
   { harness: ["Codex"], runsOn: [], repository: ["shop"] },
   "each group's children by name, case-insensitive; other groups are not overrides",
 );
@@ -91,7 +91,7 @@ const can = { local: true, checkout: true, modal: null as string | null, claude:
 const plan = (labels: ReturnType<typeof L>[], over: Partial<typeof can> = {}, s: typeof settings | (Omit<typeof settings, "execution"> & { execution: "modal" }) = settings) =>
   planLaunch(asked(labels), s, harnesses, { ...can, ...over });
 
-assert.deepEqual(plan([L("factory")]), { kind: "launch", execution: "local", harness: { provider: "claudeAgent", model: "claude-sonnet-5-5" }, ticket: null }, "no overrides: Settings");
+assert.deepEqual(plan([L("hive")]), { kind: "launch", execution: "local", harness: { provider: "claudeAgent", model: "claude-sonnet-5-5" }, ticket: null }, "no overrides: Settings");
 assert.deepEqual(
   plan([L("Codex", "Harness")]),
   { kind: "launch", execution: "local", harness: { provider: "codex", model: "gpt-6-astra" }, ticket: { provider: "codex", notes: [] } },
@@ -174,7 +174,7 @@ assert.deepEqual(
   },
   "a harness the sandbox lacks is noted, since the sandbox maps it to Codex",
 );
-assert.equal(plan([L("factory")], { modal: "no image", local: false }, { ...settings, execution: "modal" }).kind, "launch", "Settings alone never fall back: the sandbox path waits as before");
+assert.equal(plan([L("hive")], { modal: "no image", local: false }, { ...settings, execution: "modal" }).kind, "launch", "Settings alone never fall back: the sandbox path waits as before");
 assert.equal(plan([L("Cloud", "Runs on")], { modal: null }).kind, "launch", "busy slots are not a reason to fall back; the sandbox path keeps it queued");
 
 const split = splitByExecution([
@@ -196,7 +196,7 @@ const stamp = Date.now();
 const cardJob = { ...linearJob(`card-${stamp}`, `CARD-${stamp}`), stage: "implementing" as const, provider: "codex", model: "gpt-6-astra", execution: "modal" as const, machine_id: "m1", sandbox_id: "sb" };
 const [card] = boardCards([cardJob as never], [], harnesses);
 assert.equal(harnessLine(card!.harness!), "Codex · not tracked", "an untracked harness says so, without its model");
-const mcpRun = { session_id: `mcp:factory/${cardJob.key}`, job_key: cardJob.key, branch: `factory/${cardJob.key}`, stage: "implementing", stage_at: new Date(), last_event_at: new Date() };
+const mcpRun = { session_id: `mcp:hive/${cardJob.key}`, job_key: cardJob.key, branch: `hive/${cardJob.key}`, stage: "implementing", stage_at: new Date(), last_event_at: new Date() };
 const tokens = { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 };
 assert.equal(harnessLine(boardCards([cardJob as never], [{ ...mcpRun, ...tokens } as never], harnesses)[0]!.harness!), "Codex · cost unknown", "a Codex job whose report server posted shows stages, and no cost until usage is read");
 const pricedRun = { ...mcpRun, ...tokens, model: "gpt-6.1-sol", input_tokens: 1_000, output_tokens: 200 };
@@ -241,7 +241,7 @@ const fetchFake = (async (_url: string, init: RequestInit) => {
   }
   throw new Error(`unexpected query ${query.slice(0, 60)}`);
 }) as unknown as typeof fetch;
-const file = linearFiler("key", "FAC", "factory", { fetch: fetchFake, sleep: async () => {} });
+const file = linearFiler("key", "FAC", "hive", { fetch: fetchFake, sleep: async () => {} });
 await file({ requestId, title: "t", description: "d", labels: [{ group: "Harness", name: "Codex" }, { group: "Runs on", name: "Cloud" }] });
 const idOf = (name: string) => labels.find((l) => l.name === name)!.id;
 assert.deepEqual(issues[0]!.labelIds, ["label-factory", idOf("Codex"), idOf("Cloud")], "the issue carries the factory label and both overrides");
@@ -294,14 +294,14 @@ const adapter = createLinearAdapter(() => ({
         description: null,
         createdAt: "2026-10-26T00:00:00Z",
         state: { name: "Todo", type: "unstarted" },
-        labels: { nodes: [{ name: "factory", parent: null }, { name: "Codex", parent: { name: "Harness" } }] },
+        labels: { nodes: [{ name: "hive", parent: null }, { name: "Codex", parent: { name: "Harness" } }] },
       },
     ],
   } as never,
   db,
   limits: factorySchema.parse({}),
 }));
-assert.deepEqual((await adapter.ready())[0]!.sourceState, { state: "Todo", labels: ["factory", "Codex"], labelGroups: [{ name: "Codex", group: "Harness" }] });
+assert.deepEqual((await adapter.ready())[0]!.sourceState, { state: "Todo", labels: ["hive", "Codex"], labelGroups: [{ name: "Codex", group: "Harness" }] });
 
 // A fallback is announced once per attempt: one comment and one audit row, however often the launch runs.
 const id = `override-regress-${stamp}`;

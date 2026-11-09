@@ -97,7 +97,7 @@ const facts = (over: Partial<PrFacts> = {}): PrFacts => ({
 const input = (over: Partial<DecisionInput> = {}): DecisionInput => ({
   policy: { ...DEFAULT_POLICY, autonomy: "trial" },
   assessment: assessment(),
-  labels: ["factory"],
+  labels: ["hive"],
   pr: facts(),
   headSeenAt: NOW - 60_000,
   now: NOW,
@@ -138,7 +138,7 @@ assert.deepEqual(
   ["The agent isn't confident: Proven: No test covers it."],
   "an old handover names its failed check",
 );
-handsOver({ labels: ["factory", "Review"] }, /"review" label/, "the review label forces a handover");
+handsOver({ labels: ["hive", "Review"] }, /"review" label/, "the review label forces a handover");
 handsOver({ pr: facts({ checks: "failure" }) }, /check failed/, "a failed check");
 handsOver({ pr: facts({ mergeable: "conflicting" }) }, /conflicts/, "a conflict");
 handsOver({ pr: facts({ bugbot: { review: { state: "reviewed" }, findings: [{ severity: "medium", resolved: false }] } }) }, /1 unresolved medium or high finding/, "an open Bugbot finding");
@@ -358,7 +358,7 @@ try {
   const INGEST = await insert("INGEST", { stage: "verifying", stage_at: new Date(Date.now() - 60_000) });
   const session = `merge-regress-session-${stamp}`;
   const stage = (n: number, body: Record<string, unknown>) =>
-    eventSchema.parse({ kind: "stage", sessionId: session, eventId: `${session}-${n}`, at: Date.now() - 50_000 + n * 1000, jobKey: INGEST, branch: `factory/${INGEST}`, ...body });
+    eventSchema.parse({ kind: "stage", sessionId: session, eventId: `${session}-${n}`, at: Date.now() - 50_000 + n * 1000, jobKey: INGEST, branch: `hive/${INGEST}`, ...body });
   await ingest(db, [stage(1, { ...prReport, prUrl: prUrl(0), assessment: assessment() })]);
   assert.deepEqual((await row(INGEST)).merge_assessment, assessment(), "the job keeps the assessment");
   const [stored] = await db.select().from(events).where(eq(events.event_id, `${session}-1`));
@@ -389,7 +389,7 @@ try {
   github.checkState = async () => (calls.push("checks"), { checks, bugbot: { state: "reviewed" as const } });
   github.bugbotFindings = async () => (calls.push("bugbot"), []);
   const labels = new Map<string, string[]>();
-  SOURCES.linear.labels = async (job) => (calls.push(`labels ${job.key}`), labels.get(job.key) ?? ["factory"]);
+  SOURCES.linear.labels = async (job) => (calls.push(`labels ${job.key}`), labels.get(job.key) ?? ["hive"]);
   const commented: string[] = [];
   github.upsertComment = async (url) => (commented.push(`pr ${url}`), "created");
   SOURCES.linear.note = async (job) => void commented.push(`note ${job.key}`);
@@ -407,7 +407,7 @@ try {
   const UNCOUNTED = await insert("UNCOUNTED", { stage: "pr", pr_url: prUrl(7), provider: "codex", merge_assessment: assessment() });
   const UNPRICED = await insert("UNPRICED", { stage: "pr", pr_url: prUrl(8), provider: "codex", merge_assessment: assessment() });
   const PRICEY = await insert("PRICEY", { stage: "pr", pr_url: prUrl(9), provider: "codex", merge_assessment: assessment() });
-  labels.set(LABELED, ["factory", "review"]);
+  labels.set(LABELED, ["hive", "review"]);
   for (const k of [GOOD, ASLEEP, LABELED, CODEX, UNCOUNTED, UNPRICED, PRICEY]) await verified(k, "h1");
   for (const k of [GOOD, ASLEEP, LABELED]) await db.insert(runs).values(usageRun(k));
   await db.insert(runs).values(usageRun(CODEX, "gpt-6.1-sol"));

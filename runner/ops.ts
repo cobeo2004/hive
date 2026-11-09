@@ -632,7 +632,7 @@ export function launchMessage(job: Job) {
     `Work ${sourceFor(job.source).describe(job)}: ${job.title}`,
     job.url,
     "",
-    "This is an unattended marshal-factory run. Follow the factory playbook named under Factory playbook at the end of this message. Report every stage with the report_stage tool, never ask in this thread, never merge yourself: end with a merge assessment and the factory decides. Before you report pr, run factory-verify on the commit you pushed (the report_stage reply for verifying names the command); the factory merges only a head whose checks passed there.",
+    "This is an unattended Hive run. Follow the factory playbook named under Factory playbook at the end of this message. Report every stage with the report_stage tool, never ask in this thread, never merge yourself: end with a merge assessment and the factory decides. Before you report pr, run factory-verify on the commit you pushed (the report_stage reply for verifying names the command); the factory merges only a head whose checks passed there.",
     "",
     "## Issue",
     "",

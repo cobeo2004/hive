@@ -18,7 +18,7 @@ const post = (body: unknown, token = secret) =>
 
 const common = { sessionId: run };
 const batch = [
-  { ...common, eventId: `${run}-1`, kind: "session_start", at: t0, cwd: "/tmp/x", branch: "factory/LIN-9", repo: "x" },
+  { ...common, eventId: `${run}-1`, kind: "session_start", at: t0, cwd: "/tmp/x", branch: "hive/LIN-9", repo: "x" },
   { ...common, eventId: `${run}-2`, kind: "agent_start", at: t0 + 1000, toolUseId: `${run}-tu1`, subagentType: "general-purpose", description: "list files" },
 ];
 

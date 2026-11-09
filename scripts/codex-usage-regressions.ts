@@ -44,7 +44,7 @@ assert.deepEqual(
     sessionId: ROOT,
     parentThreadId: null,
     cwd: WORKTREE,
-    branch: "factory/FAC-61",
+    branch: "hive/FAC-61",
     startedAt: Date.parse("2026-10-27T10:00:00.000Z"),
     lastUsageAt: Date.parse("2026-10-27T10:04:00.000Z"),
     settled: false,
@@ -65,7 +65,7 @@ assert.equal(parseRollout(reordered)!.usage.input, 8000, "the largest total wins
 
 // --- matching
 const all = [root, sub, parseRollout(fixture(OTHER))!, bare];
-const run = { cwd: WORKTREE, branch: "factory/FAC-61", startedAt: RUN_START };
+const run = { cwd: WORKTREE, branch: "hive/FAC-61", startedAt: RUN_START };
 assert.deepEqual(matchRollouts(all, run).map((r) => r.threadId), [ROOT, SUB], "the worktree's root and its subagent");
 assert.deepEqual(matchRollouts(all, { ...run, cwd: null }).map((r) => r.threadId), [ROOT, SUB], "the attempt branch alone finds it");
 assert.deepEqual(matchRollouts([...all, parseRollout(fixture(DONE))!], run).map((r) => r.threadId), [ROOT, SUB, DONE], "every subagent of the root");
@@ -76,7 +76,7 @@ assert.deepEqual(matchRollouts([root, { ...root, usage: { ...root.usage, input: 
 const relaunched = { ...root, threadId: "r2", sessionId: "r2", startedAt: root.startedAt! + 60_000, usage: { ...root.usage, model: "gpt-6-astra" } };
 const both = codexUsage([root, sub, relaunched], run)!;
 assert.deepEqual([both.main.threadId, both.others.map((r) => r.threadId)], ["r2", [ROOT, SUB]], "the newest root is the run's; older roots and subagents count apart, each on its model");
-assert.equal(codexUsage(all, { ...run, cwd: "/elsewhere", branch: "factory/FAC-7" }), undefined);
+assert.equal(codexUsage(all, { ...run, cwd: "/elsewhere", branch: "hive/FAC-7" }), undefined);
 
 // --- pricing
 const tokens = (input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({ input_tokens: input, output_tokens: output, cache_read_tokens: cacheRead, cache_write_tokens: cacheWrite });
@@ -120,7 +120,7 @@ const KEY = `CXU-${stamp}`;
 const OVER = `CXO-${stamp}`;
 const UNPRICED = `CXN-${stamp}`;
 const SANDBOX = `sb-codex-usage-${stamp}`;
-const SESSION = `mcp:factory/${KEY}`;
+const SESSION = `mcp:hive/${KEY}`;
 const keys = [KEY, OVER, UNPRICED];
 const jobRow = async (k: string) => (await db.select().from(jobs).where(eq(jobs.key, k)))[0]!;
 const runRow = async () => (await db.select().from(runs).where(eq(runs.session_id, SESSION)))[0]!;
@@ -130,7 +130,7 @@ try {
   sandboxes.set(SANDBOX, new FakeSandbox(SANDBOX));
   await db.insert(jobs).values(linearJob(`codex-usage-${KEY}`, KEY, { machine_id: TEST_MACHINE_ID, provider: "codex", model: "gpt-6.1-sol", execution: "modal", stage: "pr", sandbox_id: SANDBOX }));
   // The MCP server's session_start: the run, its worktree and branch, no usage.
-  await ingest(db, [eventSchema.parse({ kind: "session_start", eventId: `mcp-start:${SESSION}`, sessionId: SESSION, at: RUN_START, cwd: WORKTREE, branch: `factory/${KEY}` })]);
+  await ingest(db, [eventSchema.parse({ kind: "session_start", eventId: `mcp-start:${SESSION}`, sessionId: SESSION, at: RUN_START, cwd: WORKTREE, branch: `hive/${KEY}` })]);
   await db.update(runs).set({ last_event_at: new Date() }).where(eq(runs.session_id, SESSION));
   const lastEventAt = (await runRow()).last_event_at.getTime();
 
@@ -172,7 +172,7 @@ try {
   assert.equal((await agentRows()).find((a) => a.agent_id === `codex:${SUB}`)!.model, "gpt-6-luna", "for a subagent too");
   await ingest(db, [eventSchema.parse({ kind: "usage", eventId: `cxu-unknown-${stamp}`, sessionId: SESSION, at: RUN_START, usage: { input: 8000, output: 2500, cacheRead: 21000, cacheWrite: 1000, model: "unknown" }, agents: [{ agentId: `codex:${SUB}`, usage: { input: 2000, output: 400, cacheRead: 3000, cacheWrite: 0, model: "unknown" } }] })]);
   assert.deepEqual([(await runRow()).model, (await agentRows()).find((a) => a.agent_id === `codex:${SUB}`)!.model], ["gpt-6.1-sol", "gpt-6-luna"], "ingest never lets unknown replace a model");
-  const cost = (await branchCosts(db, [`factory/${KEY}`]))[`factory/${KEY}`]!;
+  const cost = (await branchCosts(db, [`hive/${KEY}`]))[`hive/${KEY}`]!;
   assert.equal(cost.known, true);
   assert.ok(Math.abs(cost.usd - (8000 * 2 + 2500 * 10 + 21000 * 0.1 + 1000 * 2.5 + 2000 * 0.1 + 400 * 0.5 + 3000 * 0.01 + 1000 * 0.1 + 100 * 0.5) / 1e6) < 1e-12, `the attempt's cost is priced per model: ${cost.usd}`);
 
@@ -193,17 +193,17 @@ try {
 
   // Spend is measured, never capped: an expensive attempt keeps working and its cost is recorded.
   for (const k of [OVER, UNPRICED]) await db.insert(jobs).values(linearJob(`codex-usage-${k}`, k, { machine_id: TEST_MACHINE_ID, provider: "codex", stage: "implementing" }));
-  await db.insert(runs).values({ ...usageRun(OVER, "gpt-6-astra", { output: 1_000_000 }), session_id: `mcp:factory/${OVER}` });
-  await db.insert(runs).values({ ...usageRun(UNPRICED, "gpt-9-nova", { output: 1_000_000 }), session_id: `mcp:factory/${UNPRICED}` });
+  await db.insert(runs).values({ ...usageRun(OVER, "gpt-6-astra", { output: 1_000_000 }), session_id: `mcp:hive/${OVER}` });
+  await db.insert(runs).values({ ...usageRun(UNPRICED, "gpt-9-nova", { output: 1_000_000 }), session_id: `mcp:hive/${UNPRICED}` });
   assert.ok(!("enforceBudget" in ops), "the runner has no budget pass");
-  const spent = await branchCosts(db, [`factory/${OVER}`, `factory/${UNPRICED}`]);
-  assert.equal(spent[`factory/${OVER}`]?.known, true);
-  assert.equal(spent[`factory/${OVER}`]!.usd.toFixed(2), "50.15", "a $50 attempt's cost is recorded");
-  assert.equal(spent[`factory/${UNPRICED}`]?.known, false, "an unpriced model's cost is unknown");
+  const spent = await branchCosts(db, [`hive/${OVER}`, `hive/${UNPRICED}`]);
+  assert.equal(spent[`hive/${OVER}`]?.known, true);
+  assert.equal(spent[`hive/${OVER}`]!.usd.toFixed(2), "50.15", "a $50 attempt's cost is recorded");
+  assert.equal(spent[`hive/${UNPRICED}`]?.known, false, "an unpriced model's cost is unknown");
   assert.equal((await jobRow(OVER)).stage, "implementing", "and nothing fails it for what it spent");
   assert.equal((await jobRow(OVER)).budget_usd, 5, "the unused budget column takes its default");
   config.factory.pricing = { "gpt-9-nova": { input: 1, output: 10, cacheRead: 0.1, cacheWrite: 1 } };
-  assert.equal((await branchCosts(db, [`factory/${UNPRICED}`], config.factory.pricing))[`factory/${UNPRICED}`]?.known, true, "factory.pricing prices it");
+  assert.equal((await branchCosts(db, [`hive/${UNPRICED}`], config.factory.pricing))[`hive/${UNPRICED}`]?.known, true, "factory.pricing prices it");
   config.factory.pricing = {};
 
   console.log("codex usage regressions passed");
@@ -211,10 +211,10 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
-  await db.delete(agents).where(like(agents.session_id, `mcp:factory/CX%${stamp}%`));
+  await db.delete(agents).where(like(agents.session_id, `mcp:hive/CX%${stamp}%`));
   await db.delete(runs).where(inArray(runs.job_key, keys));
   await db.delete(events).where(inArray(events.job_key, keys));
-  await db.delete(events).where(like(events.session_id, `mcp:factory/CX%${stamp}%`));
+  await db.delete(events).where(like(events.session_id, `mcp:hive/CX%${stamp}%`));
   await db.delete(jobs).where(like(jobs.id, `${jobId("linear", "codex-usage-")}%`));
   rmSync(home, { recursive: true, force: true });
   process.exit(process.exitCode ?? 0);

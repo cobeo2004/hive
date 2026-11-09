@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { JobRow } from "../db/schema";
 import { planCleanup, type BranchState } from "./cleanup";
-import { attemptBranch, parseBranch } from "./factory";
+import { attemptBranch, BRANCH_PREFIX, parseBranch } from "./factory";
 import type { RepoName } from "./github/app";
 import { github } from "./github/pulls";
 import { localHost, type JobHost } from "./host";
@@ -111,7 +111,7 @@ export async function cleanupRepo(
     checkoutRepo(repo, host),
     linkedWorktrees(repo, host),
     projectThreads(repo, host),
-    sh(host, "git", ["branch", "--list", "factory/*", "--format=%(refname:short)"], repo),
+    sh(host, "git", ["branch", "--list", `${BRANCH_PREFIX}*`, "--format=%(refname:short)"], repo),
   ]);
   const localBranches = new Set(branchList ? branchList.split("\n") : []);
   const branches = new Set([...localBranches, ...trees.keys(), ...threads.flatMap((t) => (t.branch ? [t.branch] : []))]);
