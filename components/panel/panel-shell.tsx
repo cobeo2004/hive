@@ -11,6 +11,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Sheet, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { UserMenu, type PanelUser } from "./user-menu";
 
 /** The layout reads this cookie, so a reload keeps the rail collapsed. */
 export const COLLAPSED_COOKIE = "sidebar_state";
@@ -63,11 +64,13 @@ function RailTip({ collapsed, label, children }: { collapsed: boolean; label: Re
 function Nav({
   collapsed,
   inboxCount,
+  user,
   onNavigate,
   onToggle,
 }: {
   collapsed: boolean;
   inboxCount: ReactNode;
+  user: PanelUser;
   onNavigate?: () => void;
   onToggle?: () => void;
 }) {
@@ -124,8 +127,9 @@ function Nav({
             </Button>
           </RailTip>
         )}
-        <div className={cn(collapsed && "absolute bottom-full left-1.5 mb-1.5")}>
+        <div className={cn("flex items-center gap-1", collapsed && "absolute bottom-full left-1.5 mb-1.5 flex-col")}>
           <ThemeToggle />
+          <UserMenu user={user} />
         </div>
       </div>
     </div>
@@ -133,7 +137,17 @@ function Nav({
 }
 
 /** The app frame: a hairline rail on the left that collapses with `[`, and a column each page fills with its header, content and footer. */
-export function PanelShell({ defaultCollapsed, inboxCount, children }: { defaultCollapsed: boolean; inboxCount: ReactNode; children: ReactNode }) {
+export function PanelShell({
+  defaultCollapsed,
+  inboxCount,
+  user,
+  children,
+}: {
+  defaultCollapsed: boolean;
+  inboxCount: ReactNode;
+  user: PanelUser;
+  children: ReactNode;
+}) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [navOpen, setNavOpen] = useState(false);
 
@@ -164,12 +178,12 @@ export function PanelShell({ defaultCollapsed, inboxCount, children }: { default
               transition={spring}
               className="hidden shrink-0 overflow-hidden border-e md:block"
             >
-              <Nav collapsed={collapsed} inboxCount={inboxCount} onToggle={() => setCollapsed((c) => !c)} />
+              <Nav collapsed={collapsed} inboxCount={inboxCount} onToggle={() => setCollapsed((c) => !c)} user={user} />
             </motion.aside>
             <Sheet open={navOpen} onOpenChange={setNavOpen}>
               <SheetPopup side="left" className="w-64 max-w-[85%] md:hidden">
                 <SheetTitle className="sr-only">Navigation</SheetTitle>
-                <Nav collapsed={false} inboxCount={inboxCount} onNavigate={() => setNavOpen(false)} />
+                <Nav collapsed={false} inboxCount={inboxCount} onNavigate={() => setNavOpen(false)} user={user} />
               </SheetPopup>
             </Sheet>
             <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>

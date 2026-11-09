@@ -13,7 +13,9 @@ import { Spinner } from "@/components/ui/spinner";
 import type { MachineRow, NotificationSettingsRow, SettingsRow } from "@/db/schema";
 import { DEFAULT_EXECUTION, EXECUTIONS, type Execution } from "@/lib/execution";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, harnessLabel, trackingOf, type Harness, type Tracking } from "@/lib/harness";
+import type { Member } from "@/lib/members";
 import { componentName, IMAGE_COMPONENTS, rebuildText, reportedDrift, reportedHarnesses, reportedSandbox, reportedSlack, sandboxLogin, type SandboxReadiness } from "@/lib/machine";
+import { MembersSection } from "./members-section";
 import { NotificationsCard } from "./notifications-card";
 import { useFeed, type Feed } from "./live-refresh";
 import { PanelFooter, PanelHeader } from "./panel-header";
@@ -235,7 +237,17 @@ function Current({ saved, harnesses }: { saved: SettingsRow | null; harnesses: r
   );
 }
 
-export function SettingsForm({ machines, saved, notifications }: { machines: Feed<MachineRow>; saved: SettingsRow | null; notifications: NotificationSettingsRow | null }) {
+export function SettingsForm({
+  machines,
+  members,
+  saved,
+  notifications,
+}: {
+  machines: Feed<MachineRow>;
+  members: Member[];
+  saved: SettingsRow | null;
+  notifications: NotificationSettingsRow | null;
+}) {
   const router = useRouter();
   const { rows, status } = useFeed(machines);
   const now = useNow(CLOCK_TICK_MS);
@@ -400,6 +412,7 @@ export function SettingsForm({ machines, saved, notifications }: { machines: Fee
             </Card>
           </SettingsSection>
           <NotificationsCard saved={notifications} slack={slack} />
+          <MembersSection members={members} />
         </div>
       </div>
       <PanelFooter status={status} />
