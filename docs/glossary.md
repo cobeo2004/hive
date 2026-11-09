@@ -61,3 +61,12 @@ _Avoid_: VM, container (fine in code only).
 
 **Team pool**: subscription accounts admins add for jobs whose owner has none, or whose own account is rate-limited.
 _Avoid_: shared account, org account.
+
+**Upstream**: marshal-factory (`ski043/marshal-factory`), the `upstream` remote Hive forked at `999ad20` and keeps merging fixes from. Each Hive-specific value (name, label, branch prefix) lives in one place, so the fork's diff in upstream's files stays small.
+_Avoid_: origin (that is `cobeo2004/hive`), base (a PR's base branch).
+
+**Branch prefix**: `hive/`, the namespace for every branch the runner pushes: attempt branches (`hive/<KEY>`, `hive/<KEY>-a2`), `hive/revert-<N>` and `hive/onboarding`. One constant, `BRANCH_PREFIX` in `lib/factory.ts`.
+_Avoid_: namespace, branch naming.
+
+**Hive label**: the Linear label (`hive` by default, `FACTORY_LABEL` / `factory.label` to override) that hands an issue to Hive. Also tags its Modal sandboxes.
+_Avoid_: factory label, trigger label.
