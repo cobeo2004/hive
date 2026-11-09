@@ -15,7 +15,6 @@ const { createJob } = await import("../lib/new-job");
 const { boardCards, harnessLine, runsOn, whereLine } = await import("../components/panel/cards");
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 
 const harness = (id: string, name: string, driver: string, models: string[], enabled = true) => ({
   id,
@@ -206,7 +205,7 @@ assert.equal(harnessLine(boardCards([cardJob as never], [{ ...pricedRun, model: 
 assert.equal(harnessLine(boardCards([{ ...cardJob, provider: "claudeAgent" } as never], [], harnesses)[0]!.harness!), "Claude Code");
 
 // New job: the chosen harness and place go on the issue as the group labels.
-const owner = { email: OWNER, emailVerified: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
 const requestId = "6f0c3f8e-1f4b-4a52-9f0e-2d7c5a8b9c11";
 const filed: unknown[] = [];
 const fileDeps = { user: async () => owner, file: async (d: unknown) => (filed.push(d), { key: "FAC-1", url: "u" }), harnesses: async () => harnesses, registry: async () => [] };

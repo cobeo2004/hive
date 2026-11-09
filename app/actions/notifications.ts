@@ -2,7 +2,7 @@
 
 import { db } from "@/db/client";
 import { machines } from "@/db/schema";
-import { auth } from "@/lib/auth/server";
+import { currentUser } from "@/lib/auth/server";
 import { reportedSlack } from "@/lib/machine";
 import {
   requestSlackTest,
@@ -12,7 +12,7 @@ import {
   type NotificationInput,
 } from "@/lib/notifications";
 
-const user = async () => (await auth.getSession()).data?.user;
+const user = currentUser;
 
 const deps: NotificationDeps = {
   db,

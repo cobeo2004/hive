@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { auditLog, jobs } from "@/db/schema";
 import { archiveRefusal, FINISHED_STAGES, isArchived } from "@/lib/archive";
-import { isOwner } from "@/lib/auth/owner";
+import { isMember } from "@/lib/auth/owner";
 import type { InboxDeps } from "@/lib/inbox-actions";
 import type { JobId } from "@/lib/sources/shapes";
 
@@ -13,7 +13,7 @@ import type { JobId } from "@/lib/sources/shapes";
 export type ArchiveDeps = Pick<InboxDeps, "db" | "user" | "now">;
 export type ArchiveOutcome = { ok: true; message: string } | { ok: false; message: string };
 
-const OWNER_ONLY = "Only the factory owner can archive jobs.";
+const OWNER_ONLY = "Sign in to Hive to archive jobs.";
 /** The jobs feed's limit; the panel never shows more to pick from. */
 const MAX_JOBS = 200;
 const idsSchema = z.array(z.string().min(1)).min(1, "Pick at least one job.").max(MAX_JOBS, `Pick at most ${MAX_JOBS} jobs.`);
@@ -22,7 +22,7 @@ const plural = (n: number) => `${n} ${n === 1 ? "job" : "jobs"}`;
 
 async function ownerJobs(deps: ArchiveDeps, raw: unknown) {
   const user = await deps.user();
-  if (!isOwner(user)) return { ok: false, message: OWNER_ONLY } as const;
+  if (!isMember(user)) return { ok: false, message: OWNER_ONLY } as const;
   const parsed = idsSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]!.message } as const;
   const ids = [...new Set(parsed.data)] as JobId[];

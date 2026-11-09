@@ -5,7 +5,6 @@ import type { MergeAssessment } from "../lib/assessment";
 import type { DecisionInput, PrFacts } from "../lib/merge-decision";
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 
 const { db } = await import("../db/client");
 const { auditLog, events, jobEvidence, jobs, repoSettings, runs } = await import("../db/schema");

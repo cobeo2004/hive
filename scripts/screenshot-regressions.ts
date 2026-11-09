@@ -8,8 +8,6 @@ import type { MergeAssessment } from "../lib/assessment";
 import type { FactoryEvent } from "../lib/events";
 import type { DecisionInput } from "../lib/merge-decision";
 
-process.env.NEON_AUTH_BASE_URL ??= "https://auth.invalid/neondb/auth";
-process.env.NEON_AUTH_COOKIE_SECRET ??= "x".repeat(32);
 process.env.NEXT_PUBLIC_LIVE_UPDATES = "off";
 
 const { db } = await import("../db/client");

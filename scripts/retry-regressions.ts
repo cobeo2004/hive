@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { eq, like } from "drizzle-orm";
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 
 const { db } = await import("../db/client");
 const { intents, jobs } = await import("../db/schema");
@@ -19,7 +18,7 @@ const { INTENT_ROUTES, INTENT_ATTEMPTS } = await import("../runner/intents");
 
 const stamp = Date.now() % 1_000_000;
 const REPO = "ski043/factory-demo";
-const owner = { email: OWNER, emailVerified: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
 const deps = (user: typeof owner | null = owner) => ({
   db,
   user: async () => user,
@@ -71,7 +70,7 @@ try {
   assert.equal(inboxKind(await row(A)), "failed");
   assert.deepEqual(inboxItems([await row(A)]).map((i) => i.kind), ["failed"]);
   const rid = crypto.randomUUID();
-  assert.deepEqual(await inbox.retryFailed(deps(null), aId, rid, ""), { ok: false, message: "Only the factory owner can act on the inbox." });
+  assert.deepEqual(await inbox.retryFailed(deps(null), aId, rid, ""), { ok: false, message: "Sign in to Hive to act on the inbox." });
   assert.deepEqual(await inbox.retryFailed(deps(), aId, "nope", ""), { ok: false, message: "The request is not valid." });
   assert.deepEqual(await inbox.retryFailed(deps(), aId, rid, "x".repeat(MAX_RETRY_NOTE_CHARS + 1)), { ok: false, message: "The note is too long." });
   assert.equal((await intentsOf(aId)).length, 0, "refusals record nothing");

@@ -3,7 +3,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import * as schema from "@/db/schema";
 import { intents, notificationSettings, type NotificationSettingsRow } from "@/db/schema";
-import { isOwner, type SessionUser } from "@/lib/auth/owner";
+import { isAdmin, type SessionUser } from "@/lib/auth/owner";
 
 // Where Slack notifications go and which events send one (lib/slack.ts). The panel's Settings
 // edits the one row; the runner's notifier reads it every pass. Without a row, a runner with a
@@ -104,11 +104,11 @@ export type NotificationDeps = {
 
 export type NotificationOutcome = { ok: true; message?: string } | { ok: false; message: string };
 
-const OWNER_ONLY = "Only the factory owner can change notifications.";
+const OWNER_ONLY = "Only an admin can change notifications.";
 
 export async function saveNotifications(deps: NotificationDeps, input: unknown): Promise<NotificationOutcome> {
   const user = await deps.user();
-  if (!user || !isOwner(user)) return { ok: false, message: OWNER_ONLY };
+  if (!user || !isAdmin(user)) return { ok: false, message: OWNER_ONLY };
   const parsed = notificationConfigSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "The notification settings are not valid." };
   const config = parsed.data;
@@ -127,7 +127,7 @@ const requestIdSchema = z.uuid();
 /** Records a slack_test intent; a runner with a Slack token posts the test message where notifications go. */
 export async function requestSlackTest(deps: NotificationDeps, requestId: string): Promise<{ ok: true; intentId: string } | { ok: false; message: string }> {
   const user = await deps.user();
-  if (!user || !isOwner(user)) return { ok: false, message: OWNER_ONLY };
+  if (!user || !isAdmin(user)) return { ok: false, message: OWNER_ONLY };
   if (!requestIdSchema.safeParse(requestId).success) return { ok: false, message: "The request is not valid." };
   if (!(await deps.slackConfigured())) return { ok: false, message: "No online runner has a Slack token. Add SLACK_BOT_TOKEN to the runner's .env.local and restart it." };
   const id = `panel:slack_test:${requestId}`;
@@ -143,7 +143,7 @@ const testResultSchema = z.object({ error: z.string().optional(), sent: z.object
 export type SlackTestOutcome = { status: "pending" } | { status: "done"; message: string } | { status: "failed"; message: string };
 
 export async function slackTestOutcome(deps: Pick<NotificationDeps, "db" | "user">, intentId: string): Promise<SlackTestOutcome> {
-  if (!isOwner(await deps.user())) return { status: "failed", message: OWNER_ONLY };
+  if (!isAdmin(await deps.user())) return { status: "failed", message: OWNER_ONLY };
   const [intent] = await deps.db.select().from(intents).where(and(eq(intents.id, intentId), eq(intents.kind, "slack_test")));
   if (!intent) return { status: "failed", message: "No such request." };
   // A failed try stays open for the retry, so its error is final only once the intent is closed.

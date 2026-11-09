@@ -5,7 +5,6 @@ import { SandboxTimeoutError } from "modal";
 import { fake, fakeModal, type FakeSandbox } from "./fake-modal";
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 
 const { db } = await import("../db/client");
 const { intents, jobs } = await import("../db/schema");
@@ -23,8 +22,8 @@ modal.api = fakeModal;
 const stamp = Date.now() % 1_000_000;
 const limits = config.factory.sandbox;
 const TOKEN = "pairing-secret-token";
-const owner = { email: OWNER, emailVerified: true };
-const deps = (user: typeof owner | null = owner, now?: () => Date) => ({ db, user: async () => user, ...(now && { now }) });
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
+const deps = (user: { email: string; role: string; twoFactorEnabled: boolean } | null = owner, now?: () => Date) => ({ db, user: async () => user, ...(now && { now }) });
 
 const pairingCalls: string[][] = [];
 let pairingReply: { code?: number; stdout?: string; stderr?: string } | undefined;
@@ -98,7 +97,9 @@ try {
   pairingReply = undefined;
 
   // The panel: only the owner asks, and only for a running sandbox.
-  assert.deepEqual(await requestPairing(deps(null), RUN), { ok: false, message: "Only the factory owner can open a sandbox in T3." });
+  assert.deepEqual(await requestPairing(deps(null), RUN), { ok: false, message: "Only an admin can open a sandbox in T3." });
+  const engineer = { email: "eng@example.com", role: "engineer", twoFactorEnabled: true };
+  assert.deepEqual(await requestPairing(deps(engineer), RUN), { ok: false, message: "Only an admin can open a sandbox in T3." }, "an engineer is refused");
   assert.deepEqual(await requestPairing(deps(), HIB), { ok: false, message: HIBERNATED_MESSAGE });
   assert.equal((await requestPairing(deps(), LOCAL)).ok, false);
   const asked = await requestPairing(deps(), RUN);
@@ -109,7 +110,7 @@ try {
 
   // Taken once: the stored link is replaced in the same read, and a second read gets nothing.
   await answer(asked.intentId, minted);
-  assert.deepEqual(await takePairing(deps(null), asked.intentId), { status: "failed", message: "Only the factory owner can open a sandbox in T3." });
+  assert.deepEqual(await takePairing(deps(null), asked.intentId), { status: "failed", message: "Only an admin can open a sandbox in T3." });
   assert.ok((await stored(asked.intentId)).includes(TOKEN), "a non-owner's read leaves the link for the owner");
   assert.deepEqual(await takePairing(deps(), asked.intentId), { status: "ready", pairUrl: minted.pairUrl, expiresAt: minted.expiresAt });
   assert.ok(!(await stored(asked.intentId)).includes(TOKEN), "the link is gone from the row once shown");

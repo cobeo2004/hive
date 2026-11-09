@@ -3,7 +3,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type * as schema from "@/db/schema";
 import { jobs, repoSettings, type RepoSettingsRow } from "@/db/schema";
-import { isOwner, type SessionUser } from "@/lib/auth/owner";
+import { isAdmin, type SessionUser } from "@/lib/auth/owner";
 import { executionSchema, type Execution } from "@/lib/execution";
 import type { Harness } from "@/lib/harness";
 import { autonomySchema } from "@/lib/merge-decision";
@@ -203,7 +203,7 @@ export type RepositoryDeps = {
   save: (choice: RepositoryChoice, by: string) => Promise<void>;
 };
 
-const FORBIDDEN = { ok: false, status: 403, message: "Only the factory owner can change repositories." } as const;
+const FORBIDDEN = { ok: false, status: 403, message: "Only an admin can change repositories." } as const;
 const invalid = (message: string): SettingsOutcome => ({ ok: false, status: 400, message });
 const failed = (error: unknown): SettingsOutcome => ({
   ok: false,
@@ -214,7 +214,7 @@ const failed = (error: unknown): SettingsOutcome => ({
 /** Edits one registered repo. The default stays enabled, and display names stay unique, since labels match by them. */
 export async function saveRepository(deps: RepositoryDeps, input: unknown): Promise<SettingsOutcome> {
   const user = await deps.user();
-  if (!user || !isOwner(user)) return FORBIDDEN;
+  if (!user || !isAdmin(user)) return FORBIDDEN;
   const parsed = repositoryInputSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error.issues[0]?.message ?? "The repository is not valid.");
   const choice = parsed.data;
@@ -245,7 +245,7 @@ export type DefaultRepoDeps = {
 
 export async function makeDefaultRepo(deps: DefaultRepoDeps, input: unknown): Promise<SettingsOutcome> {
   const user = await deps.user();
-  if (!user || !isOwner(user)) return FORBIDDEN;
+  if (!user || !isAdmin(user)) return FORBIDDEN;
   const parsed = defaultRepoInputSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error.issues[0]?.message ?? "The repository is not valid.");
   const row = (await deps.registry()).find((r) => r.repo === parsed.data.repo);

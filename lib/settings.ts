@@ -3,7 +3,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import * as schema from "@/db/schema";
 import { repoSettings, settings, type RepoSettingsRow, type SettingsRow } from "@/db/schema";
-import { isOwner, type SessionUser } from "@/lib/auth/owner";
+import { isAdmin, type SessionUser } from "@/lib/auth/owner";
 import { DEFAULT_EXECUTION, executionSchema, type Execution } from "@/lib/execution";
 import type { Harness } from "@/lib/harness";
 import { autonomySchema, DEFAULT_POLICY, type Autonomy, type RepoPolicy } from "@/lib/merge-decision";
@@ -83,7 +83,7 @@ export async function writeRepoAutonomy(database: Db, { repo, autonomy }: { repo
 
 export async function saveSettings(deps: SettingsDeps, input: unknown): Promise<SettingsOutcome> {
   const user = await deps.user();
-  if (!user || !isOwner(user)) return { ok: false, status: 403, message: "Only the factory owner can change settings." };
+  if (!user || !isAdmin(user)) return { ok: false, status: 403, message: "Only an admin can change settings." };
   const parsed = settingsInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, status: 400, message: parsed.error.issues[0]?.message ?? "The settings are not valid." };
   const { provider, model, execution } = parsed.data;

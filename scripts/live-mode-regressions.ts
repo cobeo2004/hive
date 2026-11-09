@@ -2,9 +2,6 @@ import "./test-guard";
 import assert from "node:assert/strict";
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
-process.env.NEON_AUTH_BASE_URL ??= "https://auth.invalid/neondb/auth";
-process.env.NEON_AUTH_COOKIE_SECRET ??= "x".repeat(32);
 
 async function liveUpdatesFor(vercelEnv: string | undefined) {
   if (vercelEnv === undefined) delete process.env.VERCEL_ENV;
@@ -20,10 +17,8 @@ delete process.env.VERCEL_ENV;
 process.env.NEXT_PUBLIC_LIVE_UPDATES = "off";
 const { liveUpdates } = await import("../lib/live-mode");
 assert.equal(liveUpdates, false, "the panel reads the build's switch");
-const { auth } = await import("../lib/auth/server");
-Object.assign(auth, {
-  getSession: async () => ({ data: { user: { email: OWNER, emailVerified: true } }, error: null }),
-});
+const { session } = await import("../lib/auth/server");
+Object.assign(session, { read: async () => ({ user: { email: OWNER, role: "engineer", twoFactorEnabled: true } }) });
 const { load, runsQuery } = await import("../lib/live-queries");
 const feed = await load(runsQuery());
 assert.ok(Array.isArray(feed.initialData), "with live updates off, a page still shows the rows");

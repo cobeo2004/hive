@@ -6,9 +6,6 @@ process.env.FACTORY_INGEST_SECRET = "ingest-secret-for-regressions";
 process.env.LINEAR_WEBHOOK_SECRET = "linear-secret-for-regressions";
 process.env.GITHUB_APP_WEBHOOK_SECRET = "github-secret-for-regressions";
 process.env.SLACK_SIGNING_SECRET = "slack-secret-for-regressions";
-// Neon Auth stays until PR3 (R3); importing the proxy needs its config.
-process.env.NEON_AUTH_BASE_URL ??= "https://auth.invalid/neondb/auth";
-process.env.NEON_AUTH_COOKIE_SECRET ??= "x".repeat(32);
 
 const { config } = await import("../proxy");
 const matcher = new RegExp(`^${config.matcher[0]}$`);

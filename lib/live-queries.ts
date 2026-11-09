@@ -3,7 +3,7 @@ import { db } from "@/db/client";
 import { agents, auditLog, events, jobEvidence, jobs, machines, runs } from "@/db/schema";
 import { isJobKey } from "@/lib/factory";
 import type { JobId } from "@/lib/sources/shapes";
-import { assertOwner } from "@/lib/auth/server";
+import { assertMember } from "@/lib/auth/server";
 
 export const RUN_LIMIT = 200;
 export const AGENT_OVERVIEW_LIMIT = 1000;
@@ -95,13 +95,13 @@ export const jobEvidenceQuery = (jobKey: string) =>
     .limit(EVIDENCE_LIMIT);
 
 export async function jobIdForKey(jobKey: string) {
-  await assertOwner();
+  await assertMember();
   const [row] = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.key, jobKey));
   return row?.id;
 }
 
 export async function runJob(sessionId: string) {
-  await assertOwner();
+  await assertMember();
   const [row] = await db
     .select({ jobKey: runs.job_key, jobId: jobs.id })
     .from(runs)
@@ -112,7 +112,7 @@ export async function runJob(sessionId: string) {
 
 /** Runs a feed's query for the owner; a live update re-renders the page, which runs it again. */
 export async function load<Row>(query: PromiseLike<Row[]>) {
-  await assertOwner();
+  await assertMember();
   return { initialData: await query };
 }
 

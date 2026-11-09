@@ -1,28 +1,32 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { isOwner } from "@/lib/auth/owner";
-import { auth } from "@/lib/auth/server";
+import { session, sessionUser } from "@/lib/auth/server";
 
 const LOGIN = "/auth/sign-in";
-// The SDK middleware re-mints the cached session cookie that getSession alone cannot set from a proxy.
-const refreshSession = auth.middleware({ loginUrl: LOGIN });
+const SETUP = "/setup";
 
+// Session contract (R3, R33): Better Auth issues a session only after TOTP for an enrolled user, or right after
+// a setup or invite link for one who hasn't enrolled yet. Until TOTP is on and setup is done, only /setup is open.
 export async function proxy(request: NextRequest) {
-  const { data } = await auth.getSession();
-  const user = data?.user;
-  if (isOwner(user)) return refreshSession(request);
-  const api = request.nextUrl.pathname.startsWith("/api/");
+  const user = sessionUser(await session.read(request.headers));
+  const path = request.nextUrl.pathname;
+  const api = path.startsWith("/api/");
   if (!user) {
     return api
       ? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
       : NextResponse.redirect(new URL(LOGIN, request.url));
   }
-  return api
-    ? NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    : NextResponse.rewrite(new URL("/auth/forbidden", request.url), { status: 403 });
+  if (user.twoFactorEnabled !== true || !user.setupDoneAt) {
+    if (path === SETUP || path.startsWith(`${SETUP}/`) || path.startsWith(`${SETUP}.`)) return NextResponse.next();
+    return api
+      ? NextResponse.json({ error: "Finish setup first" }, { status: 403 })
+      : NextResponse.redirect(new URL(SETUP, request.url));
+  }
+  return NextResponse.next();
 }
 
 // Each exclusion ends at a path boundary, or at the .rsc and .segments/ suffixes Next adds for prerendered pages.
-// The public paths have no session: ingest checks its Bearer secret, webhooks and Slack their signatures.
+// The link pages check their token on the server. The public paths have no session: ingest checks its Bearer
+// secret, webhooks and Slack their signatures.
 export const config = {
-  matcher: ["/((?!(?:auth/sign-in|auth/sign-up|auth/forbidden|api/auth|api/slack|api/ingest|api/webhooks|_next/static|_next/image|favicon\\.ico)(?:/|$|\\.rsc$|\\.segments/)).*)"],
+  matcher: ["/((?!(?:auth/sign-in|auth/setup|auth/accept|auth/reset|auth/forbidden|api/auth|api/slack|api/ingest|api/webhooks|_next/static|_next/image|favicon\\.ico)(?:/|$|\\.rsc$|\\.segments/)).*)"],
 };

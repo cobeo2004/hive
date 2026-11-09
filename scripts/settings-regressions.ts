@@ -2,10 +2,10 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
+import type { SessionUser } from "../lib/auth/owner";
 import type { Harness } from "../lib/harness";
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 
 const { db } = await import("../db/client");
 const { jobs, settings } = await import("../db/schema");
@@ -144,16 +144,16 @@ assert.deepEqual(
   "a runner that can log in outranks one that cannot",
 );
 
-const owner = { email: OWNER, emailVerified: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
 const reported = [harness("claudeAgent", true, ["model-a"]), harness("codex", true, ["codex-one"]), harness("cursor", false)];
 const choices: { provider: string; model: string; execution: string; by: string }[] = [];
-const deps = (user: { email: string; emailVerified: boolean } | null, harnesses: Harness[] | null = reported) => ({
+const deps = (user: SessionUser | null, harnesses: Harness[] | null = reported) => ({
   user: async () => user,
   harnesses: async () => harnesses,
   save: async (choice: { provider: string; model: string; execution: string }, by: string) => void choices.push({ ...choice, by }),
 });
 
-for (const user of [null, { email: "someone@example.com", emailVerified: true }, { email: OWNER, emailVerified: false }]) {
+for (const user of [null, { email: "someone@example.com", role: "engineer", twoFactorEnabled: true }, { email: OWNER, role: "admin", twoFactorEnabled: false }]) {
   const outcome = await saveSettings(deps(user), { provider: "codex", model: "codex-one" });
   assert.equal(!outcome.ok && outcome.status, 403, `a non-owner (${user?.email ?? "signed out"}) cannot change settings`);
 }

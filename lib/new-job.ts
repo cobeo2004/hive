@@ -1,4 +1,4 @@
-import { isOwner, type SessionUser } from "@/lib/auth/owner";
+import { isMember, type SessionUser } from "@/lib/auth/owner";
 import type { Harness } from "@/lib/harness";
 import { JOB_IMAGE_TYPES, MAX_JOB_IMAGE_BYTES, newJobSchema, type ImageUploadOutcome, type NewJobOutcome } from "@/lib/new-job-schema";
 import type { FileDraft, FiledJob, ImageFile } from "@/lib/sources/types";
@@ -19,7 +19,7 @@ export type NewJobDeps = {
 };
 
 export async function createJob(deps: NewJobDeps, input: unknown): Promise<NewJobOutcome> {
-  if (!isOwner(await deps.user())) return { ok: false, status: 403, message: "Only the factory owner can start jobs." };
+  if (!isMember(await deps.user())) return { ok: false, status: 403, message: "Sign in to Hive to start jobs." };
   const parsed = newJobSchema.safeParse(input);
   if (!parsed.success) return { ok: false, status: 400, message: parsed.error.issues[0]?.message ?? "The job is not valid." };
   const { provider, execution, repo, ...draft } = parsed.data;
@@ -49,7 +49,7 @@ export type ImageUploadDeps = {
 
 /** Stores an image for a job the owner is about to file; the form puts the returned markdown in the description. */
 export async function uploadJobImage(deps: ImageUploadDeps, file: File | null): Promise<ImageUploadOutcome> {
-  if (!isOwner(await deps.user())) return { ok: false, status: 403, message: "Only the factory owner can add images." };
+  if (!isMember(await deps.user())) return { ok: false, status: 403, message: "Sign in to Hive to add images." };
   if (!file) return { ok: false, status: 400, message: "No image was sent." };
   if (!(JOB_IMAGE_TYPES as readonly string[]).includes(file.type)) return { ok: false, status: 400, message: `${file.name} is not a PNG, JPEG, WebP or GIF image.` };
   if (file.size > MAX_JOB_IMAGE_BYTES) return { ok: false, status: 413, message: `${file.name} is larger than 4 MB.` };

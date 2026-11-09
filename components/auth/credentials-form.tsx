@@ -12,54 +12,51 @@ import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth/client";
 import { attempt } from "./attempt";
-import { VerifyEmailForm } from "./verify-email-form";
 
 type Credentials = { email: string; password: string };
 
 const MODES = {
   "sign-in": {
-    description: "Sign in with the owner account.",
+    description: "Sign in to Hive. Ask an admin for an invite if you have no account.",
     submit: "Sign in",
     pending: "Signing in",
     passwordAutoComplete: "current-password",
     password: z.string().min(1, "Enter your password"),
     call: (credentials: Credentials) => authClient.signIn.email(credentials),
   },
-  "sign-up": {
-    description: "Create the owner account. You confirm the email with a code next.",
-    submit: "Create account",
-    pending: "Creating account",
-    passwordAutoComplete: "new-password",
-    password: z.string().min(8, "Use at least 8 characters"),
-    call: (credentials: Credentials) => authClient.signUp.email({ ...credentials, name: credentials.email }),
-  },
 } as const;
 
 export function CredentialsForm({ mode }: { mode: keyof typeof MODES }) {
   const config = MODES[mode];
   const router = useRouter();
-  const [verifying, setVerifying] = useState<string | null>(null);
+  const [needsCode, setNeedsCode] = useState(false);
   const form = useForm<Credentials>({
     resolver: zodResolver(z.object({ email: z.email("Enter a valid email address"), password: config.password })),
     defaultValues: { email: "", password: "" },
   });
 
   async function onSubmit(credentials: Credentials) {
-    const failed = await attempt(() => config.call(credentials), `${config.submit} failed`);
-    if (failed && !failed.unverified) {
+    let twoFactor = false;
+    const failed = await attempt(async () => {
+      const result = await config.call(credentials);
+      twoFactor = !!(result.data && "twoFactorRedirect" in result.data && result.data.twoFactorRedirect);
+      return result;
+    }, `${config.submit} failed`);
+    if (failed) {
       form.setError("root", { message: failed.message });
       return;
     }
-    // A new account, or a sign-in the server refused for an unconfirmed email, has just been sent a code.
-    if (failed || mode === "sign-up") {
-      setVerifying(credentials.email);
-      return;
-    }
+    // An enrolled user gets no session until the code (R33); one who hasn't enrolled is sent to /setup by the proxy.
+    if (twoFactor) setNeedsCode(true);
+    else done();
+  }
+
+  function done() {
     router.replace("/");
     router.refresh();
   }
 
-  if (verifying) return <VerifyEmailForm email={verifying} />;
+  if (needsCode) return <CodeForm onDone={done} />;
 
   return (
     <Card className="w-full max-w-sm">
@@ -108,6 +105,47 @@ export function CredentialsForm({ mode }: { mode: keyof typeof MODES }) {
               {form.formState.isSubmitting ? config.pending : config.submit}
             </Button>
           </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ponytail: placeholder TOTP step; the designed sign-in replaces it.
+function CodeForm({ onDone }: { onDone: () => void }) {
+  const [code, setCode] = useState("");
+  const [backup, setBackup] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const failed = await attempt(
+      () => (backup ? authClient.twoFactor.verifyBackupCode({ code }) : authClient.twoFactor.verifyTotp({ code })),
+      "That code didn't work",
+    );
+    if (failed) setError(failed.message);
+    else onDone();
+  }
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Hive</CardTitle>
+        <CardDescription>{backup ? "Enter one of your backup codes." : "Enter the code from your authenticator app."}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={submit} className="flex flex-col gap-5">
+          <Field>
+            <FieldLabel htmlFor="code">{backup ? "Backup code" : "Code"}</FieldLabel>
+            <Input id="code" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" />
+          </Field>
+          {error && (
+            <Alert variant="error">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          <Button type="submit">Verify</Button>
+          <Button type="button" variant="ghost" onClick={() => setBackup(!backup)}>
+            {backup ? "Use the authenticator app" : "Use a backup code"}
+          </Button>
         </form>
       </CardContent>
     </Card>

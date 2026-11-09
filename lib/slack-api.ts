@@ -93,6 +93,12 @@ export function slackClient({ token, baseUrl = SLACK_API_URL, minGapMs = 1_000, 
     async update(channel: string, ts: string, message: SlackMessage) {
       await call("chat.update", { channel, ts, ...messageParams(message) });
     },
+    /** A Slack user's profile email (bot scope users:read.email); null when Slack shows none, as for bots. */
+    async userEmail(user: string) {
+      const body = await call("users.info", { user });
+      const email = (body.user as { profile?: { email?: unknown } } | undefined)?.profile?.email;
+      return typeof email === "string" && email ? email : null;
+    },
     /** The DM channel with a user; chat.update needs its id, not the user's. */
     async openDm(user: string) {
       const body = await call("conversations.open", { users: user });

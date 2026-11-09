@@ -8,7 +8,6 @@ import type { MergeDecision } from "../lib/merge-decision";
 // Slack notifications against a fake Slack Web API: no request leaves this machine.
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 const TOKEN = "xoxb-regression-token-0123456789";
 const SIGNING = "regression-signing-secret-abcdef";
 process.env.SLACK_SIGNING_SECRET = SIGNING;
@@ -428,9 +427,9 @@ try {
   }
 
   // --- the test message, from Settings to the runner
-  const user = async () => ({ email: OWNER, emailVerified: true });
+  const user = async () => ({ email: OWNER, role: "admin", twoFactorEnabled: true });
   const deps = { db, user, slackConfigured: async () => true };
-  assert.equal((await requestSlackTest({ ...deps, user: async () => ({ email: "x@example.com", emailVerified: true }) }, randomUUID())).ok, false, "owner only");
+  assert.equal((await requestSlackTest({ ...deps, user: async () => ({ email: "x@example.com", role: "engineer", twoFactorEnabled: true }) }, randomUUID())).ok, false, "an engineer is refused");
   assert.match(JSON.stringify(await requestSlackTest({ ...deps, slackConfigured: async () => false }, randomUUID())), /No online runner has a Slack token/);
   const requested = await requestSlackTest(deps, randomUUID());
   assert.ok(requested.ok);

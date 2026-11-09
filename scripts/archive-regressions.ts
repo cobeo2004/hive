@@ -7,7 +7,6 @@ import type { JobRow } from "../db/schema";
 import type { MergeDecision } from "../lib/merge-decision";
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 
 const { db } = await import("../db/client");
 const { auditLog, jobs, runs } = await import("../db/schema");
@@ -65,7 +64,7 @@ await db.insert(runs).values({ session_id: "archive-regress-run", job_key: KEYS.
 
 const idOf = async (key: string) => (await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.key, key)))[0]!.id;
 const ids = Object.fromEntries(await Promise.all(Object.entries(KEYS).map(async ([k, key]) => [k, await idOf(key)]))) as Record<keyof typeof KEYS, JobRow["id"]>;
-const owner = { email: OWNER, emailVerified: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
 const deps = (user: typeof owner | null = owner) => ({ db, user: async () => user });
 const rows = async () => db.select().from(jobs).where(like(jobs.key, "ARCH-%"));
 const audits = async () => db.select().from(auditLog).where(inArray(auditLog.job_id, Object.values(ids)));
@@ -87,9 +86,9 @@ const before = await panel();
 assert.deepEqual(before.archived, []);
 assert.ok(before.inbox.includes(KEYS.failed), "the failed job starts in the inbox");
 
-for (const user of [null, { email: "stranger@example.com", emailVerified: true }, { email: OWNER, emailVerified: false }]) {
-  assert.deepEqual(await archiveJobs(deps(user), [ids.merged]), { ok: false, message: "Only the factory owner can archive jobs." }, "only the owner archives");
-  assert.deepEqual(await unarchiveJobs(deps(user), [ids.merged]), { ok: false, message: "Only the factory owner can archive jobs." }, "only the owner restores");
+for (const user of [null, { email: "stranger@example.com", role: "engineer", twoFactorEnabled: false }, { email: OWNER, role: "admin", twoFactorEnabled: false }]) {
+  assert.deepEqual(await archiveJobs(deps(user), [ids.merged]), { ok: false, message: "Sign in to Hive to archive jobs." }, "only a member archives");
+  assert.deepEqual(await unarchiveJobs(deps(user), [ids.merged]), { ok: false, message: "Sign in to Hive to archive jobs." }, "only a member restores");
 }
 assert.deepEqual(await archiveJobs(deps(), []), { ok: false, message: "Pick at least one job." });
 assert.deepEqual(await archiveJobs(deps(), "nope"), { ok: false, message: "Invalid input: expected array, received string" }, "the ids are validated");

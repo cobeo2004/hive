@@ -22,24 +22,29 @@ import { mergeDecisionSchema } from "@/lib/merge-decision";
 import { ITEM_BLOCK_PREFIX, notifyEvents, PENDING_LABELS, redact, renderMessage, slackAction, SLACK_ACTION_IDS, type MessageFacts, type NotifyEvent } from "@/lib/slack";
 import type { SlackClient } from "@/lib/slack-api";
 import { NEW_JOB_CALLBACK_ID, newJobSubmitted, sendToFactory, shortcutSchema } from "@/lib/slack-new-job";
-import { ephemeral, invalidSignature, NO_TOKEN, NOT_OWNER, parseJson, safeMessage, signedBody, uuidFrom } from "@/lib/slack-request";
+import { ephemeral, invalidSignature, NO_TOKEN, NOT_MEMBER, parseJson, safeMessage, signedBody, uuidFrom } from "@/lib/slack-request";
 import { branchCosts } from "@/lib/spend";
 
 // Acting from Slack: the interactivity route (app/api/slack/interactions) hands every request here.
 // A click on an open message's button, or a modal's submission, runs the same inbox action the
-// panel runs (lib/inbox-actions.ts) as the owner, so Slack is one more front door to the same
-// intents and the runner does the rest. Only the Slack user SLACK_OWNER_USER_ID names may act.
+// panel runs (lib/inbox-actions.ts) as the Hive member whose email the clicker's Slack profile has (R6),
+// so Slack is one more front door to the same intents and the runner does the rest.
 // The "Send to factory" shortcut and the New job modal it opens are lib/slack-new-job.ts's.
 // Slack wants an answer within 3 seconds, so the route acks and the work runs after it.
 
-export { MAX_SKEW_SECONDS, NOT_OWNER, verifySignature } from "@/lib/slack-request";
+export { MAX_SKEW_SECONDS, NOT_MEMBER, verifySignature } from "@/lib/slack-request";
 
 export const ALREADY_RESOLVED = "This is already resolved; nothing was done.";
 
-/** The owner as the inbox actions check it: the first address in FACTORY_OWNER_EMAILS, which a Slack click by SLACK_OWNER_USER_ID stands for. */
-export function ownerFromAllowlist(allowlist = process.env.FACTORY_OWNER_EMAILS): SessionUser | null {
-  const email = allowlist?.split(",")[0]?.trim();
-  return email ? { email, emailVerified: true } : null;
+/** The deps acting as the Hive member a Slack user is, or null when their Slack email matches no member. */
+export async function actingAs(deps: InteractionDeps, slackUserId: string): Promise<InteractionDeps | null> {
+  const user = await deps.member(slackUserId).catch((error) => {
+    console.error(`slack: looking up ${slackUserId} failed: ${safeMessage(deps.secrets, error)}`);
+    return null;
+  });
+  if (!user) return null;
+  const as = async () => user;
+  return { ...deps, inbox: { ...deps.inbox, user: as, newJob: { ...deps.inbox.newJob, user: as } } };
 }
 
 /**
@@ -188,12 +193,14 @@ export function renderModal(action: ModalAction, item: Item, facts: MessageFacts
 
 export type InteractionDeps = {
   signingSecret: string | undefined;
-  /** The Slack member id of the only user who may act. */
+  /** SLACK_OWNER_USER_ID: only where a confirmation falls back to a DM, until M2's per-user notifications. */
   ownerSlackId: string | undefined;
-  slack: Pick<SlackClient, "update" | "openView" | "updateView" | "postMessage" | "openDm" | "permalink"> | null;
+  /** The Hive member a Slack user id stands for, matched by email through users.info; null when none. */
+  member: (slackUserId: string) => Promise<SessionUser | null>;
+  slack: Pick<SlackClient, "update" | "openView" | "updateView" | "postMessage" | "openDm" | "permalink" | "userEmail"> | null;
   /** Posts to a click's response_url. */
   respond: (url: string, body: object) => Promise<void>;
-  /** The inbox actions' deps, acting as the owner. */
+  /** The inbox actions' deps; handleInteraction swaps in the clicker as the user. */
   inbox: InboxDeps;
   panelUrl: string;
   secrets: readonly string[];
@@ -316,25 +323,32 @@ export async function handleInteraction(request: Request, deps: InteractionDeps)
   const body = await signedBody(request, deps.signingSecret, deps.now?.() ?? Date.now());
   if (body === null) return invalidSignature();
   const payload = parseJson(new URLSearchParams(body).get("payload") ?? "");
-  const isOwner = (user: { id: string }) => !!deps.ownerSlackId && user.id === deps.ownerSlackId;
-
   const click = blockActionsSchema.safeParse(payload);
-  if (click.success) return clicked(deps, click.data, isOwner(click.data.user));
+  if (click.success) return clicked(deps, click.data);
   const submission = viewSubmissionSchema.safeParse(payload);
   if (submission.success) {
-    const owner = isOwner(submission.data.user);
-    return submission.data.view.callback_id === NEW_JOB_CALLBACK_ID ? newJobSubmitted(deps, payload, owner) : submitted(deps, submission.data, owner);
+    const acting = await actingAs(deps, submission.data.user.id);
+    const member = !!acting;
+    return submission.data.view.callback_id === NEW_JOB_CALLBACK_ID
+      ? newJobSubmitted(acting ?? deps, payload, member)
+      : submitted(acting ?? deps, submission.data, member);
   }
   const shortcut = shortcutSchema.safeParse(payload);
-  if (shortcut.success) return sendToFactory(deps, shortcut.data, isOwner(shortcut.data.user));
+  if (shortcut.success) {
+    const acting = await actingAs(deps, shortcut.data.user.id);
+    return sendToFactory(acting ?? deps, shortcut.data, !!acting);
+  }
   // Clicks on link buttons, closed modals and anything else Slack sends need only the ack.
   return ack();
 }
 
-async function clicked(deps: InteractionDeps, payload: z.infer<typeof blockActionsSchema>, owner: boolean) {
+async function clicked(anyone: InteractionDeps, payload: z.infer<typeof blockActionsSchema>) {
   const [button] = payload.actions;
   const action = button ? slackAction(button.action_id) : null;
   if (!button || !action) return ack();
+  const acting = await actingAs(anyone, payload.user.id);
+  const deps = acting ?? anyone;
+  const owner = !!acting;
   const reply = (text: string) => deps.respond(payload.response_url, ephemeral(deps.secrets, text));
   const slack = owner ? deps.slack : null;
   // The trigger id expires 3 seconds after the click, so a modal opens before the ack and before any
@@ -350,7 +364,7 @@ async function clicked(deps: InteractionDeps, payload: z.infer<typeof blockActio
   }
   deps.after(async () => {
     try {
-      if (!owner) return await reply(NOT_OWNER);
+      if (!owner) return await reply(NOT_MEMBER);
       if (!slack) return await reply(NO_TOKEN);
       if (openError) throw openError;
       const read = () => (button.block_id.startsWith(ITEM_BLOCK_PREFIX) ? openItem(deps, button.block_id.slice(ITEM_BLOCK_PREFIX.length)) : null);
@@ -380,7 +394,7 @@ async function submitted(deps: InteractionDeps, payload: z.infer<typeof viewSubm
   const action = slackAction(payload.view.callback_id);
   if (!action) return ack();
   const refuse = (message: string) => Response.json({ response_action: "errors", errors: { [TEXT_BLOCK]: message } });
-  if (!owner) return refuse(NOT_OWNER);
+  if (!owner) return refuse(NOT_MEMBER);
   const meta = metadataSchema.safeParse(parseJson(payload.view.private_metadata));
   if (!meta.success) return refuse("This form can't be read; open it again from the message.");
   const item = await openItem(deps, meta.data.event);

@@ -475,3 +475,100 @@ export type AuditRow = typeof auditLog.$inferSelect;
 export type JobEvidenceRow = typeof jobEvidence.$inferSelect;
 export type NotificationSettingsRow = typeof notificationSettings.$inferSelect;
 export type SlackMessageRow = typeof slackMessages.$inferSelect;
+
+// Better Auth (R3, R4, R33). Property names are the adapter's field names; columns are snake_case.
+// Foreign keys to "user" cascade, as Better Auth's own schema does.
+export const user = pgTable("user", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  image: text("image"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+  /** "admin" or "engineer" (R4). */
+  role: text("role"),
+  banned: boolean("banned").default(false),
+  banReason: text("ban_reason"),
+  banExpires: ts("ban_expires"),
+  twoFactorEnabled: boolean("two_factor_enabled").default(false),
+  /** Set when the user finishes /setup (R5, R33). */
+  setupDoneAt: ts("setup_done_at"),
+});
+
+export const session = pgTable(
+  "session",
+  {
+    id: text("id").primaryKey(),
+    expiresAt: ts("expires_at").notNull(),
+    token: text("token").notNull().unique(),
+    createdAt: ts("created_at").notNull().defaultNow(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    impersonatedBy: text("impersonated_by"),
+  },
+  (t) => [index("session_user_id_idx").on(t.userId)],
+);
+
+export const account = pgTable(
+  "account",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: ts("access_token_expires_at"),
+    refreshTokenExpiresAt: ts("refresh_token_expires_at"),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: ts("created_at").notNull().defaultNow(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index("account_user_id_idx").on(t.userId)],
+);
+
+export const verification = pgTable(
+  "verification",
+  {
+    id: text("id").primaryKey(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: ts("expires_at").notNull(),
+    createdAt: ts("created_at").notNull().defaultNow(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index("verification_identifier_idx").on(t.identifier)],
+);
+
+export const twoFactor = pgTable(
+  "two_factor",
+  {
+    id: text("id").primaryKey(),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    verified: boolean("verified").default(true),
+    failedVerificationCount: integer("failed_verification_count").default(0),
+    lockedUntil: ts("locked_until"),
+  },
+  (t) => [index("two_factor_user_id_idx").on(t.userId), index("two_factor_secret_idx").on(t.secret)],
+);
+
+export const accessLinkKind = pgEnum("access_link_kind", ["setup", "invite", "reset"]);
+
+/** One-time setup, invite and reset links (R32). Only the token's sha256 is stored. */
+export const accessLinks = pgTable("access_links", {
+  id: text("id").primaryKey(),
+  kind: accessLinkKind("kind").notNull(),
+  token_hash: text("token_hash").notNull().unique(),
+  /** Null for a setup link: the first admin chooses their email. */
+  email: text("email"),
+  expires_at: ts("expires_at").notNull(),
+  used_at: ts("used_at"),
+  created_by: text("created_by").references(() => user.id, { onDelete: "cascade" }),
+});

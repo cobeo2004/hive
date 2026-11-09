@@ -9,7 +9,6 @@ import type { MergeDecision } from "../lib/merge-decision";
 import type { FileDraft } from "../lib/sources/types";
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 const SECRET = "inbox-webhook-secret";
 process.env.GITHUB_APP_WEBHOOK_SECRET = SECRET;
 
@@ -263,8 +262,8 @@ async function job(name: string, over: Partial<typeof jobs.$inferInsert>, pull?:
   );
   return k;
 }
-const owner = { email: OWNER, emailVerified: true };
-const stranger = { email: "someone@example.com", emailVerified: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
+const stranger = { email: "someone@example.com", role: "engineer", twoFactorEnabled: false };
 const replies: { key: string; requestId: string; body: string }[] = [];
 const filed: FileDraft[] = [];
 const harnesses: Harness[] = [{ id: "claudeAgent", driver: "claudeAgent", name: "Claude Code", enabled: true, models: [] }];
@@ -291,13 +290,13 @@ try {
   const HAND = await job("HAND", {}, { number: 1, files: [{ filename: "drizzle/0099_x.sql", additions: 400, deletions: 10 }] });
   const handId = (await row(HAND)).id;
   const id1 = crypto.randomUUID();
-  for (const user of [null, stranger, { ...owner, emailVerified: false }]) {
-    assert.deepEqual(await inbox.approveMerge(deps(user), handId, id1, "h1"), { ok: false, message: "Only the factory owner can act on the inbox." });
+  for (const user of [null, stranger, { ...owner, role: "admin", twoFactorEnabled: false }]) {
+    assert.deepEqual(await inbox.approveMerge(deps(user), handId, id1, "h1"), { ok: false, message: "Sign in to Hive to act on the inbox." });
     assert.equal((await inbox.requestChanges(deps(user), handId, id1, "x")).ok, false);
     assert.equal((await inbox.closeJob(deps(user), handId, id1, "")).ok, false);
     assert.equal((await inbox.dismissJob(deps(user), handId)).ok, false);
     assert.equal((await inbox.answerQuestion(deps(user), handId, id1, "x")).ok, false);
-    assert.deepEqual(await inbox.intentOutcome(deps(user), `panel:approve_merge:${id1}`), { status: "failed", message: "Only the factory owner can act on the inbox." });
+    assert.deepEqual(await inbox.intentOutcome(deps(user), `panel:approve_merge:${id1}`), { status: "failed", message: "Sign in to Hive to act on the inbox." });
   }
   assert.equal((await intentRows(HAND)).length, 0, "a non-owner records nothing");
   assert.deepEqual(await inbox.approveMerge(deps(), handId, "not-a-uuid", "h1"), { ok: false, message: "The request is not valid." });
@@ -357,8 +356,8 @@ try {
   const DETAIL = await job("DETAIL", {}, { number: 20, files: [{ filename: "drizzle/0100_y.sql", additions: 500, deletions: 0 }] });
   const detailId = (await row(DETAIL)).id;
   const id5 = crypto.randomUUID();
-  for (const user of [null, stranger, { ...owner, emailVerified: false }]) {
-    assert.deepEqual(await inbox.approveFromRunDetail(deps(user), detailId, id5, "h20"), { ok: false, message: "Only the factory owner can act on the inbox." });
+  for (const user of [null, stranger, { ...owner, role: "admin", twoFactorEnabled: false }]) {
+    assert.deepEqual(await inbox.approveFromRunDetail(deps(user), detailId, id5, "h20"), { ok: false, message: "Sign in to Hive to act on the inbox." });
     assert.equal(await inbox.mergeTarget({ ...deps(user), pulls: github }, detailId), null, "a non-owner gets no merge target");
   }
   assert.equal((await intentRows(DETAIL)).length, 0, "a non-owner records nothing from run detail");

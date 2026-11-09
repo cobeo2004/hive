@@ -4,9 +4,6 @@ import { jobsHref } from "../components/panel/job-view";
 import { activityHref, fullViewHref, parseSessionId } from "../lib/run-links";
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
-process.env.NEON_AUTH_BASE_URL ??= "https://auth.invalid/neondb/auth";
-process.env.NEON_AUTH_COOKIE_SECRET ??= "x".repeat(32);
 
 const CODEX = "mcp:hive/FAC-61";
 for (const id of [CODEX, "mcp:hive/FAC-10-a2", "evidence:hive/FAC-10-a2", "5f0c1e2a-9b7d-4c3e-8a1f-2d6b7c8e9f01", "mcp:hive/FAC-7"]) {
@@ -29,10 +26,8 @@ assert.equal(back.searchParams.has("full"), false, "the side panel drops the par
 assert.equal(back.searchParams.get("run"), CODEX, "the side panel keeps the open run");
 assert.equal(fullViewHref("/inbox", new URLSearchParams({ job: "FAC-1" }), true), "/inbox?job=FAC-1&full=1");
 assert.equal(fullViewHref("/inbox", new URLSearchParams({ full: "1" }), false), "/inbox", "no empty query is left behind");
-const { auth } = await import("../lib/auth/server");
-Object.assign(auth, {
-  getSession: async () => ({ data: { user: { email: OWNER, emailVerified: true } }, error: null }),
-});
+const { session } = await import("../lib/auth/server");
+Object.assign(session, { read: async () => ({ user: { email: OWNER, role: "engineer", twoFactorEnabled: true } }) });
 // A run's feeds are read by its session id as a bound parameter, so a Codex id with slashes reads like any other.
 const { load, runJob, sessionAgentsQuery, sessionEventsQuery, sessionStagesQuery } = await import("../lib/live-queries");
 for (const query of [sessionAgentsQuery(CODEX), sessionEventsQuery(CODEX), sessionStagesQuery(CODEX)]) {

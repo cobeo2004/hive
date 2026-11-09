@@ -2,13 +2,12 @@ import "./test-guard";
 import assert from "node:assert/strict";
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 
 const { createJob, uploadJobImage } = await import("../lib/new-job");
 const { linearFiler, linearUploader } = await import("../lib/sources/linear");
 type FileDraft = Parameters<typeof createJob>[0]["file"] extends (d: infer D) => unknown ? D : never;
 
-const owner = { email: OWNER, emailVerified: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
 const requestId = "6f0c3f8e-1f4b-4a52-9f0e-2d7c5a8b9c10";
 const harnesses = async () => null;
 const registry = async () => [];
@@ -17,7 +16,7 @@ const draft = { title: "Show the item count", description: "On the weight sort b
 {
   const filed: FileDraft[] = [];
   const file = async (d: FileDraft) => (filed.push(d), { key: "FAC-99", url: "https://linear.app/x/issue/FAC-99" });
-  for (const user of [null, { email: "someone@example.com", emailVerified: true }, { email: OWNER, emailVerified: false }]) {
+  for (const user of [null, { email: "someone@example.com", role: "engineer", twoFactorEnabled: false }, { email: OWNER, role: "admin", twoFactorEnabled: false }]) {
     const outcome = await createJob({ user: async () => user, file, harnesses, registry }, draft);
     assert.deepEqual([outcome.ok, !outcome.ok && outcome.status], [false, 403], `a non-owner (${user?.email ?? "signed out"}) cannot start a job`);
   }
@@ -85,7 +84,7 @@ const draft = { title: "Show the item count", description: "On the weight sort b
   const upload = async (image: { filename: string }) => (uploaded.push(image.filename), `![${image.filename}](https://uploads.linear.app/x/${image.filename})`);
   const png = (name: string, size = 10, type = "image/png") => new File([new Uint8Array(size)], name, { type });
 
-  const stranger = await uploadJobImage({ user: async () => ({ email: "someone@example.com", emailVerified: true }), upload }, png("a.png"));
+  const stranger = await uploadJobImage({ user: async () => ({ email: "someone@example.com", role: "engineer", twoFactorEnabled: false }), upload }, png("a.png"));
   assert.equal(!stranger.ok && stranger.status, 403, "a non-owner cannot upload images");
   const pdf = await uploadJobImage({ user: async () => owner, upload }, png("spec.pdf", 10, "application/pdf"));
   assert.equal(!pdf.ok && pdf.status, 400, "a file that is not an image is refused");

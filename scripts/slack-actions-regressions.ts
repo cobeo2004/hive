@@ -10,10 +10,13 @@ import type { Job } from "../lib/sources/types";
 // and response_url on localhost, and the panel's own inbox actions behind them.
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 const TOKEN = "xoxb-regression-token-0123456789";
 const SIGNING = "regression-signing-secret-abcdef";
 const OWNER_SLACK = "U0OWNER";
+const ENGINEER = "eng@example.com";
+const ENGINEER_SLACK = "U0ENG";
+/** The emails users.info gives; the stranger's Slack email has no Hive account. */
+const SLACK_EMAILS: Record<string, string> = { [OWNER_SLACK]: OWNER, [ENGINEER_SLACK]: ENGINEER, U0STRANGER: "stranger@example.com" };
 
 const { db } = await import("../db/client");
 const { auditLog, intents, jobs, slackMessages } = await import("../db/schema");
@@ -22,8 +25,14 @@ const { approveDetailSchema, feedbackDetailSchema } = await import("../lib/inbox
 const inbox = await import("../lib/inbox-actions");
 const { notifyEvents, renderMessage, SLACK_ACTION_IDS, SLACK_LINK_ACTION_IDS } = await import("../lib/slack");
 const { postResponse, slackClient } = await import("../lib/slack-api");
-const { ALREADY_RESOLVED, handleInteraction, LOADING, MAX_SKEW_SECONDS, NOT_OWNER, ownerFromAllowlist, slackRequestId, TEXT_BLOCK } = await import("../lib/slack-interactions");
+const { ALREADY_RESOLVED, handleInteraction, LOADING, MAX_SKEW_SECONDS, NOT_MEMBER, slackRequestId, TEXT_BLOCK } = await import("../lib/slack-interactions");
 const { serve } = await import("./serve");
+const { memberByEmail } = await import("../lib/members");
+const { user: users } = await import("../db/schema");
+const { inArray: within } = await import("drizzle-orm");
+const hiveUser = (id: string, email: string, role: string) => ({ id, name: email, email, role, twoFactorEnabled: true, setupDoneAt: new Date() });
+await db.delete(users).where(within(users.email, [OWNER, ENGINEER]));
+await db.insert(users).values([hiveUser(`slack-owner-${Date.now()}`, OWNER, "admin"), hiveUser(`slack-eng-${Date.now()}`, ENGINEER, "engineer")]);
 
 // --- the fake Slack: Web API calls under /api/, response_url posts under /response/
 type Call = { method: string; params: Record<string, string> };
@@ -42,6 +51,7 @@ const server = await serve(0, async (request) => {
   calls.push({ method, params });
   timeline.push(method);
   if (request.headers.get("authorization") !== `Bearer ${TOKEN}`) return Response.json({ ok: false, error: "invalid_auth" });
+  if (method === "users.info") return Response.json({ ok: true, user: { id: params.user, profile: { email: SLACK_EMAILS[params.user!] } } });
   if (method === "views.open") return Response.json({ ok: true, view: { id: `V${calls.length}`, hash: `hash-${calls.length}` } });
   if (method === "views.update") return Response.json({ ok: true, view: { id: params.view_id, hash: `hash-${calls.length}` } });
   return Response.json({ ok: true, channel: params.channel, ts: params.ts });
@@ -64,11 +74,13 @@ const tasks: Promise<void>[] = [];
 const drain = async () => {
   while (tasks.length > 0) await Promise.all(tasks.splice(0));
 };
-const owner = async () => ownerFromAllowlist();
+const owner = async () => ({ email: OWNER, role: "admin", twoFactorEnabled: true });
+const slack = slackClient({ token: TOKEN, baseUrl: `${base}/api/`, minGapMs: 0 });
 const deps = {
   signingSecret: SIGNING,
   ownerSlackId: OWNER_SLACK,
-  slack: slackClient({ token: TOKEN, baseUrl: `${base}/api/`, minGapMs: 0 }),
+  member: async (id: string) => memberByEmail(await slack.userEmail(id)),
+  slack,
   respond: postResponse,
   inbox: {
     db: trackedDb,
@@ -183,19 +195,27 @@ try {
   );
   assert.equal((await handleInteraction(new Request("http://localhost/", { method: "POST", headers: sign(body), body }), { ...deps, signingSecret: undefined })).status, 401, "no signing secret, no actions");
 
-  // --- only the owner acts
+  // --- a Slack user with no Hive account acts on nothing
   const stranger = click(hand.eventId, SLACK_ACTION_IDS.approve, "U0STRANGER");
   assert.equal((await stranger.sent).status, 200, "acked");
   await drain();
-  assert.deepEqual(repliesTo(stranger.response_url), [NOT_OWNER]);
+  assert.deepEqual(repliesTo(stranger.response_url), [NOT_MEMBER]);
   assert.equal(responses.at(-1)!.body.response_type, "ephemeral");
   assert.equal((await intentsFor(hand.id)).length, 0, "nothing recorded for a stranger");
   assert.equal(updatesOf(hand.ts).length, 0);
   const strangerModal = click(hand.eventId, SLACK_ACTION_IDS.request_changes, "U0STRANGER");
   await strangerModal.sent;
   await drain();
-  assert.deepEqual(repliesTo(strangerModal.response_url), [NOT_OWNER]);
+  assert.deepEqual(repliesTo(strangerModal.response_url), [NOT_MEMBER]);
   assert.equal(calls.filter((c) => c.method === "views.open").length, 0, "no modal for a stranger");
+
+  // --- an engineer's Approve runs as the engineer (R6)
+  const engHand = await item("E", { stage: "pr", pr_url: "https://github.com/o/r/pull/2", merge_decision: decision() });
+  await click(engHand.eventId, SLACK_ACTION_IDS.approve, ENGINEER_SLACK).sent;
+  await drain();
+  const engApprovals = await intentsFor(engHand.id);
+  assert.equal(engApprovals.length, 1, "an engineer's Approve records the approval");
+  assert.equal(approveDetailSchema.parse(JSON.parse(engApprovals[0]!.detail!)).actor, ENGINEER, "the engineer is the approver");
 
   // --- link buttons are acked and ignored
   const mark = calls.length;
@@ -270,7 +290,7 @@ try {
   const before = timeline.length;
   const opened = click(changes.eventId, SLACK_ACTION_IDS.request_changes);
   await opened.sent;
-  assert.equal(timeline[before], "views.open", "the modal opens before the ack, before anything is read");
+  assert.equal(timeline.slice(before).filter((m) => m !== "users.info")[0], "views.open", "the modal opens before the ack, before anything but the clicker's lookup");
   const viewCall = calls.filter((c) => c.method === "views.open").at(-1)!;
   assert.equal(viewCall.params.trigger_id, `trigger-${urls}`, "the click's trigger opens the modal");
   const loading = JSON.parse(viewCall.params.view!) as { submit?: unknown; title: { text: string } };
@@ -285,7 +305,7 @@ try {
   assert.equal(view.callback_id, SLACK_ACTION_IDS.request_changes);
   assert.equal(view.blocks.find((b) => b.type === "input")!.optional, false, "feedback is required");
   assert.equal((await intentsFor(changes.id)).length, 0, "opening the modal records nothing");
-  assert.match(JSON.stringify(await (await submit(view, "Rename the flag.", "U0STRANGER")).json()), new RegExp(NOT_OWNER), "a stranger's submission is refused in the modal");
+  assert.match(JSON.stringify(await (await submit(view, "Rename the flag.", "U0STRANGER")).json()), new RegExp(NOT_MEMBER), "a stranger's submission is refused in the modal");
   const accepted = await submit(view, "Rename the flag.");
   assert.equal(accepted.status, 200);
   assert.equal(await accepted.text(), "", "an empty ack closes the modal");
@@ -376,6 +396,7 @@ try {
 
   console.log("slack actions regressions passed");
 } finally {
+  await db.delete(users).where(within(users.email, [OWNER, ENGINEER]));
   if (created.length > 0) {
     const ids = created as JobRow["id"][];
     await db.delete(intents).where(inArray(intents.job_id, ids));

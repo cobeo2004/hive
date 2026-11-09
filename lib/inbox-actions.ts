@@ -3,7 +3,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import * as schema from "@/db/schema";
 import { auditLog, intents, jobs, type IntentKind, type JobRow } from "@/db/schema";
-import { isOwner, type SessionUser } from "@/lib/auth/owner";
+import { isMember, type SessionUser } from "@/lib/auth/owner";
 import type { RepoName } from "@/lib/github/app";
 import type { Mergeable, PullsClient } from "@/lib/github/pulls";
 import {
@@ -42,7 +42,7 @@ export type InboxDeps = {
 /** An action done at once has no intent, and may say what it did. */
 export type InboxOutcome = { ok: true; intentId: string | null; message?: string } | { ok: false; message: string };
 
-const OWNER_ONLY = "Only the factory owner can act on the inbox.";
+const OWNER_ONLY = "Sign in to Hive to act on the inbox.";
 const requestIdSchema = z.uuid();
 
 const NOT_OFFERED: Record<InboxAction, string> = {
@@ -58,7 +58,7 @@ const NOT_OFFERED: Record<InboxAction, string> = {
 
 async function ownerJob(deps: InboxDeps, jobId: JobId, action: InboxAction) {
   const user = await deps.user();
-  if (!isOwner(user)) return { ok: false, message: OWNER_ONLY } as const;
+  if (!isMember(user)) return { ok: false, message: OWNER_ONLY } as const;
   const [job] = await deps.db.select().from(jobs).where(eq(jobs.id, jobId));
   if (!job) return { ok: false, message: `No job ${jobId}.` } as const;
   if (!allows(inboxKind(job), action)) return { ok: false, message: NOT_OFFERED[action] } as const;
@@ -101,7 +101,7 @@ function notMergeable(job: JobRow): string | null {
 export async function approveFromRunDetail(deps: InboxDeps, jobId: JobId, requestId: string, headSha: string): Promise<InboxOutcome> {
   if (badRequest(requestId) || !headSha) return { ok: false, message: "The request is not valid." };
   const user = await deps.user();
-  if (!isOwner(user)) return { ok: false, message: OWNER_ONLY };
+  if (!isMember(user)) return { ok: false, message: OWNER_ONLY };
   const [job] = await deps.db.select().from(jobs).where(eq(jobs.id, jobId));
   if (!job) return { ok: false, message: `No job ${jobId}.` };
   const refused = notMergeable(job);
@@ -113,7 +113,7 @@ export type MergeTarget = { title: string; headSha: string; repo: string; mergea
 
 /** What run detail's merge dialog shows, read on the server through the App: null for a non-owner or a job with nothing to merge. */
 export async function mergeTarget(deps: Pick<InboxDeps, "db" | "user"> & { pulls: Pick<PullsClient, "pullRequest"> }, jobId: JobId): Promise<MergeTarget | null> {
-  if (!isOwner(await deps.user())) return null;
+  if (!isMember(await deps.user())) return null;
   const [job] = await deps.db.select().from(jobs).where(eq(jobs.id, jobId));
   if (!job || notMergeable(job)) return null;
   const pull = await deps.pulls.pullRequest(job.pr_url!);
@@ -293,7 +293,7 @@ export function describeOutcome(kind: (typeof INBOX_INTENTS)[number], raw: strin
 }
 
 export async function intentOutcome(deps: Pick<InboxDeps, "db" | "user">, intentId: string): Promise<IntentOutcome> {
-  if (!isOwner(await deps.user())) return { status: "failed", message: OWNER_ONLY };
+  if (!isMember(await deps.user())) return { status: "failed", message: OWNER_ONLY };
   const [intent] = await deps.db
     .select()
     .from(intents)
@@ -310,7 +310,7 @@ export type ReviewDeps = Pick<InboxDeps, "db" | "user"> & { pulls: Pick<PullsCli
  * on this report, else read from GitHub here on the server, as when autonomy is off.
  */
 export async function inboxReview(deps: ReviewDeps, jobId: JobId): Promise<ReviewSummary | null> {
-  if (!isOwner(await deps.user())) return null;
+  if (!isMember(await deps.user())) return null;
   const [job] = await deps.db.select().from(jobs).where(eq(jobs.id, jobId));
   if (!job?.pr_url || !inboxKind(job)) return null;
   const decision = mergeDecisionSchema.safeParse(job.merge_decision).data;

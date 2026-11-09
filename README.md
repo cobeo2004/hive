@@ -82,8 +82,7 @@ Create `.env.local` with the secrets you choose yourself. `FACTORY_PANEL_URL` is
 cat > .env.local <<EOF
 FACTORY_INGEST_SECRET=$(openssl rand -hex 32)
 LINEAR_WEBHOOK_SECRET=$(openssl rand -hex 32)
-NEON_AUTH_COOKIE_SECRET=$(openssl rand -base64 32)
-FACTORY_OWNER_EMAILS=you@example.com
+BETTER_AUTH_SECRET=$(openssl rand -base64 32)
 LINEAR_API_KEY=<your Linear API key>
 FACTORY_TEAM_KEY=FAC
 FACTORY_LABEL=factory
@@ -92,14 +91,14 @@ EOF
 chmod 600 .env.local
 ```
 
-Turn on Neon Auth for `main` in the Neon console. Then pull the values Neon generated (connection strings and Auth) and create the tables, which also adds the live-update triggers:
+Pull the connection strings Neon generated and create the tables, which also adds the live-update triggers and the sign-in tables:
 
 ```sh
 neon env pull --branch main
 bun run db:migrate
 ```
 
-`.env.local` now also holds `DATABASE_URL`, `DATABASE_URL_UNPOOLED` and `NEON_AUTH_BASE_URL`.
+`.env.local` now also holds `DATABASE_URL` and `DATABASE_URL_UNPOOLED`.
 
 Finally, put the production endpoint id into `PRODUCTION_ENDPOINTS` in `lib/migrate-guard.ts`. It is the `ep-…` part of the host in `DATABASE_URL`, without `-pooler`.
 
@@ -142,10 +141,9 @@ Import the repo into Vercel as a Next.js project. `vercel.json` already sets the
 
 - Add these environment variables for Production. Mark the secrets as Sensitive.
   - `DATABASE_URL`, `DATABASE_URL_UNPOOLED`
-  - `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`
+  - `BETTER_AUTH_SECRET`
   - `FACTORY_PANEL_URL`
   - `FACTORY_INGEST_SECRET`, `LINEAR_WEBHOOK_SECRET`, and `GITHUB_APP_WEBHOOK_SECRET` (`jq -r .webhook_secret ~/.config/marshal-factory/github-app.json`), which ingest and the webhooks check
-  - `FACTORY_OWNER_EMAILS`
   - `LINEAR_API_KEY`, used by the New job form
   - `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`, from `~/.config/marshal-factory/github-app.json`, so **Add repository** can list the repos the App reaches
   - `FACTORY_TEAM_KEY` and `FACTORY_LABEL`, if they differ from `FAC` and `factory`
@@ -153,13 +151,7 @@ Import the repo into Vercel as a Next.js project. `vercel.json` already sets the
   - Optional: `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` and `SLACK_OWNER_USER_ID` ([Connecting Slack](#connecting-slack))
 - Set the Ignored Build Step to `[ -z "$DATABASE_URL" ]`, so previews without a database are skipped. To get previews with their own Neon branch, connect Neon's Vercel integration. Each preview then migrates its own branch, and the migration guard stops any preview that points at production.
 
-Deploy, then add the panel's production URL to Neon Auth's trusted domains; the example uses `https://marshal-factory.vercel.app`, so put your own domain in its place. A new branch has none, and without this sign-up fails with "Create account failed: Invalid origin.":
-
-```sh
-neon neon-auth domain add https://marshal-factory.vercel.app --branch main
-```
-
-Then create your owner account. Sign-up is off by default. The [owner account steps](docs/operations.md#panel-access-and-deploys) turn it on briefly, so you can register with an address from `FACTORY_OWNER_EMAILS` and confirm it with the emailed code.
+Deploy, then create the first admin. On the Mac, with `.env.local` pointing at the production database, `bun scripts/setup-token.ts` prints a one-time setup link, valid for an hour. Open it, set your name, email and password, then turn on two-factor authentication on `/setup`. The [panel access steps](docs/operations.md#panel-access-and-deploys) cover invites and password resets.
 
 ### 9. Start the runner
 
@@ -290,7 +282,7 @@ It waits for Vercel's production deploy (which runs the migrations), stops the r
 - **Start with the runner log**: `~/Library/Logs/marshal-factory/runner.log`. Each line is one JSON event. Errors name the step that failed.
 - **An issue isn't picked up.** Check that it is in your team (`teamKey`), has the label, and is in an unstarted state such as Todo. Also check that **Repositories** lists at least one repo or `factory.repos` isn't empty, and that the Linear webhook exists under Linear → Settings → API. The runner also polls every 90 seconds, so a missed webhook only delays the job.
 - **Machine shows offline.** The runner isn't sending heartbeats. Check `launchctl list | grep marshal-factory`, then the log. Run `bun runner/index.ts --once` in the live checkout to do one pass by hand and see its output.
-- **Sign-up fails with "Invalid origin."** Neon Auth only accepts sign-ups from its trusted domains, and the panel's domain isn't one of them. Run `neon neon-auth domain add https://<your panel domain> --branch main`, then sign up again. See [the owner account steps](docs/operations.md#panel-access-and-deploys).
+- **Sign-in fails with "Invalid origin."** Better Auth trusts only `FACTORY_PANEL_URL`. Set it to the URL you open the panel at, and redeploy. See [panel access](docs/operations.md#panel-access-and-deploys).
 - **The board has no live updates.** The footer says Connecting while `/api/live` is down. Check that the migrations ran (they add the `hive_notify` triggers) and that `DATABASE_URL_UNPOOLED` is set in Vercel: a LISTEN needs the direct connection, not the pooler. Previews never follow live updates; only production does.
 - **A run has no stages or costs.** The target repo's hooks aren't reaching ingest. Check that the files from `install-target` are on the repo's `main`, and that `secret` in your config equals `FACTORY_INGEST_SECRET` in Vercel.
 - **You moved the live checkout.** The hooks and the LaunchAgent hold its old path. Run `install-target` for each repo and `install-runner` again.

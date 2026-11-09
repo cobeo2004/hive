@@ -16,8 +16,7 @@ const ops = await import("../runner/ops");
 type Adapter = NonNullable<NonNullable<Parameters<typeof ops.claim>[0]>["sources"]>[number];
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
-const owner = { email: OWNER, emailVerified: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
 const stamp = Date.now();
 const OWNER_NS = `test-repos-${stamp}`;
 const A = `${OWNER_NS}/factory-demo`;
@@ -128,12 +127,12 @@ const deps = (user: typeof owner | null = owner) => ({
   save: async (choice: unknown) => void saved.push(choice),
 });
 const input = { repo: B, displayName: "Shop app", enabled: true, provider: "codex", execution: "modal", autonomy: "trial", requireBugbot: true };
-for (const user of [null, { email: "x@example.com", emailVerified: true }, { email: OWNER, emailVerified: false }]) {
+for (const user of [null, { email: "x@example.com", role: "engineer", twoFactorEnabled: true }, { email: OWNER, role: "admin", twoFactorEnabled: false }]) {
   assert.equal((await repos.saveRepository(deps(user), input)).ok, false, `${user?.email ?? "signed out"} cannot save`);
   assert.deepEqual(await repos.makeDefaultRepo({ ...deps(user), save: async () => void saved.push("default") }, { repo: B }), {
     ok: false,
     status: 403,
-    message: "Only the factory owner can change repositories.",
+    message: "Only an admin can change repositories.",
   });
 }
 assert.equal(saved.length, 0, "and nothing is saved");

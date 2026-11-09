@@ -1,4 +1,4 @@
-import { assertOwner } from "@/lib/auth/server";
+import { assertMember } from "@/lib/auth/server";
 import { listen } from "@/lib/listen";
 
 export const runtime = "nodejs";
@@ -12,7 +12,7 @@ const HEARTBEAT_MS = 25_000;
  */
 // ponytail: one Postgres connection per open tab, fine for ~10 tabs; a single shared LISTEN client fanned out in-process is the upgrade if tabs grow.
 export async function GET(request: Request) {
-  await assertOwner();
+  await assertMember();
   const encoder = new TextEncoder();
   let stop = () => {};
   const stream = new ReadableStream<Uint8Array>({

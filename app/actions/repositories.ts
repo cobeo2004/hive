@@ -2,7 +2,7 @@
 
 import { db } from "@/db/client";
 import { machines } from "@/db/schema";
-import { auth } from "@/lib/auth/server";
+import { currentUser } from "@/lib/auth/server";
 import { installationRepos } from "@/lib/github/installation";
 import { reportedHarnesses } from "@/lib/machine";
 import { modalEnvConfigured, modalSecretStore } from "@/lib/modal-secrets";
@@ -28,7 +28,7 @@ import {
 } from "@/lib/repositories";
 import { panelSource } from "@/lib/sources";
 
-const user = async () => (await auth.getSession()).data?.user;
+const user = currentUser;
 const registry = () => readRegistry(db);
 const installable = () => installationRepos();
 const request = (kind: "onboard_repo" | "rebuild_repo_image", repo: string) => writeRepoRequest(db, kind, repo, new Date());

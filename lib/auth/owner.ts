@@ -1,12 +1,18 @@
-export type SessionUser = { email: string; emailVerified: boolean };
+/** The signed-in user as the panel's checks read it (lib/auth/server.ts `currentUser`). */
+export type SessionUser = {
+  id?: string;
+  email: string;
+  name?: string;
+  role?: string | null;
+  twoFactorEnabled?: boolean | null;
+  setupDoneAt?: Date | null;
+};
 
-export function isAllowlisted(email: string | null | undefined, allowlist = process.env.FACTORY_OWNER_EMAILS) {
-  if (!email || !allowlist) return false;
-  const owners = allowlist.split(",").map((entry) => entry.trim().toLowerCase());
-  return owners.includes(email.trim().toLowerCase());
+/** A member is any user whose session passed TOTP: Better Auth issues a session to an enrolled user only after the code (R33). */
+export function isMember(user: SessionUser | null | undefined): user is SessionUser {
+  return user?.twoFactorEnabled === true;
 }
 
-// Sign-up can be briefly on to create the owner, so an allowlisted address counts only once its inbox proved it.
-export function isOwner(user: SessionUser | null | undefined, allowlist = process.env.FACTORY_OWNER_EMAILS) {
-  return user?.emailVerified === true && isAllowlisted(user.email, allowlist);
+export function isAdmin(user: SessionUser | null | undefined): user is SessionUser {
+  return isMember(user) && user.role === "admin";
 }
