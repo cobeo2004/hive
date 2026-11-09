@@ -70,3 +70,27 @@ _Avoid_: namespace, branch naming.
 
 **Hive label**: the Linear label (`hive` by default, `FACTORY_LABEL` / `factory.label` to override) that hands an issue to Hive. Also tags its Modal sandboxes.
 _Avoid_: factory label, trigger label.
+
+**Member**: anyone with a Hive account, admin or engineer. Members view everything, file jobs and act on the Inbox.
+_Avoid_: owner (a job's owner is a separate idea), user (too broad in code), operator.
+
+**Admin**: a member with role `admin`. Admins alone change Settings, Members, Repositories and T3 pairing. The setup-token user is the first one, and the last one can't be demoted.
+_Avoid_: owner, superuser.
+
+**Engineer**: a member with role `engineer`, the default for an invited account.
+_Avoid_: developer, user.
+
+**First-run setup**: the `/setup` steps every new member goes through once before Jobs: Account and Done in M1, with Linear (R28) and Agents (R27) added later.
+_Avoid_: onboarding (that means repository onboarding), wizard.
+
+**Setup token**: the one-time link `bun scripts/setup-token.ts` prints. It creates the first admin and is refused once an admin exists. With `--reset <email>` the script makes a password-reset link instead.
+_Avoid_: bootstrap key, admin password.
+
+**Invite**: a one-time link an admin makes in Settings → Members. It is bound to one `@unibuz.com.au` email, valid for 7 days, and the only way to get an account after the first admin. Hive never emails it.
+_Avoid_: sign-up (it's closed), access request.
+
+**Public paths**: the only routes that answer without a session, each checking its own signature: `/api/ingest` (reporter Bearer), `/api/webhooks/*` (Linear or GitHub HMAC) and `/api/slack/*` (Slack signature). When Tailscale hides the panel, Funnel exposes only these.
+_Avoid_: public API, open routes.
+
+**Live updates**: Postgres `NOTIFY hive_changes` from table triggers, delivered to the panel through the `/api/live` SSE route and to the runner through `LISTEN`. A nudge to refetch; the runner's tick stays the real loop.
+_Avoid_: realtime (that was Neon Realtime), push, websocket.
