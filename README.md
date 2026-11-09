@@ -11,10 +11,11 @@ When the PR is ready, the agent reports whether it is confident it built what th
 The pieces:
 
 - **Panel** (`app/`, `components/`): a Next.js app on Vercel. Its **Jobs** page shows every job as a board or a list (the header's Board/List switch; the panel remembers your pick), with each run's timeline and cost in a side panel you can expand to full view. **Inbox** lists what needs you: questions, PRs to review, failures. The panel files jobs and approves merges. Only the owner can sign in.
-- **Ingest Function** (`functions/ingest/`): a Neon Function that receives the Linear and GitHub webhooks and the reporter's events, and writes them to Postgres.
+- **Ingest** (`app/api/ingest/`, `app/api/webhooks/[source]/`): panel routes that receive the reporter's events (`/api/ingest`, Bearer `FACTORY_INGEST_SECRET`) and the Linear and GitHub webhooks (`/api/webhooks/linear`, `/api/webhooks/github`, signature-checked), and write them to Postgres. They and `/api/slack/*` are the only paths that need no session.
+- **Live updates**: Postgres triggers `NOTIFY hive_changes` with the changed table's name. The panel's `/api/live` streams those names to the open page, which re-renders; the runner listens too, so a new intent wakes it before its next tick.
 - **Runner** (`runner/`): a Bun daemon on your Mac, run by launchd. It is the only part that touches T3, git and the GitHub API, starts and hibernates the Modal sandboxes, makes every merge, and posts the Slack notifications.
 - **Slack app** (`app/api/slack/`, optional): notifications, buttons to answer, merge or request changes, and `/factory` to file jobs. The routes run on Vercel and act through the same inbox actions as the panel.
-- **Reporter** (`hooks/`, `mcp/`): Claude Code hooks and a small MCP server, installed into each target repo. They send the run's progress to the ingest Function.
+- **Reporter** (`hooks/`, `mcp/`): Claude Code hooks and a small MCP server, installed into each target repo. They send the run's progress to the panel's `/api/ingest`.
 - **Playbook** (`playbooks/factory.md`): the instructions every factory thread follows. It extends PStack's bug-fix and feature playbooks.
 
 ## What you need
@@ -23,7 +24,7 @@ Accounts:
 
 - **Linear**, with a team for factory work and a personal API key.
 - **GitHub**, for the target repo and a GitHub App the setup creates for you.
-- **Neon**, for Postgres, Auth, Realtime and the ingest Function.
+- **Neon**, for Postgres and Auth.
 - **Vercel**, for the panel.
 - Optional: **Modal**, to run jobs in cloud sandboxes ([Running jobs in Modal sandboxes](#running-jobs-in-modal-sandboxes)), and **Slack**, for notifications and acting from Slack ([Connecting Slack](#connecting-slack)).
 
@@ -68,15 +69,14 @@ If your team key or label differs, set them in every place listed under [Setting
 
 ### 4. Create the Neon backend
 
-Create a project, link this checkout to it, and turn on Realtime for `main`:
+Create a project and link this checkout to it:
 
 ```sh
 neon projects create --name marshal-factory
 neon init --no-agent-setup      # links this directory to the project; writes .neon
-neon realtime enable --branch main --allowed-origin '*'
 ```
 
-Create `.env.local` with the secrets you choose yourself:
+Create `.env.local` with the secrets you choose yourself. `FACTORY_PANEL_URL` is where step 8 deploys the panel; ingest and the webhooks live under it:
 
 ```sh
 cat > .env.local <<EOF
@@ -87,25 +87,19 @@ FACTORY_OWNER_EMAILS=you@example.com
 LINEAR_API_KEY=<your Linear API key>
 FACTORY_TEAM_KEY=FAC
 FACTORY_LABEL=factory
+FACTORY_PANEL_URL=https://marshal-factory.vercel.app
 EOF
 chmod 600 .env.local
 ```
 
-Deploy `neon.ts` to `main`, which turns on Neon Auth and deploys the ingest Function. The GitHub App doesn't exist yet, so pass a placeholder for its webhook secret. Step 6 replaces it.
-
-```sh
-GITHUB_APP_WEBHOOK_SECRET=pending neon deploy --branch main --env .env.local --no-env-pull
-```
-
-Pull the values Neon generated (connection strings, Auth, Realtime, and the Function's URL), then create the tables:
+Turn on Neon Auth for `main` in the Neon console. Then pull the values Neon generated (connection strings and Auth) and create the tables, which also adds the live-update triggers:
 
 ```sh
 neon env pull --branch main
-echo "NEXT_PUBLIC_NEON_REALTIME_URL=$(grep '^NEON_REALTIME_URL=' .env.local | cut -d= -f2-)" >> .env.local
 bun run db:migrate
 ```
 
-`.env.local` now also holds `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `NEON_AUTH_BASE_URL`, `NEON_REALTIME_URL`, `NEON_REALTIME_SECRET` and `NEON_FUNCTION_INGEST_BASE_URL`.
+`.env.local` now also holds `DATABASE_URL`, `DATABASE_URL_UNPOOLED` and `NEON_AUTH_BASE_URL`.
 
 Finally, put the production endpoint id into `PRODUCTION_ENDPOINTS` in `lib/migrate-guard.ts`. It is the `ep-…` part of the host in `DATABASE_URL`, without `-pooler`.
 
@@ -116,13 +110,13 @@ The runner and the reporter read `~/.config/marshal-factory/config.json`:
 ```sh
 mkdir -p ~/.config/marshal-factory
 set -a; source .env.local; set +a
-jq -n --arg key "$LINEAR_API_KEY" --arg url "$NEON_FUNCTION_INGEST_BASE_URL/ingest" --arg secret "$FACTORY_INGEST_SECRET" \
+jq -n --arg key "$LINEAR_API_KEY" --arg url "$FACTORY_PANEL_URL/api/ingest" --arg secret "$FACTORY_INGEST_SECRET" \
   '{linearApiKey: $key, ingestUrl: $url, secret: $secret, factory: {teamKey: "FAC", label: "factory"}}' \
   > ~/.config/marshal-factory/config.json
 chmod 600 ~/.config/marshal-factory/config.json
 ```
 
-`secret` must equal `FACTORY_INGEST_SECRET`, or ingest rejects the reporter's events. [Settings](#settings) lists the optional limits you can add under `factory`.
+`ingestUrl` is the panel's `/api/ingest`; the runner copies it into each sandbox. `secret` must equal `FACTORY_INGEST_SECRET`, or ingest rejects the reporter's events. [Settings](#settings) lists the optional limits you can add under `factory`.
 
 ### 6. Create the GitHub App
 
@@ -132,14 +126,7 @@ The runner reads and merges PRs as a GitHub App, not as your `gh` login:
 bun scripts/setup-github-app.ts
 ```
 
-A browser page opens and sends the app manifest to GitHub. Click **Create GitHub App**, pick the repos the factory may work in, and click **Install**. The script saves the app's id, private key and webhook secret to `~/.config/marshal-factory/github-app.json` (mode 600). You can add repos to the installation later in GitHub's app settings.
-
-Now give the ingest Function the real webhook secret:
-
-```sh
-neon functions deploy ingest --branch main --src functions/ingest/index.ts \
-  --env GITHUB_APP_WEBHOOK_SECRET="$(jq -r .webhook_secret ~/.config/marshal-factory/github-app.json)"
-```
+A browser page opens and sends the app manifest to GitHub. Click **Create GitHub App**, pick the repos the factory may work in, and click **Install**. The script saves the app's id, private key and webhook secret to `~/.config/marshal-factory/github-app.json` (mode 600). You can add repos to the installation later in GitHub's app settings. The app's webhook points at `$FACTORY_PANEL_URL/api/webhooks/github`; step 8 gives the panel its secret.
 
 ### 7. Create the Linear webhook
 
@@ -147,7 +134,7 @@ neon functions deploy ingest --branch main --src functions/ingest/index.ts \
 bun scripts/install-webhooks.ts
 ```
 
-This registers a webhook on your team (Issue and Comment events) that points at the ingest Function, and records its id in the config. Running it again reuses the existing webhook.
+This registers a webhook on your team (Issue and Comment events) that points at `$FACTORY_PANEL_URL/api/webhooks/linear`, and records its id in the config. Running it again reuses the webhook at that URL; when it finds one at an older URL, such as the retired ingest Function, it says so, and you delete that one in Linear → Settings → API.
 
 ### 8. Deploy the panel
 
@@ -156,7 +143,8 @@ Import the repo into Vercel as a Next.js project. `vercel.json` already sets the
 - Add these environment variables for Production. Mark the secrets as Sensitive.
   - `DATABASE_URL`, `DATABASE_URL_UNPOOLED`
   - `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`
-  - `NEON_REALTIME_URL`, `NEXT_PUBLIC_NEON_REALTIME_URL`, `NEON_REALTIME_SECRET`
+  - `FACTORY_PANEL_URL`
+  - `FACTORY_INGEST_SECRET`, `LINEAR_WEBHOOK_SECRET`, and `GITHUB_APP_WEBHOOK_SECRET` (`jq -r .webhook_secret ~/.config/marshal-factory/github-app.json`), which ingest and the webhooks check
   - `FACTORY_OWNER_EMAILS`
   - `LINEAR_API_KEY`, used by the New job form
   - `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`, from `~/.config/marshal-factory/github-app.json`, so **Add repository** can list the repos the App reaches
@@ -180,7 +168,7 @@ bun scripts/install-runner.ts
 tail -f ~/Library/Logs/marshal-factory/runner.log
 ```
 
-This installs the LaunchAgent `com.marshal-factory.runner`. It starts at login and restarts if it exits. Within a minute the log shows `realtime` `live` and a `heartbeat`, and your Mac appears under **Machines** in the panel. The runner still needs a repo to work in, which the next section adds.
+This installs the LaunchAgent `com.marshal-factory.runner`. It starts at login and restarts if it exits. Within a minute the log shows `listen` `live` and a `heartbeat`, and your Mac appears under **Machines** in the panel. The runner still needs a repo to work in, which the next section adds.
 
 ## Add your repo
 
@@ -260,7 +248,7 @@ The optional `factory` object in `~/.config/marshal-factory/config.json` overrid
 
 [docs/operations.md](docs/operations.md) lists the rest.
 
-If you change the team key or label, also change them in the ingest Function (`FACTORY_TEAM_KEY` and `FACTORY_LABEL`, with the `neon functions deploy` command from step 6) and in Vercel. Then rerun `bun scripts/install-webhooks.ts` for a new team.
+If you change the team key or label, also change them (`FACTORY_TEAM_KEY` and `FACTORY_LABEL`) in Vercel. Then rerun `bun scripts/install-webhooks.ts` for a new team.
 
 ## Running jobs in Modal sandboxes
 
@@ -295,7 +283,7 @@ After a merge to `main`, update the live checkout with:
 bun scripts/rollout.ts
 ```
 
-It waits for Vercel's production deploy (which runs the migrations), stops the runner, pulls, migrates, redeploys the ingest Function and rebuilds the sandbox image when they changed, and starts the runner again. [docs/operations.md](docs/operations.md#rolling-out-a-merge) has the steps and the opt-in canary.
+It waits for Vercel's production deploy (which runs the migrations), stops the runner, pulls, migrates, rebuilds the sandbox image when it changed, and starts the runner again. [docs/operations.md](docs/operations.md#rolling-out-a-merge) has the steps and the opt-in canary.
 
 ## Troubleshooting
 
@@ -303,8 +291,8 @@ It waits for Vercel's production deploy (which runs the migrations), stops the r
 - **An issue isn't picked up.** Check that it is in your team (`teamKey`), has the label, and is in an unstarted state such as Todo. Also check that **Repositories** lists at least one repo or `factory.repos` isn't empty, and that the Linear webhook exists under Linear → Settings → API. The runner also polls every 90 seconds, so a missed webhook only delays the job.
 - **Machine shows offline.** The runner isn't sending heartbeats. Check `launchctl list | grep marshal-factory`, then the log. Run `bun runner/index.ts --once` in the live checkout to do one pass by hand and see its output.
 - **Sign-up fails with "Invalid origin."** Neon Auth only accepts sign-ups from its trusted domains, and the panel's domain isn't one of them. Run `neon neon-auth domain add https://<your panel domain> --branch main`, then sign up again. See [the owner account steps](docs/operations.md#panel-access-and-deploys).
-- **The board has no live updates.** Check the three Realtime variables in Vercel. Previews never subscribe to live updates; only production does.
-- **A run has no stages or costs.** The target repo's hooks aren't reaching ingest. Check that the files from `install-target` are on the repo's `main`, and that `secret` in your config equals `FACTORY_INGEST_SECRET` in the Function.
+- **The board has no live updates.** The footer says Connecting while `/api/live` is down. Check that the migrations ran (they add the `hive_notify` triggers) and that `DATABASE_URL_UNPOOLED` is set in Vercel: a LISTEN needs the direct connection, not the pooler. Previews never follow live updates; only production does.
+- **A run has no stages or costs.** The target repo's hooks aren't reaching ingest. Check that the files from `install-target` are on the repo's `main`, and that `secret` in your config equals `FACTORY_INGEST_SECRET` in Vercel.
 - **You moved the live checkout.** The hooks and the LaunchAgent hold its old path. Run `install-target` for each repo and `install-runner` again.
 - **Repositories shows a repo as failed with "The image build was still running after 45 minutes, so the factory stopped it."** The runner never saw the warm-image build finish, for example because a rollout restarted it while the build ran. Until a new image lands, that repo's jobs run without a warm image (the runner logs `sandbox:warm-image-outdated`), so they clone and install from scratch. Press **Rebuild image** on the repo's Repositories entry; the image builds in a few minutes and the repo returns to Ready. See Freshness in [Onboarding a repository](docs/operations.md#onboarding-a-repository).
 

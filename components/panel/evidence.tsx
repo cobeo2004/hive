@@ -6,7 +6,7 @@ import type { JobEvidenceRow, JobRow } from "@/db/schema";
 import { CHECK_NAME_LABELS, formatDuration, parseSummary, PRODUCER_LABELS, shortSha, type EvidenceCheck, type EvidenceLine as Line, type EvidenceSummary } from "@/lib/evidence";
 import { cn } from "@/lib/utils";
 import { jobEvidenceLine, shownDecision } from "./cards";
-import { useFeed, type Feed } from "./sealed";
+import { useFeed, type Feed } from "./live-refresh";
 import { Time } from "./time";
 
 const TONE: Record<Line["tone"], string> = {
@@ -57,8 +57,8 @@ function provenance(row: { producer: EvidenceSummary["producer"]; source: Eviden
 }
 
 /** Run detail's evidence: every commit the job's checks ran at, newest first, with each check's output. */
-export function EvidenceSection({ feed, path, job }: { feed: Feed<JobEvidenceRow>; path: string; job: JobRow }) {
-  const { rows } = useFeed(feed, path);
+export function EvidenceSection({ feed, job }: { feed: Feed<JobEvidenceRow>; job: JobRow }) {
+  const { rows } = useFeed(feed);
   const line = jobEvidenceLine(job);
   const head = shownDecision(job)?.headSha ?? null;
   const attemptRows = rows.filter((r) => r.attempt === job.attempt);

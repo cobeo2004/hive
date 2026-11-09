@@ -203,7 +203,7 @@ async function setupScriptEndToEnd(api: string) {
       GITHUB_URL: api,
       GITHUB_API_URL: api,
       MARSHAL_FACTORY_GITHUB_APP: path,
-      NEON_FUNCTION_INGEST_BASE_URL: "https://ingest.invalid",
+      FACTORY_PANEL_URL: "https://panel.invalid/",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -223,7 +223,7 @@ async function setupScriptEndToEnd(api: string) {
     ) as Record<string, unknown>;
     assert.deepEqual(
       [manifest.name, manifest.public, manifest.hook_attributes, manifest.redirect_url, manifest.setup_url, manifest.default_events],
-      ["marshal-factory-ski043", false, { url: "https://ingest.invalid/webhooks/github", active: true }, `${base}/callback`, `${base}/installed`, ["pull_request", "pull_request_review", "push", "issues"]],
+      ["marshal-factory-ski043", false, { url: "https://panel.invalid/api/webhooks/github", active: true }, `${base}/callback`, `${base}/installed`, ["pull_request", "pull_request_review", "push", "issues"]],
     );
     assert.deepEqual(manifest.default_permissions, { metadata: "read", contents: "write", pull_requests: "write", checks: "write", issues: "write", statuses: "read" });
 

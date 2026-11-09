@@ -15,7 +15,6 @@ import { harnessLabel, type Harness } from "@/lib/harness";
 import { parseInventory, t3ThreadLink, UNKNOWN } from "@/lib/machine";
 import { sourceLink } from "@/lib/sources/shapes";
 import { parseStop, stopLine, stopView } from "@/lib/stop";
-import { runFeedPath } from "@/lib/run-links";
 import { RUNS_ON_LABELS, ticketRecordSchema } from "@/lib/ticket-overrides";
 import { runsOn } from "./cards";
 import { AgentTree } from "./agent-tree";
@@ -30,14 +29,14 @@ import { MergeDecisionSection } from "./merge-decision";
 import { ModelChip } from "./model-chip";
 import { OpenSandboxT3, useSandboxT3 } from "./open-sandbox-t3";
 import { SandboxSection } from "./sandbox-section";
-import { useFeed, type Feed } from "./sealed";
+import { useFeed, type Feed } from "./live-refresh";
 import { StageTimeline } from "./stage-timeline";
 import { Time } from "./time";
 import { STAGE_META } from "./stages";
 
 /** The job's audit feed, read once for both the sandbox's last login check and the audit log. */
-function JobRecords({ feed, path, job }: { feed: Feed<AuditRow>; path: string; job: JobRow | undefined }) {
-  const { rows } = useFeed(feed, path);
+function JobRecords({ feed, job }: { feed: Feed<AuditRow>; job: JobRow | undefined }) {
+  const { rows } = useFeed(feed);
   return (
     <>
       {job && <SandboxSection job={job} audit={rows} />}
@@ -177,7 +176,6 @@ export function RunDetail({
   agents,
   events,
   stages,
-  stagesPath,
   audit,
   evidence,
   job,
@@ -192,10 +190,9 @@ export function RunDetail({
   closeHref: string;
   /** Whether the run fills the page, and the link back to the side panel or out to full view. */
   fullView: FullView;
-  audit: { feed: Feed<AuditRow>; path: string } | undefined;
-  evidence: { feed: Feed<JobEvidenceRow>; path: string } | undefined;
+  audit: Feed<AuditRow> | undefined;
+  evidence: Feed<JobEvidenceRow> | undefined;
   jobSpend: { usd: number; attempt: number } | undefined;
-  stagesPath: string;
   job: JobRow | undefined;
   machine: MachineRow | undefined;
   run: RunRow;
@@ -203,9 +200,9 @@ export function RunDetail({
   events: Feed<EventRow>;
   stages: Feed<EventRow>;
 }) {
-  const { rows: agentRows } = useFeed(agents, runFeedPath("agents", run.session_id));
-  const { rows: eventRows } = useFeed(events, runFeedPath("events", run.session_id));
-  const { rows: stageRows } = useFeed(stages, stagesPath);
+  const { rows: agentRows } = useFeed(agents);
+  const { rows: eventRows } = useFeed(events);
+  const { rows: stageRows } = useFeed(stages);
   const stage = job?.stage ?? run.stage;
   const link = job && sourceLink(job);
   const machineName = machine?.name ?? job?.machine_id ?? null;
@@ -316,7 +313,7 @@ export function RunDetail({
         </div>
       )}
       {job && <MergeDecisionSection job={job} />}
-      {job && evidence && <EvidenceSection feed={evidence.feed} path={evidence.path} job={job} />}
+      {job && evidence && <EvidenceSection feed={evidence} job={job} />}
     </>
   );
   const timeline = (
@@ -327,7 +324,7 @@ export function RunDetail({
       <StageTimeline events={stageRows} />
     </section>
   );
-  const records = audit ? <JobRecords feed={audit.feed} path={audit.path} job={job} /> : job && <SandboxSection job={job} audit={[]} />;
+  const records = audit ? <JobRecords feed={audit} job={job} /> : job && <SandboxSection job={job} audit={[]} />;
   const activity = (
     <>
       <Separator />

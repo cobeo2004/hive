@@ -15,7 +15,7 @@ import {
   type Known,
 } from "@/lib/machine";
 import { cn } from "@/lib/utils";
-import { useFeed, type Feed } from "./sealed";
+import { useFeed, type Feed } from "./live-refresh";
 import { PanelFooter, PanelHeader } from "./panel-header";
 import { Time, useNow } from "./time";
 
@@ -239,7 +239,7 @@ function MachineSection({ machine, now }: { machine: MachineRow; now: number | n
 }
 
 export function Machines({ machines }: { machines: Feed<MachineRow> }) {
-  const { rows, status } = useFeed(machines, "/api/live/machines");
+  const { rows, status } = useFeed(machines);
   const now = useNow(CLOCK_TICK_MS);
   const onlineMachines =
     now === null ? null : rows.filter((m) => isOnline(m.last_seen_at, now)).length;

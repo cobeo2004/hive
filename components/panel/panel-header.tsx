@@ -8,7 +8,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import type { JobView } from "./job-view";
 import { useShell } from "./panel-shell";
-import type { FeedStatus } from "./sealed";
+import type { FeedStatus } from "./live-refresh";
 
 const STATUS: Record<FeedStatus, { dot: string; label: string }> = {
   live: { dot: "animate-pulse bg-success", label: "Live" },

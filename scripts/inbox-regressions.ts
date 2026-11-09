@@ -436,20 +436,21 @@ try {
   threadState = "stopped";
 
   // --- GitHub reviews: recorded once per review, forwarded like the panel's
-  const { default: ingestFunction } = await import("../functions/ingest/index");
+  const { POST: webhook } = await import("../app/api/webhooks/[source]/route");
+  const deliver = (request: Request) => webhook(request, { params: Promise.resolve({ source: "github" }) });
   const REVIEWED = await job("REVIEWED", {}, { number: 7 });
   const reviewBody = (delivery: string, user = { login: "jan", type: "User" }) => {
     const raw = JSON.stringify({ ...review({ id: 9000 + stamp }, user), pull_request: { html_url: prUrl(7) } });
-    return new Request("http://function/webhooks/github", {
+    return new Request("http://panel/api/webhooks/github", {
       method: "POST",
       headers: { "x-github-event": "pull_request_review", "x-github-delivery": delivery, "x-hub-signature-256": `sha256=${createHmac("sha256", SECRET).update(raw).digest("hex")}` },
       body: raw,
     });
   };
   const deliveries = [`inbox-regress-${stamp}-1`, `inbox-regress-${stamp}-2`, `inbox-regress-${stamp}-bot`];
-  assert.deepEqual(await (await ingestFunction.fetch(reviewBody(deliveries[0]!))).json(), { duplicate: false, intent: "request_changes" });
-  assert.deepEqual(await (await ingestFunction.fetch(reviewBody(deliveries[1]!))).json(), { duplicate: false, intent: "request_changes" }, "a second delivery of the review");
-  assert.deepEqual(await (await ingestFunction.fetch(reviewBody(deliveries[2]!, { login: "cursor[bot]", type: "Bot" }))).json(), { duplicate: false, intent: null });
+  assert.deepEqual(await (await deliver(reviewBody(deliveries[0]!))).json(), { duplicate: false, intent: "request_changes" });
+  assert.deepEqual(await (await deliver(reviewBody(deliveries[1]!))).json(), { duplicate: false, intent: "request_changes" }, "a second delivery of the review");
+  assert.deepEqual(await (await deliver(reviewBody(deliveries[2]!, { login: "cursor[bot]", type: "Bot" }))).json(), { duplicate: false, intent: null });
   const reviewIntents = await intentRows(REVIEWED);
   assert.deepEqual(reviewIntents.map((i) => i.id), [`github:review:${9000 + stamp}`], "one intent per review id, tied to the job by its PR");
   const reviewIntent = reviewIntents[0]!;

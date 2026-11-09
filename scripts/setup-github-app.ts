@@ -5,6 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { GITHUB_APP_PATH } from "../lib/config";
+import { panelUrl } from "../lib/slack";
 import { serve } from "./serve";
 import { GITHUB_API, appFileSchema, appJwt, githubRequest, readAppFile, type AppFile } from "../lib/github/app";
 
@@ -17,8 +18,6 @@ const { values: args } = parseArgs({
 });
 if (existsSync(".env.local")) process.loadEnvFile(".env.local");
 const GITHUB = process.env.GITHUB_URL ?? "https://github.com";
-const ingestBase = process.env.NEON_FUNCTION_INGEST_BASE_URL?.replace(/\/$/, "");
-if (!ingestBase) throw new Error("NEON_FUNCTION_INGEST_BASE_URL is not set; it names the main ingest Function");
 
 const base = `http://localhost:${args.port}`;
 let state: string | undefined = randomBytes(16).toString("hex");
@@ -26,7 +25,7 @@ let state: string | undefined = randomBytes(16).toString("hex");
 const manifest = {
   name: "marshal-factory-ski043",
   url: "https://github.com/ski043/marshal-factory",
-  hook_attributes: { url: `${ingestBase}/webhooks/github`, active: true },
+  hook_attributes: { url: `${panelUrl()}/api/webhooks/github`, active: true },
   redirect_url: `${base}/callback`,
   setup_url: `${base}/installed`,
   public: false,

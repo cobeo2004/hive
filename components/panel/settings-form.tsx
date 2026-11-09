@@ -15,7 +15,7 @@ import { DEFAULT_EXECUTION, EXECUTIONS, type Execution } from "@/lib/execution";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, harnessLabel, trackingOf, type Harness, type Tracking } from "@/lib/harness";
 import { componentName, IMAGE_COMPONENTS, rebuildText, reportedDrift, reportedHarnesses, reportedSandbox, reportedSlack, sandboxLogin, type SandboxReadiness } from "@/lib/machine";
 import { NotificationsCard } from "./notifications-card";
-import { useFeed, type Feed } from "./sealed";
+import { useFeed, type Feed } from "./live-refresh";
 import { PanelFooter, PanelHeader } from "./panel-header";
 import { SettingsSection } from "./settings-section";
 import { useAfterHydration, useNow } from "./time";
@@ -237,7 +237,7 @@ function Current({ saved, harnesses }: { saved: SettingsRow | null; harnesses: r
 
 export function SettingsForm({ machines, saved, notifications }: { machines: Feed<MachineRow>; saved: SettingsRow | null; notifications: NotificationSettingsRow | null }) {
   const router = useRouter();
-  const { rows, status } = useFeed(machines, "/api/live/machines");
+  const { rows, status } = useFeed(machines);
   const now = useNow(CLOCK_TICK_MS);
   const reported = reportedHarnesses(rows, now ?? 0);
   const harnesses = reported?.filter((h) => h.enabled) ?? [];

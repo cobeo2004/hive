@@ -12,14 +12,13 @@ import { imageProblem, IMAGE_BUNDLES, readSandboxImage } from "../lib/sandbox";
 //   2. refuse while this machine's runner has jobs in flight (--wait waits for them instead)
 //   3. stop the runner, pull main and bun install in the checkout
 //   4. bun run db:migrate
-//   5. redeploy the ingest Function when its bundle's inputs changed since the last rollout
-//   6. rebuild the sandbox image when its pins drifted or its bundles' inputs changed since it was built
-//   7. reinstall the runner and wait for its first clean tick
+//   5. rebuild the sandbox image when its pins drifted or its bundles' inputs changed since it was built
+//   6. reinstall the runner and wait for its first clean tick
 // Then it records the commit in ~/.config/marshal-factory/rollout.json for the next run.
 //   bun scripts/rollout.ts [--wait] [--canary] [--force] [--checkout <path>]
 // --canary runs scripts/canary.ts afterwards. --force rolls out even when the commit was rolled out
 // already. --checkout names the live checkout when this script runs from another one.
-// Steps 4 to 7 run in a fresh process from the pulled checkout's script, so they are the new code's.
+// Steps 4 to 6 run in a fresh process from the pulled checkout's script, so they are the new code's.
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -141,16 +140,8 @@ async function afterPull() {
   process.chdir(checkout);
   process.loadEnvFile(".env.local");
   const head = git("rev-parse", "HEAD");
-  const last = readRollout();
 
   run("bun", ["run", "db:migrate"]);
-
-  const ingestChanged = changedSince(last?.commit);
-  const ingestTouched = ingestChanged && touchedInputs(ingestChanged, bundleInputs(["functions/ingest/index.ts"]));
-  if (ingestTouched === null) log("ingest: no earlier rollout to compare with, so it is deployed");
-  else if (ingestTouched.length > 0) log(`ingest: ${ingestTouched.join(", ")} changed`);
-  if (ingestTouched === null || ingestTouched.length > 0) run("neon", ["functions", "deploy", "ingest", "--branch", "main", "--src", "functions/ingest/index.ts"]);
-  else log("ingest: unchanged since the last rollout, not deployed");
 
   const image = readSandboxImage();
   if (!image) log("image: none was ever built on this machine (no Modal jobs), not built");

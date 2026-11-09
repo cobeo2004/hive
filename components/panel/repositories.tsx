@@ -26,7 +26,7 @@ import type { RepoStats } from "@/lib/repositories";
 import { RUNS_ON_LABELS } from "@/lib/ticket-overrides";
 import { cn } from "@/lib/utils";
 import { useRowKeys } from "./row-keys";
-import { useFeed, type Feed } from "./sealed";
+import { useFeed, type Feed } from "./live-refresh";
 import { PanelFooter, PanelHeader, type KeyHint } from "./panel-header";
 import { AddRepository, OnboardingBadge, OnboardingSection, onboardingLine, useOnboardingRefresh } from "./repo-onboarding";
 import { ShortTime, useNow } from "./time";
@@ -363,7 +363,7 @@ export function Repositories({
   panelTakesSecrets: boolean;
 }) {
   useOnboardingRefresh(registry);
-  const { rows, status } = useFeed(machines, "/api/live/machines");
+  const { rows, status } = useFeed(machines);
   const now = useNow(CLOCK_TICK_MS) ?? 0;
   const harnesses = useMemo(() => (reportedHarnesses(rows, now) ?? []).filter((h) => h.enabled), [rows, now]);
   const entries = useMemo(

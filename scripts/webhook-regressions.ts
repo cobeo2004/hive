@@ -82,14 +82,16 @@ for (const event of ["installation", "installation_repositories", "issues", "che
 
 process.env.LINEAR_WEBHOOK_SECRET = secret;
 process.env.GITHUB_APP_WEBHOOK_SECRET = secret;
-const { default: ingestFunction } = await import("../functions/ingest/index");
+const { POST } = await import("../app/api/webhooks/[source]/route");
+const deliver = (source: string, request: Request) => POST(request, { params: Promise.resolve({ source }) });
 const { db } = await import("../db/client");
 const { intents, webhookDeliveries } = await import("../db/schema");
 const { eq } = await import("drizzle-orm");
 const deliveryId = `webhook-regress-${Date.now()}`;
 const post = (raw: string, signature: string, delivery: string | null = deliveryId) =>
-  ingestFunction.fetch(
-    new Request("http://function/webhooks/linear", {
+  deliver(
+    "linear",
+    new Request("http://panel/api/webhooks/linear", {
       method: "POST",
       headers: { "linear-signature": signature, "linear-event": "Issue", ...(delivery ? { "linear-delivery": delivery } : {}) },
       body: raw,
@@ -98,8 +100,9 @@ const post = (raw: string, signature: string, delivery: string | null = delivery
 const fresh = JSON.stringify({ ...issue({}, { labelIds: [] }), webhookTimestamp: Date.now() });
 const appDeliveries = ["installation", "issues"].map((event) => ({ event, id: `${deliveryId}-${event}` }));
 const postGithub = (event: string, delivery: string, raw: string, signature: string) =>
-  ingestFunction.fetch(
-    new Request("http://function/webhooks/github", {
+  deliver(
+    "github",
+    new Request("http://panel/api/webhooks/github", {
       method: "POST",
       headers: { "x-github-event": event, "x-github-delivery": delivery, "x-hub-signature-256": `sha256=${signature}` },
       body: raw,
@@ -119,7 +122,7 @@ try {
   assert.equal((await post(fresh, sign(fresh), null)).status, 400, "a delivery without an id is rejected");
   assert.deepEqual(await (await post(fresh, sign(fresh))).json(), { duplicate: false, intent: "claim" }, "a signed delivery records the claim intent");
   assert.deepEqual(await (await post(fresh, sign(fresh))).json(), { duplicate: true, intent: null }, "a redelivery records nothing");
-  assert.equal((await ingestFunction.fetch(new Request("http://function/webhooks/nope", { method: "POST", body: "{}" }))).status, 404);
+  assert.equal((await deliver("nope", new Request("http://panel/api/webhooks/nope", { method: "POST", body: "{}" }))).status, 404);
   assert.equal((await db.select().from(intents).where(eq(intents.id, `linear:${deliveryId}`))).length, 1, "exactly one intent row");
 } finally {
   await db.delete(intents).where(eq(intents.id, `linear:${deliveryId}`));

@@ -1,24 +1,11 @@
-import { timingSafeEqual } from "node:crypto";
-import { attachDatabasePool } from "@neon/functions";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
-import * as schema from "../../db/schema";
-import { ingestBodySchema } from "../../lib/events";
-import { ingest } from "../../lib/ingest";
-import { isJobSource, sourceFor } from "../../lib/sources";
-import type { JobSource } from "../../lib/sources/types";
-import { githubIntent, githubPushIntent, verifyGithub, type IntentDraft } from "../../lib/webhooks";
+import { db } from "@/db/client";
+import { intents, jobs, webhookDeliveries } from "@/db/schema";
+import { isJobSource, sourceFor } from "@/lib/sources";
+import type { JobSource } from "@/lib/sources/types";
+import { githubIntent, githubPushIntent, verifyGithub, type IntentDraft } from "@/lib/webhooks";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
-attachDatabasePool(pool);
-const db = drizzle(pool, { schema });
-
-function authorized(request: Request) {
-  const expected = Buffer.from(`Bearer ${process.env.FACTORY_INGEST_SECRET}`);
-  const given = Buffer.from(request.headers.get("authorization") ?? "");
-  return given.length === expected.length && timingSafeEqual(given, expected);
-}
+export const runtime = "nodejs";
 
 /**
  * Stores the delivery and the intents it implies in one transaction. A delivery id seen before
@@ -29,16 +16,16 @@ async function record(source: string, deliveryId: string, event: string, payload
   return db.transaction(async (tx) => {
     const now = new Date();
     const fresh = await tx
-      .insert(schema.webhookDeliveries)
+      .insert(webhookDeliveries)
       .values({ delivery_id: `${source}:${deliveryId}`, source, event, received_at: now, payload })
       .onConflictDoNothing()
-      .returning({ id: schema.webhookDeliveries.delivery_id });
+      .returning({ id: webhookDeliveries.delivery_id });
     if (fresh.length === 0) return { duplicate: true, intent: null };
     for (const intent of all) {
       const [byPr] = intent.prUrl && !intent.jobId
-        ? await tx.select({ id: schema.jobs.id }).from(schema.jobs).where(eq(schema.jobs.pr_url, intent.prUrl))
+        ? await tx.select({ id: jobs.id }).from(jobs).where(eq(jobs.pr_url, intent.prUrl))
         : [];
-      await tx.insert(schema.intents).values({
+      await tx.insert(intents).values({
         id: `${source}:${intent.key ?? deliveryId}`,
         kind: intent.kind,
         job_id: intent.jobId ?? byPr?.id,
@@ -54,8 +41,10 @@ async function record(source: string, deliveryId: string, event: string, payload
 async function sourceWebhook(source: JobSource, request: Request) {
   const { webhook } = sourceFor(source);
   if (!webhook) return Response.json({ error: "not found" }, { status: 404 });
+  const secret = process.env[webhook.secretEnv];
+  if (!secret) return Response.json({ error: "no webhook secret configured" }, { status: 401 });
   const raw = await request.text();
-  const verdict = webhook.verify(raw, request.headers, process.env[webhook.secretEnv]!);
+  const verdict = webhook.verify(raw, request.headers, secret);
   if (!verdict.ok) return Response.json({ error: verdict.reason }, { status: 401 });
   const deliveryId = request.headers.get(webhook.deliveryHeader);
   if (!deliveryId) return Response.json({ error: `missing ${webhook.deliveryHeader}` }, { status: 400 });
@@ -75,34 +64,10 @@ async function githubWebhook(request: Request) {
   return Response.json(await record("github", deliveryId, event, body, [githubIntent(event, body), githubPushIntent(event, body)]));
 }
 
-async function ingestEvents(request: Request) {
-  if (!authorized(request)) return Response.json({ error: "unauthorized" }, { status: 401 });
-  const json = await request.json().catch(() => undefined);
-  const parsed = ingestBodySchema.safeParse(json);
-  if (!parsed.success) {
-    return Response.json({ error: "invalid body", issues: parsed.error.issues }, { status: 400 });
-  }
-  return Response.json(await ingest(db, parsed.data));
+/** Linear and GitHub deliveries. The proxy lets them through; each source's signature is the check. */
+export async function POST(request: Request, ctx: { params: Promise<{ source: string }> }) {
+  const { source } = await ctx.params;
+  if (source === "github") return githubWebhook(request);
+  if (isJobSource(source)) return sourceWebhook(source, request);
+  return Response.json({ error: "not found" }, { status: 404 });
 }
-
-const ROUTES: Record<string, (request: Request) => Promise<Response>> = {
-  "/ingest": ingestEvents,
-  "/webhooks/github": githubWebhook,
-};
-
-const handler = {
-  async fetch(request: Request): Promise<Response> {
-    const path = new URL(request.url).pathname;
-    const source = /^\/webhooks\/([^/]+)$/.exec(path)?.[1];
-    const route = ROUTES[path] ?? (source && isJobSource(source) ? (req: Request) => sourceWebhook(source, req) : undefined);
-    if (!route || request.method !== "POST") return Response.json({ error: "not found" }, { status: 404 });
-    try {
-      return await route(request);
-    } catch (error) {
-      console.error(error);
-      return Response.json({ error: "could not handle the request" }, { status: 500 });
-    }
-  },
-};
-
-export default handler;

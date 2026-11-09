@@ -1,59 +1,27 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import type { LiveQueryError, LiveQueryState } from "@neon/realtime/client";
 
-const { keepSubscribed } = await import("../runner/realtime");
+const { keepListening } = await import("../runner/realtime");
 
-// A client that, like @neon/realtime's, fails every later subscription once its connection failed.
-class FakeClient {
+// A LISTEN connection the test ends or fails at will, as pg's Client does with `error` and `end`.
+class FakeConnection {
   closed = false;
-  failed = false;
-  readonly subscriptions: FakeSubscription[] = [];
-  subscribe() {
-    const subscription = new FakeSubscription(this.failed ? errorState("protocol_error") : { status: "connecting", error: undefined });
-    this.subscriptions.push(subscription);
-    return subscription;
-  }
+  constructor(readonly onClose: (reason: string) => void) {}
   close() {
     this.closed = true;
-    for (const subscription of this.subscriptions) subscription.set({ status: "closed", error: undefined });
   }
 }
 
-class FakeSubscription {
-  readonly listeners = new Set<(state: LiveQueryState) => void>();
-  constructor(public state: LiveQueryState) {}
-  getState = () => this.state;
-  onStateChange = (listener: (state: LiveQueryState) => void) => {
-    this.listeners.add(listener);
-    return () => void this.listeners.delete(listener);
-  };
-  set(state: LiveQueryState) {
-    this.state = state;
-    for (const listener of [...this.listeners]) listener(state);
-  }
-}
-
-const errorState = (code: string): LiveQueryState => ({
-  status: "error",
-  error: Object.assign(new Error("protocol error"), { code, retryable: false }) as LiveQueryError,
-});
-
-const clients: FakeClient[] = [];
+const connections: FakeConnection[] = [];
 const timers: { run: () => void; ms: number }[] = [];
 const logged: Record<string, unknown>[] = [];
-let failSubscribe = false;
-let connectFailed = false;
-const live = keepSubscribed({
-  connect: () => {
-    const client = new FakeClient();
-    client.failed = connectFailed;
-    clients.push(client);
-    return client;
-  },
-  subscribe: async (client) => {
-    if (failSubscribe) throw new Error("subscribe failed");
-    return [client.subscribe(), client.subscribe()];
+let failListen = false;
+const listening = keepListening({
+  listen: async (onClose) => {
+    if (failListen) throw new Error("connect ECONNREFUSED");
+    const connection = new FakeConnection(onClose);
+    connections.push(connection);
+    return connection;
   },
   log: (detail) => void logged.push(detail),
   schedule: (run, ms) => void timers.push({ run, ms }),
@@ -63,54 +31,38 @@ const fire = async () => {
   await new Promise((resolve) => setImmediate(resolve));
 };
 
-await live.start();
-assert.equal(clients.length, 1, "start connects one client");
-const [first] = clients;
-first!.subscriptions.forEach((s) => s.set({ status: "live", error: undefined }));
-first!.subscriptions[0]!.set({ status: "stale", error: undefined });
-assert.equal(timers.length, 0, "a stale capability is the library's to renew, not a restart");
+await listening.start();
+assert.equal(connections.length, 1, "start opens one connection");
+assert.ok(logged.some((l) => l.status === "live"), "a listening connection is logged live");
 
-// The live runner's failure: the connection fails and both subscriptions error at once.
-first!.failed = true;
-first!.subscriptions.forEach((s) => s.set(errorState("protocol_error")));
-assert.equal(first!.closed, true, "the failed client is closed, so nothing on it lingers");
-assert.equal(timers.length, 1, "two errors from one failure schedule one restart");
-assert.equal(timers[0]!.ms, 5_000);
+// The connection ends: it is closed and replaced after a backoff.
+connections[0]!.onClose("ended");
+assert.equal(connections[0]!.closed, true, "the ended connection is closed");
+assert.deepEqual(timers.map((t) => t.ms), [5_000], "an end schedules one restart");
+connections[0]!.onClose("Connection terminated unexpectedly");
+assert.equal(timers.length, 1, "a second close from the same connection schedules nothing more");
 await fire();
-assert.equal(clients.length, 2, "the restart subscribes on a new client, not the failed one");
-assert.deepEqual(
-  clients[1]!.subscriptions.map((s) => s.getState().status),
-  ["connecting", "connecting"],
-  "the new client's subscriptions recover instead of failing at once",
-);
+assert.equal(connections.length, 2, "the restart listens on a new connection");
 
-// A failed restart backs off, and a live subscription resets the backoff.
-failSubscribe = true;
-clients[1]!.subscriptions[0]!.set(errorState("connection_lost"));
-assert.equal(timers[0]!.ms, 10_000, "a second failure in a row waits longer");
+// Failed restarts back off; a live connection resets the backoff.
+failListen = true;
+connections[1]!.onClose("ended");
+assert.equal(timers[0]!.ms, 5_000, "the first failure after a live connection waits the base delay");
 await fire();
-assert.equal(timers[0]!.ms, 20_000, "so does a subscribe that throws");
-failSubscribe = false;
+assert.equal(timers[0]!.ms, 10_000, "a connect that fails waits longer");
 await fire();
-clients.at(-1)!.subscriptions.forEach((s) => s.set({ status: "live", error: undefined }));
-clients.at(-1)!.subscriptions[1]!.set(errorState("connection_lost"));
-assert.equal(timers[0]!.ms, 5_000, "a live subscription resets the backoff");
+assert.equal(timers[0]!.ms, 20_000, "and longer again");
+failListen = false;
 await fire();
+assert.equal(connections.length, 3);
+connections[2]!.onClose("ended");
+assert.equal(timers[0]!.ms, 5_000, "a live connection resets the backoff");
+await fire();
+assert.ok(logged.some((l) => l.status === "restarting" && String(l.reason).includes("ECONNREFUSED")), "a restart is logged with its cause");
 
-// A subscription that is already in error when it is returned, before its listener, still restarts.
-connectFailed = true;
-clients.at(-1)!.subscriptions[0]!.set(errorState("connection_lost"));
-await fire();
-assert.deepEqual(clients.at(-1)!.subscriptions.map((s) => s.getState().status), ["closed", "closed"]);
-assert.equal(timers.length, 1, "an error before the listener is attached schedules a restart");
-connectFailed = false;
-await fire();
-assert.ok(clients.slice(0, -1).every((c) => c.closed), "every replaced client is closed");
-
-live.close();
-assert.equal(clients.at(-1)!.closed, true, "close closes the current client");
-clients.at(-1)!.subscriptions.forEach((s) => s.set(errorState("protocol_error")));
+listening.close();
+assert.equal(connections.at(-1)!.closed, true, "close closes the current connection");
+connections.at(-1)!.onClose("ended");
 assert.equal(timers.length, 0, "nothing restarts after close");
-assert.ok(logged.some((l) => l.status === "restarting" && l.code === "protocol_error"), "a restart is logged with its cause");
 
 console.log("realtime regressions passed");
