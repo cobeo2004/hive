@@ -52,8 +52,13 @@ for (const who of ["enrolling", "unfinished"] as const) {
 }
 
 for (const who of ["engineer", "admin"] as const) {
-  for (const path of ["/", "/api/live", "/setup", "/settings"]) {
+  for (const path of ["/", "/api/live", "/settings"]) {
     assert.equal((await request(who, path)).status, 200, `${who} passes through ${path}`);
+  }
+  for (const path of ["/setup", "/setup.rsc"]) {
+    const done = await request(who, path);
+    assert.equal(done.status, 307, `${who} has finished setup and leaves ${path}`);
+    assert.equal(done.headers.get("location"), "http://localhost:3000/");
   }
 }
 

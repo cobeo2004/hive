@@ -1,17 +1,17 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { loadLimits } from "../lib/config";
-import { readRollout, ROLLOUT_PATH, startupVerdict, touchedInputs } from "../lib/rollout";
+import { readRollout, ROLLOUT_PATH, startupVerdict, touchedInputs, waitForPanel } from "../lib/rollout";
 import { imageProblem, IMAGE_BUNDLES, readSandboxImage } from "../lib/sandbox";
 
 // Rolls merged main out to the live setup, in the order the parts depend on each other, and stops
 // at the first failure:
-//   1. wait for Vercel's production deploy of origin/main, which also migrates the database
-//   2. refuse while this machine's runner has jobs in flight (--wait waits for them instead)
-//   3. stop the runner, pull main and bun install in the checkout
-//   4. bun run db:migrate
+//   1. refuse while this machine's runner has jobs in flight (--wait waits for them instead)
+//   2. stop the runner, pull main and bun install in the checkout
+//   3. bun run db:migrate
+//   4. bun run build, then restart the panel and wait for it to answer 200
 //   5. rebuild the sandbox image when its pins drifted or its bundles' inputs changed since it was built
 //   6. reinstall the runner and wait for its first clean tick
 // Then it records the commit in ~/.config/marshal-factory/rollout.json for the next run.
@@ -56,22 +56,6 @@ async function waitFor<T>(what: string, timeoutMs: number, everyMs: number, chec
   }
 }
 
-/** The Vercel commit status on main's head is the production deploy; it runs the migrations too. */
-async function waitForVercel(sha: string) {
-  log(`waiting for Vercel's production deploy of ${sha.slice(0, 7)}`);
-  let last = "";
-  await waitFor("the Vercel deploy", 30 * 60_000, 15_000, () => {
-    const statuses = JSON.parse(read("gh", ["api", `repos/{owner}/{repo}/commits/${sha}/statuses`])) as { context: string; state: string; description: string; target_url: string }[];
-    const vercel = statuses.find((s) => s.context === "Vercel");
-    if (!vercel) return undefined;
-    if (vercel.state !== last) log(`Vercel: ${vercel.state}, ${vercel.description}`);
-    last = vercel.state;
-    if (vercel.state === "success") return true;
-    if (vercel.state === "failure" || vercel.state === "error") throw new StepError(`the Vercel deploy of ${sha.slice(0, 7)} failed: ${vercel.target_url}`);
-    return undefined;
-  });
-}
-
 /** This machine's jobs whose thread is working or stopping, counted as the runner counts them. */
 async function inFlight() {
   const { machineInFlight } = await import(join(checkout, "runner/ops.ts"));
@@ -91,7 +75,6 @@ async function beforePull() {
     return false;
   }
   log(`rolling out ${target.slice(0, 7)} to ${checkout}; last rollout ${last ? `${last.commit.slice(0, 7)} at ${last.at}` : "none recorded"}`);
-  await waitForVercel(target);
 
   process.chdir(checkout);
   process.loadEnvFile(".env.local");
@@ -142,6 +125,23 @@ async function afterPull() {
   const head = git("rev-parse", "HEAD");
 
   run("bun", ["run", "db:migrate"]);
+
+  // next build empties its output first, so build beside the .next the panel serves and swap it in. A failed
+  // build stops the rollout here, with the runner still stopped and the panel on its old build.
+  rmSync(join(checkout, ".next-rollout"), { recursive: true, force: true });
+  process.env.HIVE_BUILD_DIR = ".next-rollout";
+  run("bun", ["run", "build"]);
+  delete process.env.HIVE_BUILD_DIR;
+  rmSync(join(checkout, ".next-old"), { recursive: true, force: true });
+  if (existsSync(join(checkout, ".next"))) renameSync(join(checkout, ".next"), join(checkout, ".next-old"));
+  renameSync(join(checkout, ".next-rollout"), join(checkout, ".next"));
+  log("restarting the panel");
+  run("launchctl", ["kickstart", "-k", `gui/${userInfo().uid}/com.hive.panel`]);
+  const panel = (process.env.FACTORY_PANEL_URL?.trim() || `http://localhost:${process.env.PANEL_PORT?.trim() || "3000"}`).replace(/\/+$/, "");
+  log(`waiting for the panel at ${panel}`);
+  await waitForPanel(`${panel}/auth/sign-in`, { timeoutMs: 120_000, everyMs: 2_000 });
+  log("the panel answers 200");
+  rmSync(join(checkout, ".next-old"), { recursive: true, force: true });
 
   const image = readSandboxImage();
   if (!image) log("image: none was ever built on this machine (no Modal jobs), not built");

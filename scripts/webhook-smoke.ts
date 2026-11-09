@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { createHmac, randomUUID } from "node:crypto";
 import { readAppFile } from "../lib/github/app";
-import { panelUrl } from "../lib/slack";
+import { publicUrl } from "../lib/slack";
 
 // Exercises the deployed webhook routes: a signed GitHub merge for a throwaway non-factory PR,
 // its replay, and bad signatures on both routes.
 process.loadEnvFile(".env.local");
-const base = `${panelUrl()}/api`;
+const base = `${publicUrl()}/api`;
 const sign = (secret: string, body: string) => createHmac("sha256", secret).update(body).digest("hex");
 
 async function github(body: object, delivery: string, signature?: string) {

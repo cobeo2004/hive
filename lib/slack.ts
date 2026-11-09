@@ -268,6 +268,8 @@ export type MessageFacts = {
 const usd = (spend: NonNullable<MessageFacts["spend"]>) => `$${spend.usd.toFixed(2)}${spend.known ? "" : "+"}`;
 
 export const panelUrl = () => (process.env.FACTORY_PANEL_URL ?? "https://marshal-factory.vercel.app").replace(/\/+$/, "");
+/** Where Linear, GitHub and Slack reach the public routes; differs from the panel when only those are public (Tailscale Funnel). */
+export const publicUrl = () => (process.env.FACTORY_PUBLIC_URL?.trim() || panelUrl()).replace(/\/+$/, "");
 
 /** Environment variables whose values must never reach Slack, whatever an agent writes. */
 const SECRET_NAME = /(TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY|DATABASE_URL)/i;

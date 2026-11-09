@@ -72,3 +72,24 @@ export function startupVerdict(lines: readonly string[]): StartupVerdict {
   }
   return { state: "waiting" };
 }
+
+/**
+ * Resolves once `url` answers 200, asking every `everyMs` (R2). A refused connection or any other
+ * status is not ready yet; it rejects, naming the URL, when `timeoutMs` passes first.
+ */
+export async function waitForPanel(url: string, { timeoutMs, everyMs }: { timeoutMs: number; everyMs: number }): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const left = deadline - Date.now();
+    if (left <= 0) throw new Error(`the panel at ${url} did not answer 200 within ${Math.round(timeoutMs / 1_000)}s`);
+    try {
+      // The panel redirects a signed-out request to this page, so following one would hide a broken build.
+      const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(Math.min(left, 10_000)) });
+      await response.arrayBuffer();
+      if (response.status === 200) return;
+    } catch {
+      // A refused connection or a timeout is the panel not being up yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, everyMs));
+  }
+}

@@ -15,12 +15,15 @@ export async function proxy(request: NextRequest) {
       ? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
       : NextResponse.redirect(new URL(LOGIN, request.url));
   }
+  const setupPath = path === SETUP || path.startsWith(`${SETUP}/`) || path.startsWith(`${SETUP}.`);
   if (user.twoFactorEnabled !== true || !user.setupDoneAt) {
-    if (path === SETUP || path.startsWith(`${SETUP}/`) || path.startsWith(`${SETUP}.`)) return NextResponse.next();
+    if (setupPath) return NextResponse.next();
     return api
       ? NextResponse.json({ error: "Finish setup first" }, { status: 403 })
       : NextResponse.redirect(new URL(SETUP, request.url));
   }
+  // A finished user has no setup left to do.
+  if (setupPath) return NextResponse.redirect(new URL("/", request.url));
   return NextResponse.next();
 }
 
