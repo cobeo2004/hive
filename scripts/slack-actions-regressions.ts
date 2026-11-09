@@ -74,7 +74,7 @@ const tasks: Promise<void>[] = [];
 const drain = async () => {
   while (tasks.length > 0) await Promise.all(tasks.splice(0));
 };
-const owner = async () => ({ email: OWNER, role: "admin", twoFactorEnabled: true });
+const owner = async () => ({ email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() });
 const slack = slackClient({ token: TOKEN, baseUrl: `${base}/api/`, minGapMs: 0 });
 const deps = {
   signingSecret: SIGNING,

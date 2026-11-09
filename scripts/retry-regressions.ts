@@ -18,7 +18,7 @@ const { INTENT_ROUTES, INTENT_ATTEMPTS } = await import("../runner/intents");
 
 const stamp = Date.now() % 1_000_000;
 const REPO = "ski043/factory-demo";
-const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
 const deps = (user: typeof owner | null = owner) => ({
   db,
   user: async () => user,

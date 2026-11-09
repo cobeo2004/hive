@@ -1,4 +1,5 @@
 import "./test-guard";
+import type { SessionUser } from "../lib/auth/owner";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { eq, inArray, like } from "drizzle-orm";
@@ -262,12 +263,12 @@ async function job(name: string, over: Partial<typeof jobs.$inferInsert>, pull?:
   );
   return k;
 }
-const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
 const stranger = { email: "someone@example.com", role: "engineer", twoFactorEnabled: false };
 const replies: { key: string; requestId: string; body: string }[] = [];
 const filed: FileDraft[] = [];
 const harnesses: Harness[] = [{ id: "claudeAgent", driver: "claudeAgent", name: "Claude Code", enabled: true, models: [] }];
-const deps = (user: typeof owner | null = owner) => ({
+const deps = (user: SessionUser | null = owner) => ({
   db,
   user: async () => user,
   reply: async (j: { key: string }, requestId: string, body: string) => void replies.push({ key: j.key, requestId, body }),

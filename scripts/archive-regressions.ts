@@ -1,4 +1,5 @@
 import "./test-guard";
+import type { SessionUser } from "../lib/auth/owner";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -64,8 +65,8 @@ await db.insert(runs).values({ session_id: "archive-regress-run", job_key: KEYS.
 
 const idOf = async (key: string) => (await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.key, key)))[0]!.id;
 const ids = Object.fromEntries(await Promise.all(Object.entries(KEYS).map(async ([k, key]) => [k, await idOf(key)]))) as Record<keyof typeof KEYS, JobRow["id"]>;
-const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
-const deps = (user: typeof owner | null = owner) => ({ db, user: async () => user });
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
+const deps = (user: SessionUser | null = owner) => ({ db, user: async () => user });
 const rows = async () => db.select().from(jobs).where(like(jobs.key, "ARCH-%"));
 const audits = async () => db.select().from(auditLog).where(inArray(auditLog.job_id, Object.values(ids)));
 const panel = async () => {

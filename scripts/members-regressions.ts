@@ -10,7 +10,7 @@ const members = await import("../lib/members");
 const ADMIN = "members-admin@unibuz.com.au";
 const ENG = "members-eng@unibuz.com.au";
 const ids = { admin: "members-admin", eng: "members-eng" };
-const as = (email: string, role: string, id: string) => ({ user: async () => ({ id, email, role, twoFactorEnabled: true }) });
+const as = (email: string, role: string, id: string) => ({ user: async () => ({ id, email, role, twoFactorEnabled: true, setupDoneAt: new Date() }) });
 const admin = as(ADMIN, "admin", ids.admin);
 const engineer = as(ENG, "engineer", ids.eng);
 const roleOf = async (id: string) => (await db.select({ role: user.role }).from(user).where(eq(user.id, id)))[0]!.role;
@@ -22,8 +22,8 @@ async function reset() {
 }
 await reset();
 await db.insert(user).values([
-  { id: ids.admin, name: "Admin", email: ADMIN, role: "admin", twoFactorEnabled: true },
-  { id: ids.eng, name: "Eng", email: ENG, role: "engineer", twoFactorEnabled: true },
+  { id: ids.admin, name: "Admin", email: ADMIN, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() },
+  { id: ids.eng, name: "Eng", email: ENG, role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() },
 ]);
 try {
   // An engineer calling any Members action directly gets 403.

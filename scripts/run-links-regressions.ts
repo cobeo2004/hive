@@ -27,7 +27,7 @@ assert.equal(back.searchParams.get("run"), CODEX, "the side panel keeps the open
 assert.equal(fullViewHref("/inbox", new URLSearchParams({ job: "FAC-1" }), true), "/inbox?job=FAC-1&full=1");
 assert.equal(fullViewHref("/inbox", new URLSearchParams({ full: "1" }), false), "/inbox", "no empty query is left behind");
 const { session } = await import("../lib/auth/server");
-Object.assign(session, { read: async () => ({ user: { email: OWNER, role: "engineer", twoFactorEnabled: true } }) });
+Object.assign(session, { read: async () => ({ user: { email: OWNER, role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() } }) });
 // A run's feeds are read by its session id as a bound parameter, so a Codex id with slashes reads like any other.
 const { load, runJob, sessionAgentsQuery, sessionEventsQuery, sessionStagesQuery } = await import("../lib/live-queries");
 for (const query of [sessionAgentsQuery(CODEX), sessionEventsQuery(CODEX), sessionStagesQuery(CODEX)]) {

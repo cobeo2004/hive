@@ -22,7 +22,7 @@ modal.api = fakeModal;
 const stamp = Date.now() % 1_000_000;
 const limits = config.factory.sandbox;
 const TOKEN = "pairing-secret-token";
-const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
 const deps = (user: { email: string; role: string; twoFactorEnabled: boolean } | null = owner, now?: () => Date) => ({ db, user: async () => user, ...(now && { now }) });
 
 const pairingCalls: string[][] = [];
@@ -98,7 +98,7 @@ try {
 
   // The panel: only the owner asks, and only for a running sandbox.
   assert.deepEqual(await requestPairing(deps(null), RUN), { ok: false, message: "Only an admin can open a sandbox in T3." });
-  const engineer = { email: "eng@example.com", role: "engineer", twoFactorEnabled: true };
+  const engineer = { email: "eng@example.com", role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() };
   assert.deepEqual(await requestPairing(deps(engineer), RUN), { ok: false, message: "Only an admin can open a sandbox in T3." }, "an engineer is refused");
   assert.deepEqual(await requestPairing(deps(), HIB), { ok: false, message: HIBERNATED_MESSAGE });
   assert.equal((await requestPairing(deps(), LOCAL)).ok, false);

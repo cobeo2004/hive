@@ -7,7 +7,7 @@ const { createJob, uploadJobImage } = await import("../lib/new-job");
 const { linearFiler, linearUploader } = await import("../lib/sources/linear");
 type FileDraft = Parameters<typeof createJob>[0]["file"] extends (d: infer D) => unknown ? D : never;
 
-const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
 const requestId = "6f0c3f8e-1f4b-4a52-9f0e-2d7c5a8b9c10";
 const harnesses = async () => null;
 const registry = async () => [];

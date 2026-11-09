@@ -8,9 +8,9 @@ export type SessionUser = {
   setupDoneAt?: Date | null;
 };
 
-/** A member is any user whose session passed TOTP: Better Auth issues a session to an enrolled user only after the code (R33). */
+/** A member has TOTP on and finished /setup (R33). Enrolment ends every session but the one that verified, so an enrolled user's session passed TOTP. */
 export function isMember(user: SessionUser | null | undefined): user is SessionUser {
-  return user?.twoFactorEnabled === true;
+  return user?.twoFactorEnabled === true && !!user.setupDoneAt;
 }
 
 export function isAdmin(user: SessionUser | null | undefined): user is SessionUser {

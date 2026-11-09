@@ -31,7 +31,7 @@ const { ORPHAN_LEASE_MS, releaseOrphanLeases } = await import("../runner/lifecyc
 modal.api = fakeModal;
 
 const OWNER = "owner@example.com";
-const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
 const stamp = Date.now();
 const NS = `test-onb-${stamp}`;
 // The test branch copies a real database, whose repos must never take this machine's build slot.
@@ -228,7 +228,7 @@ try {
     create: (repo: string, by: string) => actions.writeNewRepository(db, repo, by, new Date()),
     syncLabels: async (groups: unknown) => (labels.push(groups), { created: [], problems: [] }),
   });
-  for (const user of [null, { email: "x@example.com", role: "engineer", twoFactorEnabled: true }]) {
+  for (const user of [null, { email: "x@example.com", role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() }]) {
     assert.equal((await actions.listAddable(addDeps(user))).ok, false, "only the owner lists");
     assert.equal((await actions.addRepository(addDeps(user), { repo: `${NS}/fresh` })).ok, false, "or adds");
   }

@@ -45,7 +45,7 @@ export async function setMemberRole(deps: MembersDeps, userId: string, role: Rol
   });
 }
 
-/** The member with this email, as the inbox actions check them; null when none has finished TOTP enrolment (R6). */
+/** The member with this email, as the inbox actions check them; null when none has TOTP on and setup finished (R6). */
 export async function memberByEmail(email: string | null): Promise<SessionUser | null> {
   if (!email) return null;
   const [row] = await db.select().from(user).where(eq(user.email, email.trim().toLowerCase()));
@@ -83,7 +83,8 @@ export async function createMemberResetLink(deps: MembersDeps, email: string): P
 export async function finishSetup(deps: MembersDeps): Promise<{ ok: true } | Refused> {
   const actor = await deps.user();
   if (!actor) return { ok: false, status: 403, message: "Sign in to Hive first." };
-  if (!isMember(actor)) return { ok: false, status: 400, message: "Turn on two-factor authentication first." };
+  // Not isMember: that needs setup done, which is what this sets.
+  if (actor.twoFactorEnabled !== true) return { ok: false, status: 400, message: "Turn on two-factor authentication first." };
   await db.update(user).set({ setupDoneAt: new Date() }).where(and(eq(user.email, actor.email), eq(user.twoFactorEnabled, true)));
   return { ok: true };
 }

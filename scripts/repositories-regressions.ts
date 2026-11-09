@@ -1,4 +1,5 @@
 import "./test-guard";
+import type { SessionUser } from "../lib/auth/owner";
 import assert from "node:assert/strict";
 import { eq, inArray, like } from "drizzle-orm";
 
@@ -16,7 +17,7 @@ const ops = await import("../runner/ops");
 type Adapter = NonNullable<NonNullable<Parameters<typeof ops.claim>[0]>["sources"]>[number];
 
 const OWNER = "owner@example.com";
-const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
 const stamp = Date.now();
 const OWNER_NS = `test-repos-${stamp}`;
 const A = `${OWNER_NS}/factory-demo`;
@@ -120,14 +121,14 @@ assert.equal(repoFilter(undefined, undefined), null);
 
 // Owner-only saves with validation.
 const saved: unknown[] = [];
-const deps = (user: typeof owner | null = owner) => ({
+const deps = (user: SessionUser | null = owner) => ({
   user: async () => user,
   registry: async () => registry,
   harnesses: async () => harnesses,
   save: async (choice: unknown) => void saved.push(choice),
 });
 const input = { repo: B, displayName: "Shop app", enabled: true, provider: "codex", execution: "modal", autonomy: "trial", requireBugbot: true };
-for (const user of [null, { email: "x@example.com", role: "engineer", twoFactorEnabled: true }, { email: OWNER, role: "admin", twoFactorEnabled: false }]) {
+for (const user of [null, { email: "x@example.com", role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() }, { email: OWNER, role: "admin", twoFactorEnabled: false }]) {
   assert.equal((await repos.saveRepository(deps(user), input)).ok, false, `${user?.email ?? "signed out"} cannot save`);
   assert.deepEqual(await repos.makeDefaultRepo({ ...deps(user), save: async () => void saved.push("default") }, { repo: B }), {
     ok: false,

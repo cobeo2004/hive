@@ -427,9 +427,9 @@ try {
   }
 
   // --- the test message, from Settings to the runner
-  const user = async () => ({ email: OWNER, role: "admin", twoFactorEnabled: true });
+  const user = async () => ({ email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() });
   const deps = { db, user, slackConfigured: async () => true };
-  assert.equal((await requestSlackTest({ ...deps, user: async () => ({ email: "x@example.com", role: "engineer", twoFactorEnabled: true }) }, randomUUID())).ok, false, "an engineer is refused");
+  assert.equal((await requestSlackTest({ ...deps, user: async () => ({ email: "x@example.com", role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() }) }, randomUUID())).ok, false, "an engineer is refused");
   assert.match(JSON.stringify(await requestSlackTest({ ...deps, slackConfigured: async () => false }, randomUUID())), /No online runner has a Slack token/);
   const requested = await requestSlackTest(deps, randomUUID());
   assert.ok(requested.ok);

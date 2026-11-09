@@ -10,6 +10,9 @@ process.env.FACTORY_PANEL_URL = PANEL;
 const { db } = await import("../db/client");
 const { acceptInvite, acceptReset, acceptSetup, createLink } = await import("../lib/access-links");
 const { proxy } = await import("../proxy");
+const { session, sessionUser } = await import("../lib/auth/server");
+const { isAdmin, isMember } = await import("../lib/auth/owner");
+const { listMembers, memberByEmail } = await import("../lib/members");
 const { GET, POST } = await import("../app/api/auth/[...path]/route");
 
 const PASSWORD = "correct horse battery staple 42";
@@ -34,6 +37,8 @@ function browser() {
     jar,
     post: async (path: string, body: object) => keep(await POST(new Request(`${PANEL}/api/auth${path}`, { method: "POST", headers: headers(), body: JSON.stringify(body) }))),
     get: async (path: string) => keep(await GET(new Request(`${PANEL}/api/auth${path}`, { headers: headers() }))),
+    /** The user the server actions see for this browser's cookies. */
+    user: async () => sessionUser(await session.read(new Headers({ cookie: cookie() }))),
     /** What the proxy does with this browser's cookies: 200 passes, else the redirect's path or the status. */
     reach: async (path: string) => {
       const response = await proxy(new NextRequest(`${PANEL}${path}`, { headers: { cookie: cookie() } }));
@@ -63,6 +68,10 @@ try {
   await acceptSetup(await createLink("setup", null, 3_600_000), { name: "Admin", email: ADMIN, password: PASSWORD });
   const first = browser();
   assert.equal((await first.post("/sign-in/email", { email: ADMIN, password: PASSWORD })).status, 200);
+  // A second password-only session from before enrolment, e.g. another tab or a stolen cookie.
+  const stale = browser();
+  assert.equal((await stale.post("/sign-in/email", { email: ADMIN, password: PASSWORD })).status, 200);
+  assert.ok(hasSession(stale));
   assert.ok(hasSession(first), "a user without TOTP gets a session");
   assert.equal(await first.reach("/"), "/setup", "before TOTP, a page sends them to /setup");
   assert.equal(await first.reach("/settings"), "/setup");
@@ -78,9 +87,39 @@ try {
   assert.ok(backupCodes.length > 0);
   assert.equal((await first.post("/two-factor/verify-totp", { code: await codeFor(secret) })).status, 200);
   assert.equal(await first.reach("/"), "/setup", "TOTP on but setup unfinished still means /setup");
+  assert.equal(await stale.reach("/setup"), "/auth/sign-in", "enrolment ends every other session of the user");
+  assert.equal(await stale.reach("/api/live"), 401);
+  // Until setup is done, the guards refuse them too, and Slack doesn't match them.
+  const unfinished = await first.user();
+  assert.equal(unfinished?.twoFactorEnabled, true);
+  assert.equal(isMember(unfinished), false, "TOTP without setup_done_at is not a member");
+  assert.equal(isAdmin(unfinished), false, "nor an admin");
+  assert.equal((await listMembers({ user: first.user })).ok, false, "an admin-only action refuses them");
+  assert.equal(await memberByEmail(ADMIN), null, "Slack matches no one who hasn't finished setup");
   await db.execute(sql`update "user" set setup_done_at = now() where email = ${ADMIN}`);
   assert.equal(await first.reach("/"), 200, "after setup the panel opens");
   assert.equal(await first.reach("/api/live"), 200);
+  assert.equal(await stale.reach("/"), "/auth/sign-in", "the stale session stays gone after setup");
+  assert.equal((await listMembers({ user: first.user })).ok, true);
+  assert.equal((await memberByEmail(ADMIN))?.email, ADMIN);
+
+  // --- TOTP is mandatory: nothing over HTTP turns it off, swaps the secret, or mints a new factor.
+  const enrolledAs = async () => (await db.execute<{ enabled: boolean }>(sql`select two_factor_enabled as enabled from "user" where email = ${ADMIN}`)).rows[0]!.enabled;
+  for (const [path, body] of [
+    ["/two-factor/disable", { password: PASSWORD }],
+    ["/two-factor/enable", { password: PASSWORD }],
+    ["/two-factor/get-totp-uri", { password: PASSWORD }],
+    ["/two-factor/generate-backup-codes", { password: PASSWORD }],
+  ] as const) {
+    const response = await first.post(path, body);
+    assert.notEqual(response.status, 200, `${path} is refused once enrolled`);
+    assert.ok(!JSON.stringify(await response.json().catch(() => null)).includes(secret), `${path} doesn't reveal the secret`);
+  }
+  assert.equal(await enrolledAs(), true, "TOTP is still on");
+  assert.equal(await first.reach("/"), 200, "and the session still works");
+  const stillNeedsCode = browser();
+  const step = await stillNeedsCode.post("/sign-in/email", { email: ADMIN, password: PASSWORD });
+  assert.equal(((await step.json()) as { twoFactorRedirect?: boolean }).twoFactorRedirect, true, "the password alone still isn't enough");
 
   // --- the password alone gives an enrolled user no session.
   const second = browser();

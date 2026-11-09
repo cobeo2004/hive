@@ -144,7 +144,7 @@ assert.deepEqual(
   "a runner that can log in outranks one that cannot",
 );
 
-const owner = { email: OWNER, role: "admin", twoFactorEnabled: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
 const reported = [harness("claudeAgent", true, ["model-a"]), harness("codex", true, ["codex-one"]), harness("cursor", false)];
 const choices: { provider: string; model: string; execution: string; by: string }[] = [];
 const deps = (user: SessionUser | null, harnesses: Harness[] | null = reported) => ({
@@ -153,7 +153,7 @@ const deps = (user: SessionUser | null, harnesses: Harness[] | null = reported) 
   save: async (choice: { provider: string; model: string; execution: string }, by: string) => void choices.push({ ...choice, by }),
 });
 
-for (const user of [null, { email: "someone@example.com", role: "engineer", twoFactorEnabled: true }, { email: OWNER, role: "admin", twoFactorEnabled: false }]) {
+for (const user of [null, { email: "someone@example.com", role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() }, { email: OWNER, role: "admin", twoFactorEnabled: false }]) {
   const outcome = await saveSettings(deps(user), { provider: "codex", model: "codex-one" });
   assert.equal(!outcome.ok && outcome.status, 403, `a non-owner (${user?.email ?? "signed out"}) cannot change settings`);
 }

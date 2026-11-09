@@ -18,7 +18,7 @@ process.env.NEXT_PUBLIC_LIVE_UPDATES = "off";
 const { liveUpdates } = await import("../lib/live-mode");
 assert.equal(liveUpdates, false, "the panel reads the build's switch");
 const { session } = await import("../lib/auth/server");
-Object.assign(session, { read: async () => ({ user: { email: OWNER, role: "engineer", twoFactorEnabled: true } }) });
+Object.assign(session, { read: async () => ({ user: { email: OWNER, role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() } }) });
 const { load, runsQuery } = await import("../lib/live-queries");
 const feed = await load(runsQuery());
 assert.ok(Array.isArray(feed.initialData), "with live updates off, a page still shows the rows");
