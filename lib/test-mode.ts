@@ -41,7 +41,7 @@ export function endpointOf(url: string): string {
 const LOOPBACK = new Set(["", "localhost", "127.0.0.1", "::1"]);
 
 /**
- * The database a `pg` connection to `url` reaches: the endpoint for a Neon host, otherwise `host:port/dbname`.
+ * The database a `pg` connection to `url` reaches: `endpoint/dbname` for a Neon host, otherwise `host:port/dbname`.
  * Aliases collapse conservatively (loopback names and unix sockets, a missing port), so two URLs for one
  * database never look different. Throws on `hostaddr` or a host list, which could reach somewhere else.
  */
@@ -50,11 +50,12 @@ export function identityOf(url: string): string {
   const host = (config.host ?? "").toLowerCase().replace(/\.$/, "");
   if (config.hostaddr) throw new Error("sets hostaddr, which hides its host");
   if (host.includes(",")) throw new Error("names more than one host");
-  if (host.split(".")[0]!.startsWith("ep-") || host.endsWith(".neon.tech")) return endpointOf(url);
-  const port = Number(config.port || 5432);
-  if (!Number.isInteger(port)) throw new Error(`has a bad port ${config.port}`);
   const database = (config.database || config.user || "").toLowerCase();
   if (!database) throw new Error("names no database");
+  // One Neon endpoint holds many databases; the pooled and direct hosts are the same endpoint.
+  if (host.split(".")[0]!.startsWith("ep-") || host.endsWith(".neon.tech")) return `${endpointOf(url)}/${database}`;
+  const port = Number(config.port || 5432);
+  if (!Number.isInteger(port)) throw new Error(`has a bad port ${config.port}`);
   return `${LOOPBACK.has(host) || host.startsWith("/") ? "loopback" : host}:${port}/${database}`;
 }
 
