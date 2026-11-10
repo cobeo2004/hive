@@ -1,6 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, like, sql } from "drizzle-orm";
 import { db } from "../db/client";
-import { auditLog, intents, jobs, type IntentRow } from "../db/schema";
+import { auditLog, intents, jobs, runs, type IntentRow } from "../db/schema";
+import { RATE_LIMITED } from "../lib/creds";
 import { attemptBranch, parseBranch } from "../lib/factory";
 import { github } from "../lib/github/pulls";
 import { ensureAwake } from "../lib/host";
@@ -219,4 +220,23 @@ export async function retryJob(id: JobId, { actor, attempt, note }: RetryDetail,
     refused:
       "The factory can't start another attempt yet, for example while the failed one is still stopping. The factory label is back on the issue, so the next attempt starts as soon as it can.",
   };
+}
+
+/** R10a: a failed attempt the provider rate-limited starts again, through the usual retry, on the next account in the order. */
+export async function relaunchRateLimited(retry: typeof retryJob = retryJob) {
+  const failed = await db
+    .select()
+    .from(jobs)
+    .where(and(eq(jobs.stage, "failed"), like(jobs.stage_summary, `%${RATE_LIMITED}%`)));
+  const out: { key: string; started?: number; refused?: string }[] = [];
+  for (const job of failed) {
+    // ponytail: the runner's own login is the last resort; a rate limit there just stays failed (nothing to exclude, no loop).
+    const [ran] = await db
+      .select({ id: runs.account_id })
+      .from(runs)
+      .where(and(eq(runs.job_key, job.key), eq(runs.branch, attemptBranch(job.key, job.attempt)), isNotNull(runs.account_id)))
+      .limit(1);
+    if (ran) out.push({ key: job.key, ...(await retry(job.id as JobId, { actor: "Hive", attempt: job.attempt, note: "" })) });
+  }
+  return out;
 }

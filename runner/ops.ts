@@ -16,6 +16,7 @@ import { ownerNoteSection } from "../lib/inbox";
 import { attemptBranchSql } from "../lib/branch-sql";
 import { nudgeMessage, watch } from "../lib/watchdog";
 import { factoryPlaybook, jobExecution } from "../lib/playbook";
+import { RATE_LIMITED, rateLimited } from "../lib/creds";
 import { isTracked } from "../lib/harness";
 import { readHarnesses } from "../lib/t3-state";
 import { readSettings, resolveExecution, resolveHarness, type HarnessChoice } from "../lib/settings";
@@ -267,13 +268,19 @@ export async function watchdog() {
     if (isHibernated(job)) continue;
     const now = new Date();
     const host = hosts.forJob(job);
+    const read = await threads.read(job.t3_thread_id, host);
+    // R10a: a thread the provider rate-limited fails now, so the retry path moves it to the next account.
+    if (read.state === "stopped" && rateLimited(read)) {
+      if (await watchdogFail(job, `${RATE_LIMITED} (stage ${job.stage})`, now)) actions.push(`${job.key}:rate-limited`);
+      continue;
+    }
     const action = watch(
       {
         stage: job.stage,
         lastEventAt: lastEventAt ?? job.updated_at,
         nudgedAt: job.nudged_at,
         nudgedStage: job.nudged_stage,
-        thread: await threads.state(job.t3_thread_id, host),
+        thread: read.state,
         tracked: jobTracked(job, drivers),
         now,
       },

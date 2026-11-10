@@ -50,7 +50,8 @@ const row = (id: string, owner_id: string | null, extra: Partial<Parameters<type
   created_at: new Date(1_700_000_000_000 + n++),
   ...extra,
 });
-const pick = (rows: ReturnType<typeof row>[], owner: string | null, provider: "claude" | "codex" = "claude") => pickAccount(rows, owner, provider)?.id;
+const pick = (rows: ReturnType<typeof row>[], owner: string | null, provider: "claude" | "codex" = "claude") =>
+  (pickAccount(rows, owner, provider) as { id: string } | undefined)?.id;
 assert.equal(pick([row("a1", "A"), row("b1", "B"), row("pool", null)], "A"), "a1", "A's job gets A's account");
 assert.equal(pick([row("b1", "B")], "A"), undefined, "A's job never gets B's account, even when it is the only row");
 assert.equal(pick([row("b1", "B"), row("pool", null)], "A"), "pool", "an owner without an account gets the pool's");

@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } from "node:crypto";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { agentAccounts } from "../db/schema";
 
 // Agent tokens are sealed to a public key before they reach Postgres (R9a): the panel holds only
@@ -65,14 +65,43 @@ export const credsProvider = (harnessProvider: string): CredsProvider => (harnes
 
 export type AccountRow = Pick<typeof agentAccounts.$inferSelect, "id" | "owner_id" | "provider" | "sealed" | "disconnected_at" | "created_at">;
 
+/** R10a: the owner's account is used while its 5h window is under this. */
+export const OWNER_CUTOFF_PCT = 95;
+export type PoolLimits = { threshold: number; pauseInstead: boolean };
+
 /**
- * The oldest live account of the provider: the owner's own first, else a pool account (no owner).
- * A row owned by anyone else is never returned.
+ * R10a: the owner's account while under 95% of its 5h window, else the pool account with the lowest 5h
+ * use, else "wait" when every pool account is at or above the threshold and pauseInstead is on. With no
+ * pool row it returns undefined, and the runner default stands in for the pool (Q17). A missing meter
+ * counts as 0%. The provider comes from the caller's harness, never from the accounts (Q19).
  */
-export function pickAccount(rows: readonly AccountRow[], ownerId: string | null, provider: CredsProvider) {
-  const live = rows.filter((r) => r.provider === provider && !r.disconnected_at).sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
-  return (ownerId === null ? undefined : live.find((r) => r.owner_id === ownerId)) ?? live.find((r) => r.owner_id === null);
+export function pickAccount(
+  rows: readonly AccountRow[],
+  ownerId: string | null,
+  provider: CredsProvider,
+  usage: ReadonlyMap<string, number> = new Map(),
+  pool: PoolLimits = { threshold: 90, pauseInstead: false },
+  exclude: ReadonlySet<string> = new Set(),
+): AccountRow | "wait" | undefined {
+  const pct = (r: AccountRow) => usage.get(r.id) ?? 0;
+  const live = rows
+    .filter((r) => r.provider === provider && !r.disconnected_at && !exclude.has(r.id))
+    .sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+  const own = ownerId === null ? undefined : live.find((r) => r.owner_id === ownerId && pct(r) < OWNER_CUTOFF_PCT);
+  if (own) return own;
+  const shared = live.filter((r) => r.owner_id === null);
+  if (shared.length === 0) return undefined;
+  if (pool.pauseInstead && shared.every((r) => pct(r) >= pool.threshold)) return "wait";
+  return shared.reduce((best, r) => (pct(r) < pct(best) ? r : best)); // stable: the oldest wins a tie
 }
+
+/** The failure summary the watchdog writes for a rate-limited run, and the marker accountFor and the relaunch read back. */
+export const RATE_LIMITED = "the provider rate-limited its account";
+
+const RATE_LIMIT = /\b429\b|rate[ _-]?limit|usage limit|too many requests/i;
+/** A stopped thread that ended on the provider's rate limit: a failed run, or a short last message that is the provider's error. */
+export const rateLimited = ({ status, lastMessage }: { status: string | null; lastMessage: string | null }) =>
+  !!lastMessage && RATE_LIMIT.test(lastMessage) && (status === "failed" || lastMessage.length <= 300);
 
 /** An unsealed account; id null is the runner's own default login. */
 export type Account = { id: string | null; secret: string };
@@ -81,14 +110,21 @@ export type Account = { id: string | null; secret: string };
 export const runnerDefaultClaudeToken = (env: Env = process.env) => env.CLAUDE_CODE_OAUTH_TOKEN || undefined;
 
 /**
- * The login a job's sandbox runs on: its owner's account, else a pool account, else the runner's
- * default when it has one (null when nothing is left). The DB client loads here, not at import, so
- * the panel can import this file without it.
+ * The login a job's sandbox runs on (R10a): see pickAccount, then the runner's default when the pool has
+ * no row (null when nothing is left), or "wait" for the team pool. After a rate-limited attempt it skips
+ * every account that already ran the job. The DB client and config load here, not at import, so the panel
+ * can import this file without them.
  */
-export async function accountFor(jobKey: string, provider: CredsProvider, runnerDefault: string | undefined, env: Env = process.env): Promise<Account | null> {
+export async function accountFor(
+  jobKey: string,
+  provider: CredsProvider,
+  runnerDefault: string | undefined,
+  env: Env = process.env,
+): Promise<Account | null | "wait"> {
   const { db } = await import("../db/client");
-  const { agentAccounts, jobs } = await import("../db/schema");
-  const [job] = await db.select({ owner: jobs.owner_id }).from(jobs).where(eq(jobs.key, jobKey));
+  const { accountUsage, agentAccounts, jobs, runs } = await import("../db/schema");
+  const { config } = await import("../runner/config");
+  const [job] = await db.select({ owner: jobs.owner_id, failure: jobs.previous_failure }).from(jobs).where(eq(jobs.key, jobKey));
   const owner = job?.owner ?? null;
   const rows = await db
     .select()
@@ -100,7 +136,37 @@ export async function accountFor(jobKey: string, provider: CredsProvider, runner
         or(isNull(agentAccounts.owner_id), owner ? eq(agentAccounts.owner_id, owner) : undefined),
       ),
     );
-  const row = pickAccount(rows, owner, provider);
+  const meters =
+    rows.length === 0
+      ? []
+      : await db
+          .select({ id: accountUsage.account_id, pct: accountUsage.used_pct })
+          .from(accountUsage)
+          .where(
+            and(
+              inArray(
+                accountUsage.account_id,
+                rows.map((r) => r.id),
+              ),
+              eq(accountUsage.window, "5h"),
+            ),
+          );
+  // A manual retry after an ordinary failure goes back to the owner; only a rate limit moves on.
+  const ran = job?.failure?.includes(RATE_LIMITED)
+    ? await db
+        .selectDistinct({ id: runs.account_id })
+        .from(runs)
+        .where(and(eq(runs.job_key, jobKey), isNotNull(runs.account_id)))
+    : [];
+  const row = pickAccount(
+    rows,
+    owner,
+    provider,
+    new Map(meters.map((m) => [m.id, m.pct])),
+    config.factory.pool,
+    new Set(ran.flatMap((r) => (r.id ? [r.id] : []))),
+  );
+  if (row === "wait") return row;
   if (!row) return runnerDefault ? { id: null, secret: runnerDefault } : null;
   if (!env.HIVE_CREDS_PRIVATE_KEY) throw new Error(`HIVE_CREDS_PRIVATE_KEY is not set; cannot open account ${row.id}`);
   return { id: row.id, secret: unseal(row.sealed, env.HIVE_CREDS_PRIVATE_KEY) };
