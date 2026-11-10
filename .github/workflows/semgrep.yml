@@ -13,9 +13,10 @@ concurrency:
 
 permissions:
   contents: read
+  security-events: write
 
 env:
-  SEMGREP: pipx run semgrep==1.185.0 scan --config p/default --config p/typescript --config p/github-actions --metrics=off
+  SEMGREP: pipx run semgrep==1.185.0 scan --config p/default --config p/typescript --config p/github-actions --metrics=off --sarif-output=semgrep.sarif
 
 jobs:
   semgrep:
@@ -32,3 +33,9 @@ jobs:
         run: $SEMGREP --error --baseline-commit "$BASE_SHA"
       - if: github.event_name != 'pull_request'
         run: $SEMGREP
+      # Results land in the Security tab next to CodeQL; runs even when the PR scan fails.
+      - if: always() && hashFiles('semgrep.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
