@@ -563,6 +563,7 @@ try {
     ["completed", "You've hit your usage limit. Try again later.", true],
     ["completed", "Implemented rate limiting; all tests pass.", false],
     ["completed", "Fixed issue #429; waiting for your approval.", false],
+    ["completed", "Implemented rate_limit_error regression tests. All tests pass.", false],
     ["failed", "Too many requests, slow down", true],
     ["failed", null, false],
   ] as const)

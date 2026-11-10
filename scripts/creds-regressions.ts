@@ -156,6 +156,7 @@ try {
   assert.equal(await idOf(keys.a), "creds-a", "1.1: the owner under 95% runs on its own account");
   await stamp("t-1", "hive/CRD-1", "creds-a");
   assert.deepEqual(await ranOn(), [{ branch: "hive/CRD-1", account: "creds-a" }], "1.1: runs.account_id is the owner's");
+  await failed(2, null); // attempt 1 keeps creds-a (it has a run); the next attempt picks again
   await meter("creds-a", 95);
   assert.equal(await idOf(keys.a), "creds-pool", "1.2: at 95% the pool account runs");
 
@@ -179,6 +180,7 @@ try {
   await failed(2, limited("implementing"));
   assert.equal(await idOf(keys.a), "creds-pool", "1.3: the owner's account just rate-limited, so the next attempt runs on the pool's");
   await stamp("t-2", "hive/CRD-1-a2", "creds-pool");
+  assert.equal(await idOf(keys.a), "creds-pool", "a wake inside attempt 2 keeps attempt 2's account");
   assert.deepEqual(
     await ranOn(),
     [
@@ -189,7 +191,13 @@ try {
   );
   await failed(3, limited("pr"));
   assert.equal(await idOf(keys.a), null, "once the owner and the pool have both been limited, only the runner default is left");
-  await failed(2, "Watchdog stopped this run: no events for 30 minutes.");
+  assert.equal(await accountFor(keys.a, "claude", undefined, key), "wait", "with no default either, a Claude job waits rather than switch harness");
+  await db
+    .update(runs)
+    .set({ last_event_at: new Date(Date.now() - 6 * 3_600_000) })
+    .where(eq(runs.branch, "hive/CRD-1-a2"));
+  assert.equal(await idOf(keys.a), "creds-pool", "a rate limit older than 5h no longer skips its account");
+  await failed(3, "Watchdog stopped this run: no events for 30 minutes.");
   assert.equal(await idOf(keys.a), "creds-a", "a retry after any other failure goes back to the owner");
   await failed(1, null);
 

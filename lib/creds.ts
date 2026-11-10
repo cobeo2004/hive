@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } from "node:crypto";
-import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import type { agentAccounts } from "../db/schema";
+import { attemptBranch } from "./factory";
 
 // Agent tokens are sealed to a public key before they reach Postgres (R9a): the panel holds only
 // HIVE_CREDS_PUBLIC_KEY, runners hold HIVE_CREDS_PRIVATE_KEY and are the only code that opens one.
@@ -99,8 +100,8 @@ export function pickAccount(
 export const RATE_LIMITED = "the provider rate-limited its account";
 
 const RATE_LIMIT = /\b429\b|rate[ _-]?limit|usage limit|too many requests/i;
-const PROVIDER_ERROR = /API Error: 429|rate_limit_error|usage limit reached|hit your usage limit|too many requests/i;
-/** A stopped thread that ended on the provider's rate limit: a failed run that says so, or any message carrying the provider's own error text. */
+const PROVIDER_ERROR = /^\s*(API Error: 429|Claude AI usage limit reached|You(?:'|’)ve hit your usage limit)/i;
+/** A stopped thread that ended on the provider's rate limit: a failed run that says so, or a message that starts with the provider's error. */
 export const rateLimited = ({ status, lastMessage }: { status: string | null; lastMessage: string | null }) =>
   !!lastMessage && ((status === "failed" && RATE_LIMIT.test(lastMessage)) || PROVIDER_ERROR.test(lastMessage));
 
@@ -113,19 +114,14 @@ export const runnerDefaultClaudeToken = (env: Env = process.env) => env.CLAUDE_C
 /**
  * The login a job's sandbox runs on (R10a): see pickAccount, then the runner's default when the pool has
  * no row (null when nothing is left), or "wait" for the team pool. After a rate-limited attempt it skips
- * every account that already ran the job. The DB client and config load here, not at import, so the panel
+ * every account an earlier attempt ran on in the last 5h; an attempt keeps its account across wakes. The DB client and config load here, not at import, so the panel
  * can import this file without them.
  */
-export async function accountFor(
-  jobKey: string,
-  provider: CredsProvider,
-  runnerDefault: string | undefined,
-  env: Env = process.env,
-): Promise<Account | null | "wait"> {
+export async function accountFor(jobKey: string, provider: CredsProvider, runnerDefault: string | undefined, env: Env = process.env) {
   const { db } = await import("../db/client");
   const { accountUsage, agentAccounts, jobs, runs } = await import("../db/schema");
   const { config } = await import("../runner/config");
-  const [job] = await db.select({ owner: jobs.owner_id, failure: jobs.previous_failure }).from(jobs).where(eq(jobs.key, jobKey));
+  const [job] = await db.select({ owner: jobs.owner_id, failure: jobs.previous_failure, attempt: jobs.attempt }).from(jobs).where(eq(jobs.key, jobKey));
   const owner = job?.owner ?? null;
   const rows = await db
     .select()
@@ -137,34 +133,31 @@ export async function accountFor(
         or(isNull(agentAccounts.owner_id), owner ? eq(agentAccounts.owner_id, owner) : undefined),
       ),
     );
-  const meters =
-    rows.length === 0
-      ? []
-      : await db
-          .select({ id: accountUsage.account_id, pct: accountUsage.used_pct })
-          .from(accountUsage)
-          .where(
-            and(
-              inArray(
-                accountUsage.account_id,
-                rows.map((r) => r.id),
-              ),
-              eq(accountUsage.window, "5h"),
-            ),
-          );
+  const ids = rows.map((r) => r.id);
+  const metered = and(inArray(accountUsage.account_id, ids), eq(accountUsage.window, "5h"));
+  const meters = rows.length ? await db.select({ id: accountUsage.account_id, pct: accountUsage.used_pct }).from(accountUsage).where(metered) : [];
+  const ofJob = and(eq(runs.job_key, jobKey), isNotNull(runs.account_id));
+  const branch = attemptBranch(jobKey, job?.attempt ?? 1);
+  const [kept] = await db
+    .select({ id: runs.account_id })
+    .from(runs)
+    .where(and(ofJob, eq(runs.branch, branch)))
+    .limit(1);
   // A manual retry after an ordinary failure goes back to the owner; only a rate limit moves on.
   const ran = job?.failure?.includes(RATE_LIMITED)
     ? await db
         .selectDistinct({ id: runs.account_id })
         .from(runs)
-        .where(and(eq(runs.job_key, jobKey), isNotNull(runs.account_id)))
+        .where(and(ofJob, ne(runs.branch, branch), gt(runs.last_event_at, new Date(Date.now() - 5 * 3_600_000))))
     : [];
   const skip = new Set(ran.flatMap((r) => (r.id ? [r.id] : [])));
   const usage = new Map(meters.map((m) => [m.id, m.pct]));
-  // With no pool and no default, a full owner account still beats nothing: the harness is never switched.
+  // With no pool and no default, a full owner account still beats nothing, and a Claude job with every account skipped waits: the harness is never switched.
   const row =
+    rows.find((r) => r.id === kept?.id) ??
     pickAccount(rows, owner, provider, usage, config.factory.pool, skip) ??
-    (runnerDefault ? undefined : pickAccount(rows, owner, provider, new Map(), config.factory.pool, skip));
+    (runnerDefault ? undefined : pickAccount(rows, owner, provider, new Map(), config.factory.pool, skip)) ??
+    (rows.length > 0 && !runnerDefault && provider === "claude" ? "wait" : undefined);
   if (row === "wait") return row;
   if (!row) return runnerDefault ? { id: null, secret: runnerDefault } : null;
   if (!env.HIVE_CREDS_PRIVATE_KEY) throw new Error(`HIVE_CREDS_PRIVATE_KEY is not set; cannot open account ${row.id}`);
