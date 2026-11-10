@@ -8,6 +8,7 @@ import { SourceGoneError, type Job, type JobDraft, type JobId, type JobSource, t
 import { canTransition, runnerEventId } from "../lib/stages";
 import { subagentTranscripts, sumUsage, transcriptPathFor } from "../lib/transcript";
 import { checkoutRepo, cleanupRepo, cleanupSubagentWorktrees } from "../lib/worktrees";
+import { sweepMedia } from "./cleanup";
 import { github } from "../lib/github/pulls";
 import { claimConflict, conflictMessage, unclaimedRunsWithPr } from "../lib/conflicts";
 import { attemptBranch, isJobKey, isMcpSession } from "../lib/factory";
@@ -712,10 +713,13 @@ export async function cleanup(dryRun = false) {
       }
     }
   }
+  // ponytail: runs with the hourly cleanup; the sweep is idempotent, so a daily timer adds nothing.
+  const mediaSwept = await sweepMedia({ dryRun }).catch((error: unknown) => (errors.push({ repo: "*", step: "media", error: String(error) }), 0));
   return {
     removed: reports.flatMap((r) => r.removed),
     held: reports.flatMap((r) => r.held),
     archive: reports.flatMap((r) => r.archive),
+    mediaSwept,
     errors,
   };
 }

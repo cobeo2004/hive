@@ -1,1 +1,1 @@
-export type { ScreenshotType } from "./media";
+export type { MediaType as ScreenshotType } from "./media";

@@ -6,7 +6,6 @@ import { z } from "zod";
 import { CONFIG_PATH, SANDBOX_IMAGE_PATH, type SandboxLimits } from "./config";
 import { runnerDefaultClaudeToken } from "./creds";
 import { imageDrift, imageVersionsSchema, rebuildText, type ImageComponent, type ImageVersions, type SandboxReadiness } from "./machine";
-import { SCREENSHOT_DIR } from "./media";
 
 // Fixed paths inside a job's sandbox. The image puts the factory's hook and MCP bundles and its
 // playbooks under FACTORY_ROOT; each launch clones the job's repo into REPO_DIR.
@@ -29,6 +28,7 @@ export const T3_PORT = 3773;
  * subresources too, which --allowed-origins does not.
  */
 export const BROWSER_SERVER = "playwright";
+const BROWSER_DIR = "/work/browser";
 export const browserServer = {
   command: "playwright-mcp",
   args: [
@@ -38,7 +38,7 @@ export const browserServer = {
     "chromium",
     "--no-sandbox",
     "--output-dir",
-    SCREENSHOT_DIR,
+    BROWSER_DIR,
     "--proxy-server",
     "http://127.0.0.1:9",
     "--proxy-bypass",

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { screenshotsInputSchema, type ScreenshotRef } from "./media";
+import { mediaInputSchema, type MediaRef } from "./media";
 
 // The agent's merge assessment, sent with stage pr. The agent recommends merge when it is confident
 // it built what the issue asked for and that it works, and handover only when it isn't. The
@@ -40,10 +40,10 @@ export const assessmentInputSchema = z
     assumptions: z.array(z.string().min(1).max(500)).max(12).describe("Every assumption you filled a gap in the issue with."),
     confidence: confidenceSchema.optional().describe("Required: whether you are confident in what you built, and if not, why."),
     notes: z.string().min(1).max(2000).optional().describe("Anything else the owner should know."),
-    screenshots: screenshotsInputSchema
+    media: mediaInputSchema
       .optional()
       .describe(
-        "Browser screenshots of every page or screen you changed, as the playwright server saved them, each with a caption. Required when the change shows on a page.",
+        "Files from your run's media folder (<repo>/.sstack/runs/<run>/media/) showing every page or screen you changed: before-/after- images or a recording, each with a caption. Required when the change shows on a page or screen.",
       ),
   })
   .refine((a) => a.confidence !== undefined || legacyFieldsSchema.safeParse(a).success, { message: "the assessment needs confidence", path: ["confidence"] })
@@ -63,7 +63,7 @@ export type MergeAssessment = {
   assumptions: string[];
   confidence: { confident: boolean; reason?: string };
   notes?: string;
-  screenshots?: ScreenshotRef[];
+  media?: MediaRef[];
 };
 
 /** A six-check report: merge meant confident; a handover's failed checks, or else its review focus, are the reason. */
@@ -81,7 +81,7 @@ export function normalizeAssessment(a: AssessmentInput): MergeAssessment {
     recommendation: a.recommendation,
     interpretation: a.interpretation,
     assumptions: a.assumptions,
-    ...(a.screenshots?.length && { screenshots: a.screenshots }),
+    ...(a.media?.length && { media: a.media }),
   };
   if (a.confidence) return { ...base, confidence: a.confidence, ...(a.notes && { notes: a.notes }) };
   return { ...base, ...fromLegacy(a, legacyFieldsSchema.parse(a)) };

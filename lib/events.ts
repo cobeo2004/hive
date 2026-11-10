@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { assessmentInputSchema } from "./assessment";
 import { evidenceShape } from "./evidence";
-import { screenshotShape } from "./media";
+import { mediaShape } from "./media";
 
 export const usageSchema = z.object({
   input: z.number().nonnegative(),
@@ -115,9 +115,9 @@ export const eventSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     ...base,
-    // One image a pr report's assessment attached; see lib/screenshots.ts.
+    // One image or video a pr report's assessment attached; see lib/media.ts.
     kind: z.literal("screenshot"),
-    ...screenshotShape,
+    ...mediaShape,
   }),
 ]);
 export type FactoryEvent = z.infer<typeof eventSchema>;

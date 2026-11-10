@@ -154,7 +154,7 @@ export type DecisionInput = {
   runner: RunnerVerification;
   /** Why the PR edits what its checks depend on (lib/trusted-checks.ts). Any makes it a handover whatever the evidence says. */
   trustEdits: readonly string[];
-  /** Whether the agent had the sandbox's headless browser, so a change to a page can come with screenshots. */
+  /** Whether the agent had the sandbox's headless browser, so a change to a page can come with media. */
   browser: boolean;
 };
 
@@ -183,13 +183,13 @@ function agentReasons({ assessment }: DecisionInput) {
   return [`The agent isn't confident: ${assessment.confidence.reason ?? "it recommends handing over."}`];
 }
 
-/** A change to a page needs screenshots of it, when the agent had a browser to take them with. */
-function screenshotReasons({ assessment, browser }: DecisionInput, pr: PrFacts): string[] {
-  if (!browser || !assessment || assessment.screenshots?.length) return [];
+/** A change to a page needs an image or video of it, when the agent had a browser to take them with. */
+function mediaReasons({ assessment, browser }: DecisionInput, pr: PrFacts): string[] {
+  if (!browser || !assessment || assessment.media?.length) return [];
   const ui = uiFiles(pr.files.map((f) => f.path));
   if (ui.length === 0) return [];
   const named = ui.slice(0, 3).join(", ") + (ui.length > 3 ? ` and ${ui.length - 3} more` : "");
-  return [`The pull request changes UI files (${named}), but the agent attached no screenshots.`];
+  return [`The pull request changes UI files (${named}), but the agent attached no media.`];
 }
 
 /** The verified-at-head limit: what the agent or the runner ran at exactly the PR's head. */
@@ -247,7 +247,7 @@ export function decideMerge(input: DecisionInput): Decision {
   const reasons = [
     ...agentReasons(input),
     ...hardLimits(input, input.pr),
-    ...screenshotReasons(input, input.pr),
+    ...mediaReasons(input, input.pr),
     ...input.trustEdits,
     ...evidenceReasons(input, input.pr),
   ];
