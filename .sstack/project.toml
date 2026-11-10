@@ -7,7 +7,10 @@ docs   = ["docs/prd.md", "docs/glossary.md", "docs/operations.md"]
 verify = [
   "bun run lint",
   "bunx next typegen && bunx tsc --noEmit",
+  "bun run format:check",                 # CI format job (lesson L17)
 ]
+# Applied migrations are immutable; a new drizzle/NNNN_*.sql still passes.
+protected = ["drizzle/0*.sql"]
 check  = "bunx eslint {path}"
 graph  = true
 
