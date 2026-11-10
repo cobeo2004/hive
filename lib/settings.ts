@@ -5,11 +5,11 @@ import * as schema from "@/db/schema";
 import { repoSettings, settings, type RepoSettingsRow, type SettingsRow } from "@/db/schema";
 import { isAdmin, type SessionUser } from "@/lib/auth/owner";
 import { DEFAULT_EXECUTION, executionSchema, type Execution } from "@/lib/execution";
-import type { Harness } from "@/lib/harness";
+import { isKnownDriver, leadProblem, type Harness } from "@/lib/harness";
 import { autonomySchema, DEFAULT_POLICY, type Autonomy, type RepoPolicy } from "@/lib/merge-decision";
 
-// The panel's factory settings: which T3 provider instance and model new threads start on, and
-// where. The runner reads them on every launch pass and falls back to its config when none are saved.
+// The panel's factory settings: which T3 provider instance and model the lead thread starts on, and
+// where; every other role is routed by sstack's roles/*.toml. Only a harness that reports stages may lead. The runner reads them on every launch pass and falls back to its config when none are saved.
 // Per repo, how far the factory may merge on its own; see lib/merge-decision.ts.
 
 export const SETTINGS_ID = "factory";
@@ -91,7 +91,16 @@ export async function saveSettings(deps: SettingsDeps, input: unknown): Promise<
   if (harnesses) {
     const harness = harnesses.find((h) => h.id === provider && h.enabled);
     if (!harness) return { ok: false, status: 400, message: `No machine reports an enabled harness ${provider}.` };
+    const cannotLead = leadProblem(harness.driver, harness.name);
+    if (cannotLead) return { ok: false, status: 400, message: cannotLead };
     if (!harness.models.some((m) => m.slug === model)) return { ok: false, status: 400, message: `${harness.name} has no model ${model}.` };
+  } else {
+    // With no inventory the id is all there is, so only the Claude Code or Codex driver id may lead.
+    const cannotLead = leadProblem(provider);
+    if (cannotLead) {
+      const message = isKnownDriver(provider) ? cannotLead : `No machine reports its harnesses yet, so only Claude Code or Codex can lead, not ${provider}.`;
+      return { ok: false, status: 400, message };
+    }
   }
   try {
     await deps.save({ provider, model, execution }, user.email);
