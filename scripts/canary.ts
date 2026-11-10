@@ -5,9 +5,10 @@ import { and, eq } from "drizzle-orm";
 
 // Files one fixed UI ticket on a test repo and follows the job to its pull request, to prove a
 // rollout end to end: the job launches in a Modal sandbox, the agent opens a page on localhost with
-// the `playwright` browser, attaches a screenshot to its assessment, verifies its head with
-// factory-verify and opens a PR. The issue carries the `review` label, which the merge decision
-// always hands over on, so the canary's PR never merges, even on a repo set to auto.
+// the `playwright` browser, saves a viewport screenshot into its run's media folder, attaches it as
+// `media` to its assessment, verifies its head with factory-verify and opens a PR. The issue carries
+// the `review` label, which the merge decision always hands over on, so the canary's PR never merges,
+// even on a repo set to auto.
 //   bun scripts/canary.ts [--repo owner/name] [--timeout-minutes 60] [--checkout <path>]
 // It exits 0 when every check passed and 1 otherwise. The PR and the issue stay open for you to
 // look at; close both when done.
@@ -48,9 +49,9 @@ Add \`demo/index.html\`: one static page titled "Unit converter demo" with a hea
 
 Then, in this order:
 1. Serve the page on localhost with a static server that is already installed, for example \`python3 -m http.server ${PORT} --directory demo\`.
-2. Open http://localhost:${PORT}/ with the \`playwright\` browser and take a viewport screenshot of the page.
+2. Open http://localhost:${PORT}/ with the \`playwright\` browser and save a viewport screenshot of the page to \`.sstack/runs/canary/media/after-page.png\` in the repo.
 3. Run \`factory-verify\` at your final commit.
-4. Open the pull request and report \`pr\` with the screenshot attached to your assessment.`;
+4. Open the pull request and report \`pr\` with that screenshot attached to your assessment as \`media\`: \`{ file: "after-page.png", caption: "The demo page with its conversions table." }\`.`;
 
 const config = loadConfig();
 const registry = await readRegistry(db);
@@ -77,7 +78,7 @@ type Check = { name: string; ok: boolean; detail: string };
 
 /** What the job has proven so far; every check must hold once it reached its PR. */
 async function checks(job: JobRow): Promise<Check[]> {
-  const shots = job.stage_event_id ? await db.select({ file: jobMedia.file }).from(jobMedia).where(eq(jobMedia.stage_event_id, job.stage_event_id)) : [];
+  const media = job.stage_event_id ? await db.select({ file: jobMedia.file }).from(jobMedia).where(eq(jobMedia.stage_event_id, job.stage_event_id)) : [];
   const head = job.pr_url ? prHead(job.pr_url) : null;
   const [evidence] = head
     ? await db
@@ -95,9 +96,9 @@ async function checks(job: JobRow): Promise<Check[]> {
     },
     { name: "opened a PR", ok: head?.state === "OPEN", detail: job.pr_url ? `${job.pr_url} is ${head?.state ?? "unreadable"}` : "no PR yet" },
     {
-      name: "screenshot from the browser attached",
-      ok: shots.length > 0,
-      detail: shots.length > 0 ? shots.map((s) => s.file).join(", ") : "none on the pr report",
+      name: "media attached",
+      ok: media.length > 0,
+      detail: media.length > 0 ? media.map((m) => m.file).join(", ") : "none on the pr report",
     },
     {
       name: "factory-verify passed at the head",
