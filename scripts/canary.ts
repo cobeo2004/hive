@@ -25,7 +25,7 @@ const timeoutMs = Number(option("--timeout-minutes") ?? 60) * 60_000;
 process.chdir(checkout);
 process.loadEnvFile(".env.local");
 const { db } = await import("../db/client");
-const { jobEvidence, jobs, jobScreenshots } = await import("../db/schema");
+const { jobEvidence, jobs, jobMedia } = await import("../db/schema");
 const { loadConfig } = await import("../lib/config");
 const { parseJob, sourceFor } = await import("../lib/sources");
 const { linearFiler } = await import("../lib/sources/linear");
@@ -77,9 +77,7 @@ type Check = { name: string; ok: boolean; detail: string };
 
 /** What the job has proven so far; every check must hold once it reached its PR. */
 async function checks(job: JobRow): Promise<Check[]> {
-  const shots = job.stage_event_id
-    ? await db.select({ file: jobScreenshots.file }).from(jobScreenshots).where(eq(jobScreenshots.stage_event_id, job.stage_event_id))
-    : [];
+  const shots = job.stage_event_id ? await db.select({ file: jobMedia.file }).from(jobMedia).where(eq(jobMedia.stage_event_id, job.stage_event_id)) : [];
   const head = job.pr_url ? prHead(job.pr_url) : null;
   const [evidence] = head
     ? await db
