@@ -65,6 +65,7 @@ export type SandboxLimits = z.infer<typeof sandboxSchema>;
 /** Every factory limit lives here, with defaults; the config file overrides any of them. */
 export const factorySchema = z
   .object({
+    /** Env defaults only: once Settings → Linear is saved, its teamKeys and label decide which webhook deliveries count (lib/linear-settings.ts). */
     teamKey: z.string().default("FAC"),
     label: z.string().default("hive"),
     maxInFlight: z.number().int().positive().default(4),
