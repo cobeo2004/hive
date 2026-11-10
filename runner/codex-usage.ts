@@ -7,6 +7,7 @@ import { codexUsage, readRollouts, ROLLOUT_SLACK_MS } from "../lib/codex-usage";
 import type { Usage } from "../lib/events";
 import { HostAsleepError, HostGoneError, localHost, type JobHost } from "../lib/host";
 import { CODEX_HOME } from "../lib/sandbox";
+import { recordCodexLimits } from "./account-usage";
 import { postEvent } from "./ingest-client";
 
 // Codex has no hooks, so its usage is read from its rollout files on the job's host (see
@@ -43,6 +44,19 @@ export async function recordCodexUsage(run: RunRow, host: JobHost, { final = fal
   const startedAt = run.started_at.getTime();
   const rollouts = await readRollouts(host, codexHomeOf(host), startedAt - ROLLOUT_SLACK_MS);
   const usage = codexUsage(rollouts, { cwd: run.cwd, branch: run.branch, startedAt });
+  // The account's meters, whether or not this run's usage moved; a failure only logs.
+  if (run.account_id && usage?.main.rateLimits) {
+    await recordCodexLimits(run.account_id, usage.main.rateLimits, usage.main.rateLimitsAt).catch((error: unknown) =>
+      console.log(
+        JSON.stringify({
+          at: new Date().toISOString(),
+          event: "account-usage:failed",
+          account: run.account_id,
+          reason: error instanceof Error ? error.name : "error",
+        }),
+      ),
+    );
+  }
   const main = usage && withModel(usage.main.usage, run.model);
   if (!usage || !main) return false;
   const rows = await db.select().from(agents).where(eq(agents.session_id, run.session_id));

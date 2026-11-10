@@ -31,6 +31,7 @@ const { watchMerges } = await import("./post-merge");
 const { syncOverrideLabels } = await import("./overrides");
 const { baseImageIdle, rebuildBaseImage, stopBaseImage } = await import("./base-image");
 const { advanceOnboarding, onboardRepo, repoPushed, requestRebuild } = await import("./onboarding");
+const { pollClaudeUsage } = await import("./account-usage");
 const { repoPushDetailSchema } = await import("../lib/webhooks");
 const { notifySlack, sendSlackTest, slackFromEnv } = await import("./slack");
 const { keepListening } = await import("./realtime");
@@ -300,6 +301,7 @@ const listener = keepListening({
 await listener.start();
 
 const hourlyCleanup = everyAtMost(3_600_000, () => ops.cleanup());
+const accountUsage = everyAtMost(300_000, () => pollClaudeUsage());
 const labelSync = ops.config.factory.syncLinearLabels ? everyAtMost(86_400_000, () => syncOverrideLabels()) : undefined;
 if (ops.config.factory.syncLinearLabels) void serial("labelSync", () => syncOverrideLabels());
 setInterval(() => {
@@ -311,6 +313,8 @@ setInterval(() => {
   });
   // Its own step, so a snapshot that takes minutes never pushes the tick past its timeout.
   void serial("onboarding", () => advanceOnboarding());
+  // Its own step too: a slow Anthropic API never delays the tick.
+  void serial("accountUsage", async () => accountUsage());
   // After the tick's merge decisions and stop checks, so the inbox it reads is this tick's; its own step, so a slow Slack delays nothing.
   void serial("slack", () => notifySlack());
   // Intents a notification may not have delivered.
