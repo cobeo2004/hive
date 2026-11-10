@@ -302,6 +302,13 @@
       "when": 1794325091920,
       "tag": "0042_pink_silvermane",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794325713248,
+      "tag": "0043_agent_accounts",
+      "breakpoints": true
     }
   ]
 }

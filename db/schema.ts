@@ -10,6 +10,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -80,9 +81,11 @@ export const runs = pgTable(
     started_at: ts("started_at").notNull(),
     last_event_at: ts("last_event_at").notNull(),
     model: text("model"),
+    /** The agent account this attempt ran on (R36); null before M3 or once the account is deleted. */
+    account_id: text("account_id").references(() => agentAccounts.id, { onDelete: "set null" }),
     ...tokens(),
   },
-  (t) => [index("runs_last_event_at_idx").on(t.last_event_at)],
+  (t) => [index("runs_last_event_at_idx").on(t.last_event_at), index("runs_account_idx").on(t.account_id)],
 );
 
 export const agents = pgTable(
@@ -608,4 +611,68 @@ export const linearSettings = pgTable("linear_settings", {
   updated_at: ts("updated_at").notNull(),
   /** The admin's email (R35). */
   updated_by: text("updated_by").notNull(),
+});
+
+export const agentProvider = pgEnum("agent_provider", ["claude", "codex"]);
+export const agentAccountKind = pgEnum("agent_account_kind", ["subscription", "api_key"]);
+
+/**
+ * A Claude or Codex account agents run on (R36): an engineer's own, or a pool account when owner_id
+ * is null. The token is stored only sealed; disconnecting sets disconnected_at and clears sealed to
+ * empty bytes.
+ */
+export const agentAccounts = pgTable(
+  "agent_accounts",
+  {
+    id: text("id").primaryKey(),
+    /** The engineer who owns it; null for a pool account (R36). */
+    owner_id: text("owner_id").references(() => user.id, { onDelete: "cascade" }),
+    provider: agentProvider("provider").notNull(),
+    kind: agentAccountKind("kind").notNull(),
+    label: text("label").notNull(),
+    /** The sealed token; the panel cannot open it (R36). */
+    sealed: bytea("sealed").notNull(),
+    created_by: text("created_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    created_at: ts("created_at").notNull().defaultNow(),
+    disconnected_at: ts("disconnected_at"),
+  },
+  (t) => [index("agent_accounts_owner_idx").on(t.owner_id)],
+);
+
+export const usageWindow = pgEnum("usage_window", ["5h", "7d"]);
+
+/** The last usage reading of an account for one rate-limit window (R36). */
+export const accountUsage = pgTable(
+  "account_usage",
+  {
+    account_id: text("account_id")
+      .notNull()
+      .references(() => agentAccounts.id, { onDelete: "cascade" }),
+    window: usageWindow("window").notNull(),
+    used_pct: real("used_pct").notNull(),
+    resets_at: ts("resets_at"),
+    read_at: ts("read_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.account_id, t.window] })],
+);
+
+export const accountLoginStatus = pgEnum("account_login_status", ["pending", "waiting_code", "done", "failed"]);
+
+/**
+ * A login in progress, relaying the login URL and device code to the user (R36). It never holds a
+ * token, and the login flow deletes the row when the login ends.
+ */
+export const accountLogins = pgTable("account_logins", {
+  id: text("id").primaryKey(),
+  user_id: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  provider: agentProvider("provider").notNull(),
+  status: accountLoginStatus("status").notNull().default("pending"),
+  url: text("url"),
+  code: text("code"),
+  expires_at: ts("expires_at").notNull(),
+  created_at: ts("created_at").notNull().defaultNow(),
 });
