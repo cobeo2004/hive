@@ -30,7 +30,7 @@ async function linearWebhook() {
   if (existing?.allPublicTeams) {
     await linear(
       `mutation($id: String!, $input: WebhookUpdateInput!) { webhookUpdate(id: $id, input: $input) { success } }`,
-      { id: existing.id, input: { url: input.url, resourceTypes: input.resourceTypes, secret: input.secret, label: input.label } },
+      { id: existing.id, input: { url: input.url, resourceTypes: input.resourceTypes, secret: input.secret, label: input.label, enabled: true } },
       z.object({ webhookUpdate: z.object({ success: z.boolean() }) }),
     );
     return existing.id;
@@ -44,7 +44,7 @@ async function linearWebhook() {
     );
   }
   // Matched by URL, so a webhook at an older URL (such as the retired ingest Function) stays and would deliver twice.
-  for (const old of webhooks.nodes.filter((w) => w.url.endsWith("/webhooks/linear"))) {
+  for (const old of webhooks.nodes.filter((w) => w.id !== existing?.id && w.url.endsWith("/webhooks/linear"))) {
     console.warn(`delete the old Linear webhook ${old.id} at ${old.url} in Linear's settings; it still delivers there`);
   }
   const created = await linear(
