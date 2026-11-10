@@ -22,7 +22,7 @@ import { Screenshots } from "./screenshots";
 import { EvidenceSummaryList } from "./evidence";
 import { InboxActions } from "./inbox-actions";
 import { FullViewToggle, useEscapeToSidePanel, type FullView } from "./full-view";
-import { jobsHref } from "./job-view";
+import { inboxHref, jobsHref, useOwnerParam } from "./job-view";
 import { Confidence } from "./merge-decision";
 import { useRowKeys } from "./row-keys";
 import { ShortTime } from "./time";
@@ -35,18 +35,18 @@ const KIND_DOT: Record<InboxKind, string> = {
   stop_unconfirmed: "bg-warning",
 };
 
-const itemHref = (key: string) => `/inbox?job=${encodeURIComponent(key)}`;
-
 type Item = InboxItem<JobRow>;
 
 function Row({
   item,
+  href,
   open,
   cursor,
   onFocus,
   repoLabels,
 }: {
   item: Item;
+  href: string;
   open: boolean;
   cursor: boolean;
   onFocus: () => void;
@@ -55,7 +55,7 @@ function Row({
   const { job, kind } = item;
   return (
     <Link
-      href={itemHref(job.key)}
+      href={href}
       scroll={false}
       data-row={job.key}
       onFocus={onFocus}
@@ -292,6 +292,7 @@ function Review({ loaded, prUrl }: { loaded: Loaded; prUrl: string }) {
 
 function Detail({ item, card, fullView }: { item: Item; card: BoardCard | undefined; fullView: FullView }) {
   const { job, kind } = item;
+  const owner = useOwnerParam();
   useEscapeToSidePanel(fullView);
   const link = sourceLink(job);
   const wantsReview = kind !== "question" && job.pr_url !== null;
@@ -306,7 +307,7 @@ function Detail({ item, card, fullView }: { item: Item; card: BoardCard | undefi
               <span>{job.key}</span>
               <span className="flex items-center gap-0.5">
                 <FullViewToggle {...fullView} />
-                <Button render={<Link href="/inbox" scroll={false} />} variant="ghost" size="icon-sm" aria-label="Close">
+                <Button render={<Link href={inboxHref(owner)} scroll={false} />} variant="ghost" size="icon-sm" aria-label="Close">
                   <XIcon />
                 </Button>
               </span>
@@ -380,13 +381,15 @@ export function Inbox({
   /** Each repo's short name, while more than one repo has jobs; undefined shows no repo. */
   repoLabels?: ReadonlyMap<string, string>;
 }) {
+  const owner = useOwnerParam();
+  const itemHref = (key: string) => inboxHref(owner, key);
   const items = useMemo(() => inboxItems(jobs), [jobs]);
   const listRef = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState<string | null>(selected ?? null);
   const open = items.find((i) => i.job.key === selected);
   const full = fullView.full && open !== undefined;
   // In full view the list is hidden and Esc goes back to the side panel, which the detail handles.
-  useRowKeys(listRef, { cursor, setCursor, hrefOf: itemHref, closeHref: selected ? "/inbox" : null, enabled: !full });
+  useRowKeys(listRef, { cursor, setCursor, hrefOf: itemHref, closeHref: selected ? inboxHref(owner) : null, enabled: !full });
 
   if (items.length === 0) {
     return (
@@ -408,7 +411,14 @@ export function Inbox({
           <ul aria-label="Needs you">
             {items.map((item) => (
               <li key={item.job.key} className="border-b">
-                <Row item={item} open={item === open} cursor={cursor === item.job.key} onFocus={() => setCursor(item.job.key)} repoLabels={repoLabels} />
+                <Row
+                  item={item}
+                  href={itemHref(item.job.key)}
+                  open={item === open}
+                  cursor={cursor === item.job.key}
+                  onFocus={() => setCursor(item.job.key)}
+                  repoLabels={repoLabels}
+                />
               </li>
             ))}
           </ul>
