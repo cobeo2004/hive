@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { jobs, jobScreenshots } from "@/db/schema";
+import { jobs, jobMedia } from "@/db/schema";
 import { parseAssessment } from "@/lib/assessment";
 import { parseJobKey } from "@/lib/live-queries";
 
@@ -15,9 +15,9 @@ export async function GET(request: Request, { params }: RouteContext<"/api/jobs/
   if (!job?.reportId || !ref || new URL(request.url).searchParams.get("v") !== job.reportId)
     return Response.json({ error: "no such screenshot" }, { status: 404 });
   const [shot] = await db
-    .select({ bytes: jobScreenshots.bytes, contentType: jobScreenshots.content_type })
-    .from(jobScreenshots)
-    .where(and(eq(jobScreenshots.stage_event_id, job.reportId), eq(jobScreenshots.file, ref.file)));
+    .select({ bytes: jobMedia.bytes, contentType: jobMedia.content_type })
+    .from(jobMedia)
+    .where(and(eq(jobMedia.stage_event_id, job.reportId), eq(jobMedia.file, ref.file)));
   if (!shot) return Response.json({ error: "the screenshot hasn't arrived" }, { status: 404 });
   // The URL names the report it belongs to, so the same URL always means the same image.
   return new Response(new Uint8Array(shot.bytes), { headers: { "Content-Type": shot.contentType, "Cache-Control": "private, max-age=31536000, immutable" } });

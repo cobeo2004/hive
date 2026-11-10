@@ -248,7 +248,7 @@ if (process.argv.includes("--once")) {
   await beat({ inventory: false });
   await serial("registry", ops.registerCheckouts);
   await serial("reconcile", startupReconcile);
-  if (slackFromEnv()) await serial("slack", () => notifySlack());
+  await serial("slack", () => notifySlack());
   takeIntents(await openIntents());
   await queue.idle();
   // A rebuild the reconcile started is this run's to finish, with the launch it queues when it lands.
@@ -312,7 +312,7 @@ setInterval(() => {
   // Its own step, so a snapshot that takes minutes never pushes the tick past its timeout.
   void serial("onboarding", () => advanceOnboarding());
   // After the tick's merge decisions and stop checks, so the inbox it reads is this tick's; its own step, so a slow Slack delays nothing.
-  if (slackFromEnv()) void serial("slack", () => notifySlack());
+  void serial("slack", () => notifySlack());
   // Intents a notification may not have delivered.
   void openIntents().then(takeIntents);
 }, ops.config.factory.tickSeconds * 1000);

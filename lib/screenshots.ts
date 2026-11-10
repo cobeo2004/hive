@@ -5,7 +5,7 @@ import { matchesAny } from "./globs";
 // The assessment names files in the Playwright MCP server's output dir; the reporter (hooks/report.ts
 // under Claude Code, mcp/factory-report.ts elsewhere) reads each one (lib/screenshot-files.ts) and
 // sends it as a screenshot event ahead of the stage event. Ingest keeps the bytes in
-// job_screenshots, keyed by that stage event and the file, and the panel serves them to the owner.
+// job_media, keyed by that stage event and the file, and the panel serves them to the owner.
 
 /** Where the sandbox's headless browser writes its screenshots; see browserServer in lib/sandbox.ts. */
 export const SCREENSHOT_DIR = "/work/browser";

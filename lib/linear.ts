@@ -327,6 +327,16 @@ export function linearClient(apiKey: string, { fetch: fetchImpl = realFetch, sle
       return data.fileUpload.uploadFile;
     },
 
+    /** The workspace member with this email, for an @-mention (their profile URL); null when there is none. */
+    async userByEmail(email: string): Promise<{ id: string; url: string } | null> {
+      const data = await gql(
+        `query($email: String!) { users(filter: { email: { eqIgnoreCase: $email } }, first: 1) { nodes { id url } } }`,
+        { email },
+        z.object({ users: z.object({ nodes: z.array(z.object({ id: z.string(), url: z.string() })) }) }),
+      );
+      return data.users.nodes[0] ?? null;
+    },
+
     /** Returns false when a comment with this id already exists. */
     async comment(issueId: string, id: string, body: string) {
       try {
