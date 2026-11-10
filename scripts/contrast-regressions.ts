@@ -13,12 +13,30 @@ const AA = 4.5;
 type Vars = Record<string, string>;
 type Rgba = [number, number, number, number];
 
+// Declarations of every top-level block whose selector is exactly `selector`; later blocks win.
 function block(css: string, selector: string): Vars {
-  const start = css.search(new RegExp(`(^|\\n)${selector.replace(/\./g, "\\.")}\\s*\\{`));
-  assert.ok(start >= 0, `no ${selector} block`);
-  const body = css.slice(css.indexOf("{", start) + 1, css.indexOf("}", start));
   const vars: Vars = {};
-  for (const [, name, value] of body.matchAll(/--([\w-]+)\s*:\s*([^;]+);/g)) vars[name!] = value!.trim();
+  let found = false;
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  let depth = 0;
+  let start = 0; // where the current depth-0 selector text begins
+  let bodyAt = 0;
+  for (let i = 0; i < clean.length; i++) {
+    const c = clean[i];
+    if (c === "{" && depth++ === 0) bodyAt = i + 1;
+    else if (c === ";" && depth === 0) start = i + 1;
+    else if (c === "}" && depth > 0 && --depth === 0) {
+      const sel = clean.slice(start, bodyAt - 1).trim();
+      start = i + 1;
+      if (sel !== selector) continue;
+      found = true;
+      for (const [, name, value] of clean.slice(bodyAt, i).matchAll(/--([\w-]+)\s*:\s*([^;]+?)\s*(?:;|$)/g)) {
+        if (/!important/i.test(value!)) throw new Error(`--${name} uses !important, which this check does not model`);
+        vars[name!] = value!;
+      }
+    }
+  }
+  assert.ok(found, `no ${selector} block`);
   return vars;
 }
 
@@ -36,7 +54,10 @@ function color(value: string): Rgba {
     return [0, 2, 4].map((i) => Number.parseInt(full.slice(i, i + 2), 16)).concat(1) as Rgba;
   }
   const rgba = /^rgba?\(([^)]+)\)$/.exec(value)?.[1]?.split(",").map(Number);
-  if (rgba && rgba.length >= 3 && rgba.every((n) => !Number.isNaN(n))) return [rgba[0]!, rgba[1]!, rgba[2]!, rgba[3] ?? 1];
+  if (rgba && rgba.length >= 3 && rgba.every((n) => !Number.isNaN(n))) {
+    const clamp = (n: number, max: number) => Math.min(max, Math.max(0, n));
+    return [clamp(rgba[0]!, 255), clamp(rgba[1]!, 255), clamp(rgba[2]!, 255), clamp(rgba[3] ?? 1, 1)];
+  }
   throw new Error(`cannot read colour ${value}`);
 }
 
@@ -50,26 +71,10 @@ const ratio = (a: Rgba, b: Rgba) => {
   return (hi! + 0.05) / (lo! + 0.05);
 };
 
-const TEXT = [
-  "foreground",
-  "card-foreground",
-  "popover-foreground",
-  "secondary-foreground",
-  "muted-foreground",
-  "accent-foreground",
-  "ink-2",
-  "faint",
-  "primary-text",
-  "info",
-  "success",
-  "warning",
-  "destructive",
-  "violet",
-  "destructive-foreground",
-  "info-foreground",
-  "success-foreground",
-  "warning-foreground",
-];
+const TEXT = (
+  "foreground card-foreground popover-foreground secondary-foreground muted-foreground accent-foreground ink-2 faint primary-text " +
+  "info success warning destructive violet destructive-foreground info-foreground success-foreground warning-foreground"
+).split(" ");
 const SURFACES = ["background", "surface-1", "surface-2", "card", "popover", "secondary", "muted", "accent"];
 const ON: [string, string][] = [
   ["primary-foreground", "primary"],
@@ -78,24 +83,10 @@ const ON: [string, string][] = [
   ["success", "success-soft"],
   ["warning", "warning-soft"],
   ["danger", "danger-soft"],
-  // components/ui button and badge put text-white on bg-destructive; stats and links use text-primary.
-  ["#ffffff", "destructive"],
-  ["primary", "background"],
-  ["primary", "card"],
 ];
-// Status text sits on bg-<status>/4..16 tints over the page or a card (badge, alert, run notes).
-const TINTS = [0.04, 0.08, 0.1, 0.12, 0.16];
-type Pair = { text: string; bg: string; alpha?: number; base?: string };
-const PAIRS: Pair[] = [
-  ...TEXT.flatMap((text) => SURFACES.map((bg) => ({ text, bg }))),
-  ...ON.map(([text, bg]) => ({ text, bg })),
-  ...["success", "warning", "destructive", "info"].flatMap((status) =>
-    [status, `${status}-foreground`].flatMap((text) => ["background", "card"].flatMap((base) => TINTS.map((alpha) => ({ text, bg: status, alpha, base })))),
-  ),
-];
-// Pairs that fail only because of component markup (a literal text-white, text-primary for coloured text);
-// the R25 screen plans move them to tokens that pass. Listed so the check still sees them change.
-const KNOWN_GAPS = ["dark: #ffffff on --destructive is 2.51:1", "dark: --primary on --background is 3.80:1", "dark: --primary on --card is 3.71:1"];
+// The check covers the token pairs globals.css defines; component-level pairs (opacity modifiers,
+// literal colours) are checked by the R25 screen plans.
+const PAIRS = [...TEXT.flatMap((text) => SURFACES.map((bg) => ({ text, bg }))), ...ON.map(([text, bg]) => ({ text, bg }))];
 
 function themes(css: string): [string, Vars][] {
   const light = block(css, ":root");
@@ -110,29 +101,52 @@ export function contrastFailures(css: string) {
   for (const [theme, vars] of themes(css)) {
     const page = color(resolve(vars, "bg"));
     assert.equal(page[3], 1, `${theme} --bg must be opaque`);
-    const paint = (name: string) => color(name.startsWith("#") ? name : resolve(vars, name));
-    const label = (name: string) => (name.startsWith("#") ? name : `--${name}`);
-    for (const { text, bg, alpha, base } of PAIRS) {
-      const [r, g, b, a] = paint(bg);
-      const under = base ? over(paint(base), page) : page;
-      const surface = over([r, g, b, alpha ?? a], under);
+    const paint = (name: string) => color(resolve(vars, name));
+    for (const { text, bg } of PAIRS) {
+      const surface = over(paint(bg), page);
       const contrast = ratio(over(paint(text), surface), surface);
-      const where = alpha ? `${label(bg)}/${alpha * 100} over ${label(base!)}` : label(bg);
-      if (contrast < AA) failures.push(`${theme}: ${label(text)} on ${where} is ${contrast.toFixed(2)}:1, below ${AA}:1`);
+      if (contrast < AA) failures.push(`${theme}: --${text} on --${bg} is ${contrast.toFixed(2)}:1, below ${AA}:1`);
     }
   }
   return failures;
 }
 
-// Every pair passes today, apart from the known markup gaps, which fail exactly as listed.
-const failures = contrastFailures(globals);
-const unknown = failures.filter((f) => !KNOWN_GAPS.some((gap) => f.startsWith(gap)));
-assert.deepEqual(unknown, [], `contrast below WCAG AA:\n${unknown.join("\n")}`);
-for (const gap of KNOWN_GAPS)
-  assert.ok(
-    failures.some((f) => f.startsWith(gap)),
-    `known gap changed or closed, update KNOWN_GAPS: ${gap}`,
-  );
+// Tailwind reads colours through `@theme inline { --color-x: var(--x); }`; a literal there would bypass the check.
+export function themeMappingFailures(css: string) {
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  // every `@theme <options> {` block, merged in order (later wins)
+  const colors = new Map<string, string>();
+  let found = false;
+  for (let from = 0; ; ) {
+    const open = /@theme\b[^{};]*\{/g;
+    open.lastIndex = from;
+    const m = open.exec(clean);
+    if (!m) break;
+    found = true;
+    let depth = 1;
+    let body = "";
+    let i = open.lastIndex;
+    for (; i < clean.length; i++) {
+      const c = clean[i];
+      if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) break;
+      // top-level text only: nested blocks (@keyframes) are skipped
+      else if (c !== "}" && depth === 1) body += c;
+    }
+    from = i + 1;
+    for (const [, name, value] of body.matchAll(/--color-([\w-]+)\s*:\s*([^;]+?)\s*(?:;|$)/g)) colors.set(name!, value!);
+  }
+  assert.ok(found, "no @theme block");
+  const checked = new Set([...TEXT, ...SURFACES, ...ON.flat()]);
+  const failures: string[] = [];
+  for (const [name, value] of colors) {
+    if (checked.has(name) && value !== `var(--${name})`) failures.push(`--color-${name} is ${value}, expected var(--${name})`);
+  }
+  return failures;
+}
+
+const failures = [...contrastFailures(globals), ...themeMappingFailures(globals)];
+assert.deepEqual(failures, [], `contrast below WCAG AA:\n${failures.join("\n")}`);
 
 // The check bites: a washed-out muted text, or a muted surface it can no longer be read on, fails by name.
 const lightOnly = (from: string, to: string) => {
@@ -150,36 +164,54 @@ assert.ok(
   contrastFailures(lightOnly("--muted: var(--surface-2);", "--muted: #bbbbbb;")).some((f) => f.startsWith("light: --muted-foreground on --muted is 2.")),
   "a #bbbbbb muted surface fails",
 );
+assert.ok(
+  contrastFailures(`${globals}\n:root { --muted-foreground: #bbbbbb; }\n`).some((f) => f.startsWith("light: --muted-foreground on --background is 1.")),
+  "an appended :root block is seen",
+);
+assert.ok(
+  contrastFailures(`${globals}\n:root { --muted-foreground: #bbbbbb }\n`).some((f) => f.startsWith("light: --muted-foreground on --background is 1.")),
+  "a last declaration without a semicolon is seen",
+);
+assert.ok(
+  contrastFailures(`${globals}\n:root { --secondary-foreground: #bbbbbb; }\n@media print { .unused {} :root { --secondary-foreground: var(--ink); } }\n`).some(
+    (f) => f.startsWith("light: --secondary-foreground "),
+  ),
+  "a :root nested in an at-rule is ignored",
+);
+assert.throws(() => contrastFailures(`${globals}\n:root { --secondary-foreground: #bbbbbb !important; }\n`), /!important/);
+const mapping = "--color-muted-foreground: var(--muted-foreground);";
+assert.ok(globals.includes(mapping), "globals.css maps --color-muted-foreground");
+assert.ok(
+  themeMappingFailures(globals.replace(mapping, "--color-muted-foreground: #bbbbbb;")).some((f) => f.startsWith("--color-muted-foreground ")),
+  "a literal Tailwind colour mapping fails",
+);
+assert.ok(
+  themeMappingFailures(`${globals}\n@theme inline { --color-muted-foreground: #bbbbbb; }\n`).some((f) => f.startsWith("--color-muted-foreground ")),
+  "a later @theme block is seen",
+);
+const themeEnd = globals.indexOf("\n}\n", globals.indexOf("@theme inline {"));
+assert.ok(themeEnd >= 0, "found the end of @theme inline");
+assert.ok(
+  themeMappingFailures(`${globals.slice(0, themeEnd)}\n  --color-warning: #bbbbbb${globals.slice(themeEnd)}`).some((f) => f.startsWith("--color-warning ")),
+  "a last @theme declaration without a semicolon is seen",
+);
+const faint = "--faint: var(--muted-foreground);";
+assert.ok(globals.includes(faint), "globals.css defines --faint");
+assert.ok(
+  contrastFailures(globals.replace(faint, "--faint: rgba(107,107,116,2);")).some((f) => f.startsWith("dark: --faint ")),
+  "an out-of-range rgba alpha is clamped",
+);
 
 // The tokens are hive.css's values. hive.css's --muted is a text colour; here it is --muted-foreground.
-const HIVE_TOKENS: Record<string, string> = {
-  bg: "bg",
-  "surface-1": "surface-1",
-  "surface-2": "surface-2",
-  card: "card",
-  border: "border",
-  "border-strong": "border-strong",
-  ink: "ink",
-  "ink-2": "ink-2",
-  muted: "muted-foreground",
-  primary: "primary",
-  "primary-text": "primary-text",
-  "primary-soft": "primary-soft",
-  "on-primary": "on-primary",
-  lime: "lime",
-  "on-lime": "on-lime",
-  success: "success",
-  "success-soft": "success-soft",
-  warning: "warning",
-  "warning-soft": "warning-soft",
-  danger: "danger",
-  "danger-soft": "danger-soft",
-  focus: "focus",
-};
+const HIVE_TOKENS: Record<string, string> = Object.fromEntries(
+  "bg surface-1 surface-2 card border border-strong ink ink-2 muted primary primary-text primary-soft on-primary lime on-lime success success-soft warning warning-soft danger danger-soft focus"
+    .split(" ")
+    .map((t) => [t, t === "muted" ? "muted-foreground" : t]),
+);
 const hiveLight = block(hive, ".hv");
 const hiveThemes: Record<string, Vars> = { light: hiveLight, dark: { ...hiveLight, ...block(hive, ".hv.dark") } };
-// hive.css's light status text fails AA on the components' status tints; globals.css darkens it a shade.
-const DEVIATIONS: Record<string, Vars> = { light: { danger: "#be2631", success: "#137238", warning: "#965500" }, dark: {} };
+// hive.css's light --success on --success-soft is 4.49:1, below AA; globals.css lightens the surface to #e8f7ed (4.53:1).
+const DEVIATIONS: Record<string, Vars> = { light: { "success-soft": "#e8f7ed" }, dark: {} };
 for (const [theme, vars] of themes(globals)) {
   for (const [token, ours] of Object.entries(HIVE_TOKENS)) {
     const want = DEVIATIONS[theme]![token] ?? hiveThemes[theme]![token]!;

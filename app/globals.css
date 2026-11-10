@@ -110,7 +110,7 @@
 /*
  * Hive's look, from design/screens/hive.css: T3 Code's shell with Unibuz accents. Blue is selection and
  * focus; lime is only for PR ready and the Inbox count. The Hive tokens come first with hive.css's
- * values, then the shadcn variables point at them. The one change is light status text (see --danger).
+ * values, then the shadcn variables point at them. The one change is light --success-soft (see there).
  * hive.css has no faint text level, so --faint is the muted text: anything fainter fails AA. hive.css's --muted is text, so it lives in
  * --muted-foreground here; shadcn's --muted stays a surface. scripts/contrast-regressions.ts checks both.
  * --radius is hive's 10px: the scale above gives sm 6px, lg 10px, xl 14px and 2xl 18px, as hive.css does.
@@ -127,10 +127,9 @@
   --on-primary: #ffffff;
   --lime: #cbfd80;
   --on-lime: #1d1580;
-  /* Light status text is a shade darker than hive.css (#c62834, #15803d, #a15c00) so it reads at AA
-     on the bg-<status>/4..16 tints the components use. */
-  --danger: #be2631;
-  --success-soft: #e7f6ec;
+  --danger: #c62834;
+  /* hive.css has #e7f6ec, where --success reads at 4.49:1; one step lighter clears AA. */
+  --success-soft: #e8f7ed;
   --warning-soft: #fdf3e1;
   --danger-soft: #fde8ea;
   --focus: #3224f2;
@@ -160,8 +159,8 @@
   --chart-5: var(--ink);
   --radius: 10px;
   --faint: var(--muted-foreground);
-  --success: #137238;
-  --warning: #965500;
+  --success: #15803d;
+  --warning: #a15c00;
   --info: var(--primary-text);
   --violet: #7c3aed;
   --destructive-foreground: var(--danger);
