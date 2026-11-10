@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { EXECUTIONS, executionSchema, type Execution } from "./execution";
-import type { Harness } from "./harness";
+import { leadProblem, type Harness } from "./harness";
 
 // A ticket can pick its lead harness, where it runs and its repository. Each source reads these
 // from its own representation (Linear: a child label of the Harness, Runs on and Repository label
@@ -22,7 +22,7 @@ export type TicketOverrides = { provider?: string; execution?: Execution; proble
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const quoted = (names: readonly string[]) => names.map((name) => `"${name}"`).join(", ");
 
-/** What the ticket asks for, by harness and place name; a value that cannot apply is a problem and falls back to Settings. */
+/** What the ticket asks for, by harness and place name; a value that cannot apply, such as a harness that cannot lead, is a problem and falls back to Settings. */
 export function ticketOverrides(asked: SourceOverrides, harnesses: readonly Harness[] | null): TicketOverrides {
   const problems: string[] = [];
   const result: TicketOverrides = { problems };
@@ -34,7 +34,9 @@ export function ticketOverrides(asked: SourceOverrides, harnesses: readonly Harn
     const name = harnessLabels[0]!;
     const matches = (harnesses ?? []).filter((h) => same(h.name, name));
     const enabled = matches.find((h) => h.enabled);
-    if (enabled) result.provider = enabled.id;
+    const cannotLead = enabled && leadProblem(enabled.driver, enabled.name);
+    if (cannotLead) problems.push(`The ${HARNESS_GROUP} label "${name}" is ignored for the lead because ${cannotLead}. It runs on the default lead.`);
+    else if (enabled) result.provider = enabled.id;
     else if (matches.length > 0)
       problems.push(`The ${HARNESS_GROUP} label "${name}" names a harness that is disabled in T3, so it runs on the Settings harness.`);
     else problems.push(`The ${HARNESS_GROUP} label "${name}" matches no harness a runner reports, so it runs on the Settings harness.`);

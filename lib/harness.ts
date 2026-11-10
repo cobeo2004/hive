@@ -29,6 +29,13 @@ export const isTracked = (providerOrDriver: string) => TRACKED_DRIVERS.includes(
 export const trackingOf = (providerOrDriver: string): Tracking =>
   isTracked(providerOrDriver) ? "full" : STAGE_REPORTING_DRIVERS.includes(providerOrDriver) ? "stages" : "none";
 
+/** Why a harness may not lead a job, or null when it may: the lead must report its stages to Hive. */
+export const leadProblem = (driver: string, name = harnessLabel(driver, driver)) =>
+  trackingOf(driver) === "none" ? `${name} can't lead: it doesn't report stages to Hive` : null;
+
+/** A driver Hive knows by name, so a bare provider id can be judged before any machine reports its harnesses. */
+export const isKnownDriver = (id: string) => Object.hasOwn(DRIVER_LABELS, id);
+
 const DRIVER_LABELS: Record<string, string> = {
   claudeAgent: "Claude Code",
   codex: "Codex",
