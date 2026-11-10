@@ -25,7 +25,7 @@ const git = (cwd: string, ...args: string[]) =>
     },
   ).trim();
 
-/** Writes the files, commits them and points origin/main at the commit, as a fetch would. */
+/** Writes the files, commits them and pushes to the fixture's origin, so the runner's fetch finds them. */
 function commit(cwd: string, files: Record<string, string>, message: string) {
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(cwd, path)), { recursive: true });
@@ -33,15 +33,20 @@ function commit(cwd: string, files: Record<string, string>, message: string) {
   }
   git(cwd, "add", "-A");
   git(cwd, "commit", "-q", "-m", message);
-  git(cwd, "update-ref", "refs/remotes/origin/main", "HEAD");
+  git(cwd, "push", "-q", "origin", "HEAD:refs/heads/main");
   return git(cwd, "rev-parse", "HEAD");
 }
 
 const repoDir = join(root, "sstack");
 const bareDir = join(root, "bare");
+// Each fixture has a real remote: a bare repo the runner's `git fetch origin main` reads.
 for (const dir of [repoDir, bareDir]) {
+  const remote = `${dir}.git`;
   mkdirSync(dir);
-  git(dir, "init", "-q");
+  mkdirSync(remote);
+  git(remote, "init", "-q", "--bare", "-b", "main");
+  git(dir, "init", "-q", "-b", "main");
+  git(dir, "remote", "add", "origin", remote);
 }
 
 // Text kept exactly: no trailing newline on one file, CRLF and trailing blank lines on another.
@@ -108,6 +113,21 @@ try {
   assert.equal((await rowOf(SSTACK))!.sha, third, "the row holds the newest commit");
   assert.equal((await db.select().from(repoSstackConfig).where(eq(repoSstackConfig.repo, SSTACK))).length, 1, "still one row");
   assert.equal(both.filter((result) => "unchanged" in result).length, 1, "the queued duplicate is a no-op, which only holds if they were serialized");
+
+  // 6. a failed fetch aborts and writes nothing, even though the cached origin/main holds a newer commit than the row
+  const fourth = commit(repoDir, { ".sstack/config.toml": "workflow = 'newer'\n" }, "fourth");
+  const before = (await rowOf(SSTACK))!;
+  const remote = git(repoDir, "remote", "get-url", "origin");
+  git(repoDir, "remote", "set-url", "origin", "/nonexistent");
+  try {
+    await assert.rejects(snapshotSstack(SSTACK), "an offline checkout must not snapshot its stale origin/main");
+  } finally {
+    git(repoDir, "remote", "set-url", "origin", remote);
+  }
+  const after = (await rowOf(SSTACK))!;
+  assert.equal(after.sha, before.sha, "the row keeps its sha");
+  assert.equal(after.read_at.getTime(), before.read_at.getTime(), "the row keeps its read_at");
+  assert.deepEqual(await snapshotSstack(SSTACK), { repo: SSTACK, sha: fourth, files: 4 }, "with the remote back, the snapshot lands");
 
   console.log("sstack-snapshot regressions passed");
 } catch (error) {

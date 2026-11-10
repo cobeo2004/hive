@@ -36,7 +36,8 @@ export async function snapshotSstack(repo: string): Promise<Snapshot> {
 
     // Output is used as git prints it: `git show` text must not be trimmed.
     const git = async (args: string[]) => (await snapshotDeps.host.run("git", args, { cwd, timeoutMs: 120_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
-    await git(["fetch", "origin", "main"]).catch(() => ""); // best effort: a stale origin/main is still a consistent snapshot
+    // A failed fetch aborts, so an offline checkout never overwrites a newer snapshot with its stale origin/main.
+    await git(["fetch", "origin", "main"]);
     const sha = (await git(["rev-parse", "origin/main"])).trim();
 
     const [stored] = await tx.select({ sha: repoSstackConfig.sha }).from(repoSstackConfig).where(eq(repoSstackConfig.repo, repo));
