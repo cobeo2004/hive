@@ -1,11 +1,12 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { eq } from "drizzle-orm";
+import { eq, like } from "drizzle-orm";
 import type { ExecOptions } from "../lib/exec";
 import type { JobHost } from "../lib/host";
+import type { LaunchPlan } from "../runner/overrides";
 
 const { db } = await import("../db/client");
-const { jobs } = await import("../db/schema");
+const { jobs, repoSstackConfig } = await import("../db/schema");
 const { bindThread, claimLaunch, deliverStops, pendingLaunches, reconcileStops, releaseLaunch, threads } = await import("../runner/ops");
 const { jobId, sourceFor } = await import("../lib/sources");
 const { linearJob } = await import("./fixtures");
@@ -13,7 +14,8 @@ const { createLinearAdapter } = await import("../lib/sources/linear");
 const { factorySchema, TEST_MACHINE_ID } = await import("../lib/config");
 const { canReclaim, canReclaimSql, stopDeliverable, stopDeliverableSql } = await import("../runner/binding");
 const { and, sql } = await import("drizzle-orm");
-const { launchEntries, maybeStarted, MaybeStartedError, parseThreadId, startThread } = await import("../runner/launch");
+const { launchEntries, maybeStarted, MaybeStartedError, mobileRepos, parseThreadId, placeMobile, startThread } = await import("../runner/launch");
+const { isMobileSnapshot } = await import("../lib/execution");
 const { hosts, localHost } = await import("../lib/host");
 const { everyAtMost, serialQueue } = await import("../runner/queue");
 const { recheckScheduler } = await import("../runner/recheck");
@@ -465,6 +467,38 @@ try {
   assert.equal(unparsed[0]!.retry, "after launch recovery", "unparsable start output keeps the marker for recovery");
   assert.ok(!released.includes("D"));
 
+  // Placement (R22): a repo whose snapshot has [test.mobile] runs local whatever the setting says.
+  assert.equal(isMobileSnapshot({ ".sstack/project.toml": "[test.mobile]" }), true);
+  assert.equal(isMobileSnapshot({ ".sstack/project.toml": "[test]\n  [test.mobile]  # ios\n" }), true, "an indented table line with a comment matches");
+  for (const text of ["# [test.mobile]", "[test.mobile.ios]", "[test]\nmobile = true"])
+    assert.equal(isMobileSnapshot({ ".sstack/project.toml": text }), false, `${JSON.stringify(text)} is not a mobile repo`);
+  assert.equal(isMobileSnapshot({ ".sstack/config.toml": "[test.mobile]" }), false, "only project.toml counts");
+  assert.equal(isMobileSnapshot({}), false);
+  assert.equal(isMobileSnapshot(null), false);
+
+  const [mobile, plain, none] = ["mobile", "plain", "none"].map((kind) => `${id}-${kind}/r`);
+  const snapshot = (repo: string, text: string) => ({ repo, files: { ".sstack/project.toml": text }, sha: "sha", read_at: new Date() });
+  await db.insert(repoSstackConfig).values([snapshot(mobile!, "[test.mobile]\n"), snapshot(plain!, '[test]\ncommand = "bun test"\n')]);
+  const m = await mobileRepos([mobile!, plain!, none!]);
+  assert.deepEqual([...m], [mobile], "only the repo whose snapshot has [test.mobile] is mobile");
+  assert.equal((await mobileRepos([])).size, 0, "no repos, no query");
+  type Launch = Extract<LaunchPlan, { kind: "launch" }>;
+  const modalPlan: Launch = { kind: "launch", execution: "modal", harness, ticket: null };
+  const localPlan: Launch = { ...modalPlan, execution: "local" };
+  assert.equal((placeMobile(modalPlan, m.has(mobile!), null) as Launch).execution, "local", "a mobile job goes local when the setting is modal");
+  assert.deepEqual(
+    placeMobile(modalPlan, true, "this runner has no checkout of the repo"),
+    { kind: "wait", reason: "a mobile repo runs only on a pool Mac, and this runner has no checkout of the repo" },
+    "a mobile job that cannot run locally here waits, never Modal",
+  );
+  const flipped = placeMobile({ ...modalPlan, ticket: { execution: "modal", notes: [] } }, true, null) as Launch;
+  assert.equal(flipped.execution, "local");
+  assert.equal(flipped.ticket?.execution, undefined, "a ticket asking for Modal no longer says so");
+  assert.match(flipped.ticket?.notes.join(" ") ?? "", /mobile tests/, "and says why");
+  assert.equal(placeMobile(modalPlan, m.has(plain!), null), modalPlan, "a repo without [test.mobile] follows the setting");
+  assert.equal(placeMobile(localPlan, m.has(plain!), null), localPlan, "local stays local");
+  assert.equal(placeMobile(modalPlan, m.has(none!), null), modalPlan, "a repo with no snapshot follows the setting");
+
   // No step can stall the queue: a hung step times out, a throwing one is caught, the next runs.
   const events: string[] = [];
   const q = serialQueue((event) => void events.push(event), 50);
@@ -522,5 +556,6 @@ try {
   process.exitCode = 1;
 } finally {
   await db.delete(jobs).where(eq(jobs.id, jid));
+  await db.delete(repoSstackConfig).where(like(repoSstackConfig.repo, `${id}-%`));
   process.exit(process.exitCode ?? 0);
 }
