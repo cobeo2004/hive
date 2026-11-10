@@ -212,6 +212,15 @@ try {
   );
   await db.delete(agentAccounts).where(eq(agentAccounts.id, "creds-pool"));
 
+  // The owner at 97% with no pool: its own account still runs (the harness is never switched), unless a default stands in for the pool.
+  await meter("creds-b", 97);
+  assert.deepEqual(
+    await secretOf(keys.b, "claude", null),
+    { id: "creds-b", secret: "token-of-b" },
+    "no pool, no default: the full owner account beats nothing",
+  );
+  assert.deepEqual(await secretOf(keys.b), { id: null, secret: "runner-token" }, "with a default it is the pool, as before");
+
   // A runner without the private key says so without the sealed bytes; one with another key gets the fixed error.
   await assert.rejects(accountFor(keys.b, "claude", undefined, {}), /^Error: HIVE_CREDS_PRIVATE_KEY is not set; cannot open account creds-b$/);
   await assert.rejects(accountFor(keys.b, "claude", undefined, { HIVE_CREDS_PRIVATE_KEY: newKeyPair().privateKey }), FAILED);

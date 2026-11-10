@@ -99,9 +99,10 @@ export function pickAccount(
 export const RATE_LIMITED = "the provider rate-limited its account";
 
 const RATE_LIMIT = /\b429\b|rate[ _-]?limit|usage limit|too many requests/i;
-/** A stopped thread that ended on the provider's rate limit: a failed run, or a short last message that is the provider's error. */
+const PROVIDER_ERROR = /API Error: 429|rate_limit_error|usage limit reached|hit your usage limit|too many requests/i;
+/** A stopped thread that ended on the provider's rate limit: a failed run that says so, or any message carrying the provider's own error text. */
 export const rateLimited = ({ status, lastMessage }: { status: string | null; lastMessage: string | null }) =>
-  !!lastMessage && RATE_LIMIT.test(lastMessage) && (status === "failed" || lastMessage.length <= 300);
+  !!lastMessage && ((status === "failed" && RATE_LIMIT.test(lastMessage)) || PROVIDER_ERROR.test(lastMessage));
 
 /** An unsealed account; id null is the runner's own default login. */
 export type Account = { id: string | null; secret: string };
@@ -158,14 +159,12 @@ export async function accountFor(
         .from(runs)
         .where(and(eq(runs.job_key, jobKey), isNotNull(runs.account_id)))
     : [];
-  const row = pickAccount(
-    rows,
-    owner,
-    provider,
-    new Map(meters.map((m) => [m.id, m.pct])),
-    config.factory.pool,
-    new Set(ran.flatMap((r) => (r.id ? [r.id] : []))),
-  );
+  const skip = new Set(ran.flatMap((r) => (r.id ? [r.id] : [])));
+  const usage = new Map(meters.map((m) => [m.id, m.pct]));
+  // With no pool and no default, a full owner account still beats nothing: the harness is never switched.
+  const row =
+    pickAccount(rows, owner, provider, usage, config.factory.pool, skip) ??
+    (runnerDefault ? undefined : pickAccount(rows, owner, provider, new Map(), config.factory.pool, skip));
   if (row === "wait") return row;
   if (!row) return runnerDefault ? { id: null, secret: runnerDefault } : null;
   if (!env.HIVE_CREDS_PRIVATE_KEY) throw new Error(`HIVE_CREDS_PRIVATE_KEY is not set; cannot open account ${row.id}`);

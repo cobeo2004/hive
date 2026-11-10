@@ -561,7 +561,9 @@ try {
     ["failed", 'API Error: 429 {"type":"rate_limit_error"}', true],
     ["completed", "Claude AI usage limit reached|1731300000", true],
     ["completed", "You've hit your usage limit. Try again later.", true],
-    ["completed", "Added rate limiting to the API. ".repeat(20), false],
+    ["completed", "Implemented rate limiting; all tests pass.", false],
+    ["completed", "Fixed issue #429; waiting for your approval.", false],
+    ["failed", "Too many requests, slow down", true],
     ["failed", null, false],
   ] as const)
     assert.equal(rateLimited({ status, lastMessage }), want, `${status}: ${lastMessage}`);
