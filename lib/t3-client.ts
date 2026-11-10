@@ -214,3 +214,21 @@ export async function interruptThread(host: JobHost, threadId: string, requestId
     }
   });
 }
+
+const openDevices = z.object({ open: z.array(z.object({ hostId: z.string(), deviceId: z.string() })) });
+const deviceShot = z.object({ screenshot: z.object({ data: z.string() }) });
+
+export type DeviceCall = (tool: "device_list" | "device_screenshot", args: Record<string, unknown>) => Promise<unknown>;
+
+/**
+ * The PNG of the host's first open device, or null when none is open; read-only. A session is not
+ * bound to a thread, so with several open devices this takes the first; m7-10 checks it on a pool Mac.
+ */
+export async function readDeviceFrame(call: DeviceCall): Promise<Buffer | null> {
+  const [target] = openDevices.parse(await call("device_list", {})).open;
+  if (!target) return null;
+  return Buffer.from(deviceShot.parse(await call("device_screenshot", target)).screenshot.data, "base64");
+}
+
+/** One bearer session for both tools, not two. */
+export const deviceFrame = (host: JobHost) => withMcp(host, ["orchestration:read"], (call) => readDeviceFrame(call));

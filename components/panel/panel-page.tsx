@@ -12,6 +12,7 @@ import {
   jobEvidenceQuery,
   jobsQuery,
   jobStagesQuery,
+  deviceFrameQuery,
   load,
   machinesQuery,
   parseJobKey,
@@ -27,14 +28,15 @@ import { readRegistry } from "@/lib/repositories";
 
 async function loadDetail(sessionId: string): Promise<DetailProps> {
   const { jobKey, jobId } = await runJob(sessionId);
-  const [agents, events, stages, audit, evidence] = await Promise.all([
+  const [agents, events, stages, audit, evidence, frame] = await Promise.all([
     load(sessionAgentsQuery(sessionId)),
     load(sessionEventsQuery(sessionId)),
     load(jobKey ? jobStagesQuery(jobKey) : sessionStagesQuery(sessionId)),
     jobId ? load(jobAuditQuery(jobId)) : undefined,
     jobId && jobKey ? load(jobEvidenceQuery(jobKey)) : undefined,
+    jobKey ? load(deviceFrameQuery(jobKey)) : undefined,
   ]);
-  return { sessionId, agents, events, stages, audit: jobKey ? audit : undefined, evidence };
+  return { sessionId, agents, events, stages, audit: jobKey ? audit : undefined, evidence, frame };
 }
 
 async function Panel({ view, searchParams }: { view: PanelView; searchParams: Promise<Record<string, string | string[] | undefined>> }) {

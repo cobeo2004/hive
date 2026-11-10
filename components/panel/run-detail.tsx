@@ -192,6 +192,8 @@ export function RunDetail({
   fullView: FullView;
   audit: Feed<AuditRow> | undefined;
   evidence: Feed<JobEvidenceRow> | undefined;
+  /** The job's latest device frame (R26a); rendered by the device view. */
+  frame?: Feed<{ taken_at: Date }>;
   jobSpend: { usd: number; attempt: number } | undefined;
   job: JobRow | undefined;
   machine: MachineRow | undefined;
