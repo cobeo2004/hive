@@ -12,7 +12,7 @@ export const usageSchema = z.object({
 });
 export type Usage = z.infer<typeof usageSchema>;
 
-export const STAGES = ["queued", "triage", "investigating", "implementing", "verifying", "pr", "waiting", "merged", "failed"] as const;
+export const STAGES = ["queued", "triage", "investigating", "planning", "implementing", "verifying", "pr", "waiting", "merged", "failed"] as const;
 export const stageSchema = z.enum(STAGES);
 export type Stage = z.infer<typeof stageSchema>;
 

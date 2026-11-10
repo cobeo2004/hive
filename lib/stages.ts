@@ -23,6 +23,7 @@ export const STAGE_TRANSITIONS: { readonly [From in Stage]: { readonly [C in Cau
   queued: FROM_WORKING,
   triage: FROM_WORKING,
   investigating: FROM_WORKING,
+  planning: FROM_WORKING,
   implementing: FROM_WORKING,
   verifying: FROM_WORKING,
   pr: { report: REPORTED, conflict: ["implementing", "failed"], changes: ["implementing"], stop: ["failed"], merged: ["merged"] },
