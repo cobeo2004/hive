@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { eq, inArray, like } from "drizzle-orm";
 import type { JobRow } from "../db/schema";
 import type { MergeDecision } from "../lib/merge-decision";
+import type { NotifyLinear, SlackSetup } from "../runner/slack";
 
 // Slack notifications against a fake Slack Web API: no request leaves this machine.
 
@@ -13,7 +14,10 @@ const SIGNING = "regression-signing-secret-abcdef";
 process.env.SLACK_SIGNING_SECRET = SIGNING;
 
 const { db } = await import("../db/client");
-const { intents, jobs, notificationSettings, runs, slackMessages } = await import("../db/schema");
+const { intents, jobs, machines, notificationSettings, runs, slackMessages, user: userTable } = await import("../db/schema");
+// The notifier's comment ids come from the Linear client's helper, as in the adapter.
+// eslint-disable-next-line no-restricted-syntax
+const { commentId } = await import("../lib/linear");
 const { linearJob, usageRun } = await import("./fixtures");
 const {
   inQuietHours,
@@ -25,7 +29,7 @@ const {
   slackTestOutcome,
   DEFAULT_NOTIFICATIONS,
 } = await import("../lib/notifications");
-const { eventId, NOTIFY_WINDOW_MS, notifyEvents, redact, renderMessage, resolution, SLACK_ACTION_IDS } = await import("../lib/slack");
+const { eventId, NOTIFY_WINDOW_MS, notifyEvents, panelUrl, redact, renderMessage, resolution, SLACK_ACTION_IDS } = await import("../lib/slack");
 const { slackClient } = await import("../lib/slack-api");
 const { notifySlack, POSTING_STALE_MS, sendSlackTest, slackFromEnv } = await import("../runner/slack");
 const { deliveryFor, INTENT_ATTEMPTS, INTENT_ROUTES } = await import("../runner/intents");
@@ -40,6 +44,7 @@ const forced: { method: string; status: number; headers?: Record<string, string>
 let inFlight = 0;
 let maxInFlight = 0;
 let nextTs = 1000;
+const slackIds: Record<string, string> = {};
 const server = await serve(0, async (request) => {
   inFlight++;
   maxInFlight = Math.max(maxInFlight, inFlight);
@@ -55,6 +60,10 @@ const server = await serve(0, async (request) => {
     }
     if (request.headers.get("authorization") !== `Bearer ${TOKEN}`) return Response.json({ ok: false, error: "invalid_auth" });
     switch (method) {
+      case "users.lookupByEmail":
+        return slackIds[params.email!]
+          ? Response.json({ ok: true, user: { id: slackIds[params.email!] } })
+          : Response.json({ ok: false, error: "users_not_found" });
       case "conversations.open":
         return Response.json({ ok: true, channel: { id: `D${params.users}` } });
       case "chat.postMessage":
@@ -99,11 +108,23 @@ const writeConfig = (config: object) =>
     .insert(notificationSettings)
     .values({ id: NOTIFICATIONS_ID, config: notificationConfigSchema.parse(config), updated_at: new Date(), updated_by: OWNER })
     .onConflictDoUpdate({ target: notificationSettings.id, set: { config: notificationConfigSchema.parse(config) } });
-const pass = async () => {
-  const result = await notifySlack(slack);
-  assert.notEqual(result, "disabled");
-  return result as Exclude<typeof result, "disabled">;
+// A fake Linear client: a profile URL for the two workspace members, and a comment id it has seen is refused, as Linear does.
+const members = { [`${prefix.toLowerCase()}-alice@example.com`]: "alice", [`${prefix.toLowerCase()}-bob@example.com`]: "bob" };
+const commentCalls: { issueId: string; id: string; body: string }[] = [];
+const comments: typeof commentCalls = [];
+const linear: NotifyLinear = {
+  userByEmail: async (email) => {
+    const name = members[email];
+    return name ? { id: `lin-${name}`, url: `https://linear.app/x/profiles/${name}` } : null;
+  },
+  comment: async (issueId, id, body) => {
+    commentCalls.push({ issueId, id, body });
+    if (comments.some((c) => c.id === id)) return false;
+    comments.push({ issueId, id, body });
+    return true;
+  },
 };
+const pass = (using: SlackSetup | null = slack) => notifySlack(using, new Date(), linear);
 const decision = (over: Partial<MergeDecision>): MergeDecision => ({
   outcome: "handover",
   reasons: ["Bugbot found a high severity issue."],
@@ -231,7 +252,8 @@ try {
   // --- disabled without a token
   let mark = calls.length;
   assert.equal(slackFromEnv({}), null);
-  assert.equal(await notifySlack(slackFromEnv({ SLACK_OWNER_USER_ID: "U0OWNER" })), "disabled", "no token, no notifier");
+  await writeConfig({ target: "off" });
+  assert.deepEqual(await pass(null), { posted: 0, updated: 0, resolved: 0, held: 0 }, "no token and notifications off: the pass runs and does nothing");
   assert.deepEqual(await sendSlackTest({ actor: OWNER }, null), { error: "this runner has no SLACK_BOT_TOKEN" });
   assert.equal(calls.length, mark, "nothing reached Slack");
   const fromEnv = slackFromEnv({ SLACK_BOT_TOKEN: TOKEN, SLACK_API_URL: baseUrl, SLACK_OWNER_USER_ID: "U0OWNER", SLACK_SIGNING_SECRET: SIGNING, PATH: "/bin" });
@@ -500,6 +522,135 @@ try {
     db.update = realUpdate;
   }
 
+  // --- R34: each event goes to its job's owner
+  const alice = { id: `${prefix}-alice`, name: "alice", email: `${prefix.toLowerCase()}-alice@example.com` };
+  const bob = { id: `${prefix}-bob`, name: "bob", email: `${prefix.toLowerCase()}-bob@example.com` };
+  await db.insert(userTable).values([alice, bob]);
+  slackIds[alice.email] = "U0ALICE";
+  const eventOf = async (id: string) =>
+    notifyEvents([
+      (
+        await db
+          .select()
+          .from(jobs)
+          .where(eq(jobs.id, id as JobRow["id"]))
+      )[0]!,
+    ])[0]!;
+  const waiting = (n: string, owner: { id: string } | null) =>
+    track(n, { stage: "waiting", stage_at: new Date(), question: `Question ${n}?`, ...(owner && { owner_id: owner.id }) });
+  const lookups = (from: number) => calls.slice(from).filter((c) => c.method === "users.lookupByEmail");
+  const created0 = comments.length;
+
+  // 1. an owner Slack finds gets the DM, with the same buttons
+  const o1 = await waiting("O1", alice);
+  mark = calls.length;
+  await pass();
+  assert.deepEqual(
+    lookups(mark).map((c) => c.params.email),
+    [alice.email],
+    "one lookup by the owner's email",
+  );
+  assert.equal(calls.slice(mark).filter((c) => c.method === "conversations.open").length, 1);
+  const o1Posts = since(mark, "chat.postMessage");
+  assert.equal(o1Posts.length, 1);
+  assert.equal(o1Posts[0]!.params.channel, "DU0ALICE", "the owner's DM, not SLACK_OWNER_USER_ID's");
+  const o1Event = await eventOf(o1);
+  assert.deepEqual(JSON.parse(o1Posts[0]!.params.blocks!), renderMessage(o1Event, { panelUrl: panelUrl(), spend: null, secrets: slack.secrets }).blocks);
+  assert.equal(comments.length, created0, "a DM is not also a comment");
+  assert.equal((await rowsFor(o1))[0]!.channel, "DU0ALICE");
+  await waiting("O1b", alice);
+  mark = calls.length;
+  await pass();
+  assert.equal(lookups(mark).length, 0, "the lookup is cached");
+  assert.equal(since(mark, "chat.postMessage").length, 1, "and the second event still goes out");
+
+  // 2. Slack is configured but finds no match: a Linear @-mention, no DM
+  const o2 = await waiting("O2", bob);
+  mark = calls.length;
+  await pass();
+  assert.equal(since(mark, "chat.postMessage").length, 0, "no DM");
+  const o2Event = await eventOf(o2);
+  const id2 = commentId(key("O2"), "notify", o2Event.id);
+  const o2Comments = comments.slice(created0).filter((c) => c.issueId === key("O2"));
+  assert.deepEqual(
+    o2Comments.map((c) => c.id),
+    [id2],
+    "one comment, with the id a replay reuses",
+  );
+  assert.ok(o2Comments[0]!.body.startsWith("https://linear.app/x/profiles/bob"), "it mentions the owner by profile URL");
+  const [o2Row] = await rowsFor(o2);
+  assert.deepEqual([o2Row!.state, o2Row!.channel, o2Row!.ts], ["open", null, null], "the event is claimed with no Slack message");
+  const [o2Job] = await db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.id, o2 as JobRow["id"]));
+  assert.ok(
+    (o2Job!.source_state as { factoryCommentIds: string[] }).factoryCommentIds.includes(id2),
+    "the comment's id is recorded so it is not read as a reply",
+  );
+
+  // 3. Slack not configured: the owner still hears, by comment
+  const o3 = await waiting("O3", bob);
+  mark = calls.length;
+  const noSlack = await pass(null);
+  assert.equal(noSlack.posted, 1);
+  assert.equal(calls.length, mark, "nothing reached Slack");
+  assert.match(comments.find((c) => c.issueId === key("O3"))!.body, /^https:\/\/linear\.app\/x\/profiles\/bob/);
+  assert.equal((await rowsFor(o3)).length, 1);
+
+  // 3b. Slack-less here, but another online runner has it: this one claims nothing and comments on nothing
+  const o3b = await waiting("O3b", bob);
+  const machineId = `${prefix}-m`;
+  await db.insert(machines).values({
+    id: machineId,
+    name: machineId,
+    last_seen_at: new Date(),
+    heartbeat: {},
+    inventory: machine({ configured: true, owner: true }, Date.now()).inventory,
+  });
+  try {
+    mark = calls.length;
+    const commentsBefore = commentCalls.length;
+    assert.deepEqual(await pass(null), { posted: 0, updated: 0, resolved: 0, held: 0 });
+    assert.equal(calls.length, mark, "nothing reached Slack");
+    assert.equal(commentCalls.length, commentsBefore, "no comment");
+    assert.equal((await rowsFor(o3b)).length, 0, "the event is left for the runner with Slack");
+  } finally {
+    await db.delete(machines).where(eq(machines.id, machineId));
+    await db.delete(jobs).where(eq(jobs.id, o3b as JobRow["id"]));
+  }
+
+  // 4. no owner and SLACK_OWNER_USER_ID set: the DM goes there as before
+  await waiting("O4", null);
+  mark = calls.length;
+  const before = comments.length;
+  await pass();
+  assert.equal(since(mark, "chat.postMessage")[0]!.params.channel, "DU0OWNER");
+  assert.equal(comments.length, before, "no comment");
+
+  // 5. no owner and no SLACK_OWNER_USER_ID: a plain issue comment
+  await waiting("O5", null);
+  mark = calls.length;
+  await pass({ ...fresh(), owner: null });
+  assert.equal(calls.length, mark, "no DM, no lookup");
+  const plain = comments.filter((c) => c.issueId === key("O5"));
+  assert.equal(plain.length, 1);
+  assert.ok(!plain[0]!.body.includes("/profiles/"), "nobody to mention");
+
+  // 6. a re-tick sends nothing; a lost row replays the same comment id, which Linear refuses
+  mark = calls.length;
+  const totals = [comments.length, commentCalls.length];
+  await pass();
+  await pass(null);
+  await pass({ ...fresh(), owner: null });
+  assert.equal(since(mark).filter((c) => c.method.startsWith("chat.")).length, 0, "no second DM");
+  assert.deepEqual([comments.length, commentCalls.length], totals, "no second comment");
+  await db.delete(slackMessages).where(eq(slackMessages.id, o2Event.id));
+  await pass();
+  assert.equal(commentCalls.at(-1)!.id, id2, "the lost row is claimed again and comments with the same id");
+  assert.equal(commentCalls.length, totals[1]! + 1);
+  assert.equal(comments.length, totals[0], "Linear refused the repeat: still one comment");
+
   // --- secrets never reach Slack
   await track("L", {
     title: `Leak ${TOKEN}`,
@@ -578,6 +729,7 @@ try {
     await db.delete(slackMessages).where(inArray(slackMessages.job_id, created as JobRow["id"][]));
     await db.delete(jobs).where(inArray(jobs.id, created as JobRow["id"][]));
   }
+  await db.delete(userTable).where(like(userTable.id, `${prefix}-%`));
   await db.delete(runs).where(like(runs.job_key, `${prefix}-%`));
   await db.delete(intents).where(like(intents.id, "panel:slack_test:%"));
   await db.delete(notificationSettings);
