@@ -11,7 +11,13 @@ import { account, session as sessions, twoFactor as twoFactors, user, verificati
 import { panelUrl } from "@/lib/slack";
 import { isAdmin, isMember, type SessionUser } from "./owner";
 
-const CLOSED_TWO_FACTOR = new Set(["/two-factor/disable", "/two-factor/get-totp-uri", "/two-factor/generate-backup-codes", "/two-factor/send-otp", "/two-factor/verify-otp"]);
+const CLOSED_TWO_FACTOR = new Set([
+  "/two-factor/disable",
+  "/two-factor/get-totp-uri",
+  "/two-factor/generate-backup-codes",
+  "/two-factor/send-otp",
+  "/two-factor/verify-otp",
+]);
 
 export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
@@ -53,7 +59,13 @@ export const session = {
 async function currentHeaders() {
   const current = new Headers(await headers());
   // toString() would give Set-Cookie text (with Path, Expires…) inside a server action; a Cookie header is name=value pairs.
-  current.set("cookie", (await cookies()).getAll().map((c) => `${c.name}=${encodeURIComponent(c.value)}`).join("; "));
+  current.set(
+    "cookie",
+    (await cookies())
+      .getAll()
+      .map((c) => `${c.name}=${encodeURIComponent(c.value)}`)
+      .join("; "),
+  );
   return current;
 }
 

@@ -11,10 +11,12 @@ const { createLinearAdapter } = await import("../lib/sources/linear");
 const { factorySchema, TEST_MACHINE_ID } = await import("../lib/config");
 
 const calls: unknown[] = [];
-const record = <T>(name: string, result: T) => (...args: unknown[]) => {
-  calls.push([name, ...args]);
-  return Promise.resolve(result);
-};
+const record =
+  <T>(name: string, result: T) =>
+  (...args: unknown[]) => {
+    calls.push([name, ...args]);
+    return Promise.resolve(result);
+  };
 const team = { id: "T1", states: ["Todo", "In Progress", "In Review", "Done"].map((name) => ({ id: `S:${name}`, name, type: "x" })) };
 const node = (id: string, identifier: string) => ({
   id,
@@ -54,283 +56,197 @@ const fakeClient = {
 SOURCES.linear = createLinearAdapter(() => ({ client: fakeClient as never, db, limits: factorySchema.parse({}) }));
 
 const EXPECTED = {
-  "writes": {
-    "synced": [
-      "SRC-1:pr",
-      "SRC-2:waiting",
-      "SRC-3:failed",
-      "SRC-4:merged"
-    ],
-    "calls": [
-      [
-        "team",
-        "FAC"
-      ],
+  writes: {
+    synced: ["SRC-1:pr", "SRC-2:waiting", "SRC-3:failed", "SRC-4:merged"],
+    calls: [
+      ["team", "FAC"],
       [
         "update",
         "src-pr",
         {
-          "stateId": "S:In Review"
-        }
+          stateId: "S:In Review",
+        },
       ],
-      [
-        "comment",
-        "src-pr",
-        "368968ca-5f44-4b9f-8953-4b89e8bcd24c",
-        "Hive has a pull request ready for review: https://g/pr/1\n\ndone"
-      ],
-      [
-        "comment",
-        "src-wait",
-        "4ac8711f-b5ac-4093-b778-86a8e21f9bab",
-        "Hive stopped and needs an answer before it can continue:\n\nWhich layout?"
-      ],
-      [
-        "labelsOf",
-        "src-fail"
-      ],
-      [
-        "labelId",
-        "T1",
-        "factory-failed"
-      ],
+      ["comment", "src-pr", "368968ca-5f44-4b9f-8953-4b89e8bcd24c", "Hive has a pull request ready for review: https://g/pr/1\n\ndone"],
+      ["comment", "src-wait", "4ac8711f-b5ac-4093-b778-86a8e21f9bab", "Hive stopped and needs an answer before it can continue:\n\nWhich layout?"],
+      ["labelsOf", "src-fail"],
+      ["labelId", "T1", "factory-failed"],
       [
         "update",
         "src-fail",
         {
-          "stateId": "S:Todo",
-          "addedLabelIds": [
-            "label:factory-failed"
-          ],
-          "removedLabelIds": [
-            "label:hive"
-          ]
-        }
+          stateId: "S:Todo",
+          addedLabelIds: ["label:factory-failed"],
+          removedLabelIds: ["label:hive"],
+        },
       ],
-      [
-        "comment",
-        "src-fail",
-        "b1e0641a-e8ae-43b6-a329-344171e78538",
-        "Hive gave up on this issue (attempt 2): boom\n\nAdd the `hive` label again to retry."
-      ],
+      ["comment", "src-fail", "b1e0641a-e8ae-43b6-a329-344171e78538", "Hive gave up on this issue (attempt 2): boom\n\nAdd the `hive` label again to retry."],
       [
         "update",
         "src-merged",
         {
-          "stateId": "S:Done"
-        }
+          stateId: "S:Done",
+        },
       ],
       [
         "update",
         "src-q1",
         {
-          "stateId": "S:In Progress"
-        }
+          stateId: "S:In Progress",
+        },
       ],
-      [
-        "comment",
-        "src-q1",
-        "e859071b-d221-4990-bacb-cdf002be4667",
-        "Picked up by Hive."
-      ],
-      [
-        "labelsOf",
-        "src-q2"
-      ],
+      ["comment", "src-q1", "e859071b-d221-4990-bacb-cdf002be4667", "Picked up by Hive."],
+      ["labelsOf", "src-q2"],
       [
         "update",
         "src-q2",
         {
-          "stateId": "S:In Progress",
-          "addedLabelIds": [],
-          "removedLabelIds": [
-            "label:factory-failed"
-          ]
-        }
+          stateId: "S:In Progress",
+          addedLabelIds: [],
+          removedLabelIds: ["label:factory-failed"],
+        },
       ],
-      [
-        "comment",
-        "src-q2",
-        "fbadf7f5-f936-4d2c-ab88-0d811cc8d183",
-        "Picked up by Hive again (attempt 2, branch hive/SRC-7-a2)."
-      ]
+      ["comment", "src-q2", "fbadf7f5-f936-4d2c-ab88-0d811cc8d183", "Picked up by Hive again (attempt 2, branch hive/SRC-7-a2)."],
     ],
-    "rows": [
+    rows: [
       {
-        "key": "SRC-1",
-        "stage": "pr",
-        "attempt": 1,
-        "state": "In Review",
-        "synced_event_id": "e-pr",
-        "labels": [],
-        "previous_failure": null,
-        "comments": 1,
-        "repo": "ski043/factory-demo"
+        key: "SRC-1",
+        stage: "pr",
+        attempt: 1,
+        state: "In Review",
+        synced_event_id: "e-pr",
+        labels: [],
+        previous_failure: null,
+        comments: 1,
+        repo: "ski043/factory-demo",
       },
       {
-        "key": "SRC-2",
-        "stage": "waiting",
-        "attempt": 1,
-        "state": null,
-        "synced_event_id": "e-wait",
-        "labels": [],
-        "previous_failure": null,
-        "comments": 1,
-        "repo": "ski043/factory-demo"
+        key: "SRC-2",
+        stage: "waiting",
+        attempt: 1,
+        state: null,
+        synced_event_id: "e-wait",
+        labels: [],
+        previous_failure: null,
+        comments: 1,
+        repo: "ski043/factory-demo",
       },
       {
-        "key": "SRC-3",
-        "stage": "failed",
-        "attempt": 2,
-        "state": "Todo",
-        "synced_event_id": "e-fail",
-        "labels": [],
-        "previous_failure": null,
-        "comments": 1,
-        "repo": "ski043/factory-demo"
+        key: "SRC-3",
+        stage: "failed",
+        attempt: 2,
+        state: "Todo",
+        synced_event_id: "e-fail",
+        labels: [],
+        previous_failure: null,
+        comments: 1,
+        repo: "ski043/factory-demo",
       },
       {
-        "key": "SRC-4",
-        "stage": "merged",
-        "attempt": 1,
-        "state": "Done",
-        "synced_event_id": "e-merged",
-        "labels": [],
-        "previous_failure": null,
-        "comments": 0,
-        "repo": "ski043/factory-demo"
+        key: "SRC-4",
+        stage: "merged",
+        attempt: 1,
+        state: "Done",
+        synced_event_id: "e-merged",
+        labels: [],
+        previous_failure: null,
+        comments: 0,
+        repo: "ski043/factory-demo",
       },
       {
-        "key": "SRC-5",
-        "stage": "triage",
-        "attempt": 1,
-        "state": null,
-        "synced_event_id": "e-triage",
-        "labels": [],
-        "previous_failure": null,
-        "comments": 0,
-        "repo": "ski043/factory-demo"
+        key: "SRC-5",
+        stage: "triage",
+        attempt: 1,
+        state: null,
+        synced_event_id: "e-triage",
+        labels: [],
+        previous_failure: null,
+        comments: 0,
+        repo: "ski043/factory-demo",
       },
       {
-        "key": "SRC-6",
-        "stage": "queued",
-        "attempt": 1,
-        "state": "In Progress",
-        "synced_event_id": null,
-        "labels": [],
-        "previous_failure": null,
-        "comments": 1,
-        "repo": "ski043/factory-demo"
+        key: "SRC-6",
+        stage: "queued",
+        attempt: 1,
+        state: "In Progress",
+        synced_event_id: null,
+        labels: [],
+        previous_failure: null,
+        comments: 1,
+        repo: "ski043/factory-demo",
       },
       {
-        "key": "SRC-7",
-        "stage": "queued",
-        "attempt": 2,
-        "state": "In Progress",
-        "synced_event_id": null,
-        "labels": [],
-        "previous_failure": null,
-        "comments": 1,
-        "repo": "ski043/factory-demo"
-      }
-    ]
-  },
-  "claim": {
-    "claimed": {
-      "claimed": [
-        "SRC-8",
-        "SRC-9"
-      ],
-      "inFlight": 2
-    },
-    "calls": [
-      [
-        "readyIssues",
-        "FAC",
-        "hive"
-      ]
+        key: "SRC-7",
+        stage: "queued",
+        attempt: 2,
+        state: "In Progress",
+        synced_event_id: null,
+        labels: [],
+        previous_failure: null,
+        comments: 1,
+        repo: "ski043/factory-demo",
+      },
     ],
-    "rows": [
+  },
+  claim: {
+    claimed: {
+      claimed: ["SRC-8", "SRC-9"],
+      inFlight: 2,
+    },
+    calls: [["readyIssues", "FAC", "hive"]],
+    rows: [
       {
-        "key": "SRC-8",
-        "stage": "queued",
-        "attempt": 1,
-        "state": "Todo",
-        "synced_event_id": null,
-        "labels": [
-          "hive",
-          "bug"
-        ],
-        "previous_failure": null,
-        "comments": 0,
-        "repo": "test-owner/claimed-repo"
+        key: "SRC-8",
+        stage: "queued",
+        attempt: 1,
+        state: "Todo",
+        synced_event_id: null,
+        labels: ["hive", "bug"],
+        previous_failure: null,
+        comments: 0,
+        repo: "test-owner/claimed-repo",
       },
       {
-        "key": "SRC-9",
-        "stage": "queued",
-        "attempt": 2,
-        "state": "Todo",
-        "synced_event_id": null,
-        "labels": [
-          "hive",
-          "bug"
-        ],
-        "previous_failure": "earlier failure",
-        "comments": 0,
-        "repo": "test-owner/claimed-repo"
-      }
-    ]
+        key: "SRC-9",
+        stage: "queued",
+        attempt: 2,
+        state: "Todo",
+        synced_event_id: null,
+        labels: ["hive", "bug"],
+        previous_failure: "earlier failure",
+        comments: 0,
+        repo: "test-owner/claimed-repo",
+      },
+    ],
   },
-  "stopCheck": {
-    "stillLabeled": "still labeled",
-    "calls": [
-      [
-        "issueWithComments",
-        "src-new"
-      ],
-      [
-        "labelsOf",
-        "src-new"
-      ]
-    ]
+  stopCheck: {
+    stillLabeled: "still labeled",
+    calls: [
+      ["issueWithComments", "src-new"],
+      ["labelsOf", "src-new"],
+    ],
   },
-  "confirm": {
-    "unlabeled": {
-      "stop": true,
-      "reopen": true
+  confirm: {
+    unlabeled: {
+      stop: true,
+      reopen: true,
     },
-    "canceled": {
-      "stop": true,
-      "reopen": false
+    canceled: {
+      stop: true,
+      reopen: false,
     },
-    "deleted": {
-      "stop": true,
-      "reopen": false
+    deleted: {
+      stop: true,
+      reopen: false,
     },
-    "calls": [
-      [
-        "issueWithComments",
-        "src-new"
-      ],
-      [
-        "labelsOf",
-        "src-new"
-      ],
-      [
-        "issueWithComments",
-        "src-new"
-      ],
-      [
-        "labelsOf",
-        "src-new"
-      ],
-      [
-        "setState",
-        "src-new",
-        "S:Todo"
-      ]
-    ]
-  }
+    calls: [
+      ["issueWithComments", "src-new"],
+      ["labelsOf", "src-new"],
+      ["issueWithComments", "src-new"],
+      ["labelsOf", "src-new"],
+      ["setState", "src-new", "S:Todo"],
+    ],
+  },
 };
 
 const snapshot = async () =>
@@ -348,28 +264,30 @@ const snapshot = async () =>
 
 try {
   await db.delete(jobs);
-  await db.insert(jobs).values([
-    linearJob("src-pr", "SRC-1", { stage: "pr", stage_event_id: "e-pr", pr_url: "https://g/pr/1", stage_summary: "done" }),
-    linearJob("src-wait", "SRC-2", { stage: "waiting", stage_event_id: "e-wait", question: "Which layout?" }),
-    linearJob("src-fail", "SRC-3", { stage: "failed", attempt: 2, stage_event_id: "e-fail", stage_summary: "boom" }),
-    linearJob("src-merged", "SRC-4", { stage: "merged", stage_event_id: "e-merged" }),
-    linearJob("src-triage", "SRC-5", { stage: "triage", stage_event_id: "e-triage" }),
-    linearJob("src-q1", "SRC-6", { stage: "queued", state: "Todo" }),
-    linearJob("src-q2", "SRC-7", { stage: "queued", attempt: 2, state: "Todo" }),
-  ].map((row) => ({ ...row, machine_id: TEST_MACHINE_ID })));
+  await db
+    .insert(jobs)
+    .values(
+      [
+        linearJob("src-pr", "SRC-1", { stage: "pr", stage_event_id: "e-pr", pr_url: "https://g/pr/1", stage_summary: "done" }),
+        linearJob("src-wait", "SRC-2", { stage: "waiting", stage_event_id: "e-wait", question: "Which layout?" }),
+        linearJob("src-fail", "SRC-3", { stage: "failed", attempt: 2, stage_event_id: "e-fail", stage_summary: "boom" }),
+        linearJob("src-merged", "SRC-4", { stage: "merged", stage_event_id: "e-merged" }),
+        linearJob("src-triage", "SRC-5", { stage: "triage", stage_event_id: "e-triage" }),
+        linearJob("src-q1", "SRC-6", { stage: "queued", state: "Todo" }),
+        linearJob("src-q2", "SRC-7", { stage: "queued", attempt: 2, state: "Todo" }),
+      ].map((row) => ({ ...row, machine_id: TEST_MACHINE_ID })),
+    );
   const { synced } = await ops.writeBack();
   await ops.announceClaims();
   const writes = { synced, calls: structuredClone(calls), rows: await snapshot() };
   calls.length = 0;
-  assert.deepEqual(
-    (await ops.writeBack()).synced,
-    [],
-    "a second pass writes nothing back",
-  );
+  assert.deepEqual((await ops.writeBack()).synced, [], "a second pass writes nothing back");
   assert.deepEqual(calls, [], "and sends nothing to Linear");
 
   await db.delete(jobs);
-  await db.insert(jobs).values(linearJob("src-retry", "SRC-9", { stage: "failed", stage_summary: "earlier failure", stage_event_id: "e-r", synced_event_id: "e-r" }));
+  await db
+    .insert(jobs)
+    .values(linearJob("src-retry", "SRC-9", { stage: "failed", stage_summary: "earlier failure", stage_event_id: "e-r", synced_event_id: "e-r" }));
   readyNodes = [node("src-new", "SRC-8"), node("src-retry", "SRC-9")];
   calls.length = 0;
   const claimed = await ops.claim({ repos: async () => ["test-owner/claimed-repo"], registry: async () => [] });

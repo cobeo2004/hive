@@ -1,7 +1,7 @@
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 import { CONFIG_PATH, loadConfig } from "../lib/config";
-import { panelUrl } from "../lib/slack";
+import { publicUrl } from "../lib/slack";
 
 process.loadEnvFile(".env.local");
 const config = loadConfig();
@@ -18,7 +18,7 @@ async function linear<T>(query: string, variables: object, schema: z.ZodType<T>)
 }
 
 async function linearWebhook() {
-  const url = `${panelUrl()}/api/webhooks/linear`;
+  const url = `${publicUrl()}/api/webhooks/linear`;
   const { webhooks } = await linear(
     `{ webhooks(first: 100) { nodes { id url } } }`,
     {},

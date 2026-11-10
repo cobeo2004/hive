@@ -43,8 +43,7 @@ function usageColumns(usage: Usage) {
 /** "unknown" is what a reader says before it has seen a model; it never replaces one. */
 const knownModel = (model: string | null | undefined) => (model && model !== "unknown" ? model : undefined);
 
-const keepGreater = (column: { name: string }) =>
-  sql.raw(`greatest(runs."${column.name}", excluded."${column.name}")`);
+const keepGreater = (column: { name: string }) => sql.raw(`greatest(runs."${column.name}", excluded."${column.name}")`);
 
 // Session totals only grow, so greatest() makes replays and reordering harmless.
 async function upsertRun(tx: Tx, event: FactoryEvent) {
@@ -67,8 +66,7 @@ async function upsertRun(tx: Tx, event: FactoryEvent) {
     ...kindMeta,
     ...(event.transcriptPath ? { transcript_path: event.transcriptPath } : {}),
   };
-  const keep = (name: string) =>
-    sql.raw(`coalesce(excluded."${name}", runs."${name}")`);
+  const keep = (name: string) => sql.raw(`coalesce(excluded."${name}", runs."${name}")`);
 
   await tx
     .insert(runs)
@@ -83,15 +81,11 @@ async function upsertRun(tx: Tx, event: FactoryEvent) {
       target: runs.session_id,
       set: {
         started_at: sql.raw(`least(runs."started_at", excluded."started_at")`),
-        last_event_at: sql.raw(
-          `greatest(runs."last_event_at", excluded."last_event_at")`,
-        ),
+        last_event_at: sql.raw(`greatest(runs."last_event_at", excluded."last_event_at")`),
         // A late event must not drag the status back past a newer one.
         ...(RUN_STATUS[event.kind]
           ? {
-              status: sql.raw(
-                `case when excluded."last_event_at" >= runs."last_event_at" then excluded."status" else runs."status" end`,
-              ),
+              status: sql.raw(`case when excluded."last_event_at" >= runs."last_event_at" then excluded."status" else runs."status" end`),
             }
           : {}),
         ...Object.fromEntries(
@@ -111,21 +105,15 @@ async function upsertRun(tx: Tx, event: FactoryEvent) {
     });
 }
 
-const byToolUseId = async (tx: Tx, id: string) =>
-  (await tx.select().from(agents).where(eq(agents.tool_use_id, id)))[0];
-const byAgentId = async (tx: Tx, id: string) =>
-  (await tx.select().from(agents).where(eq(agents.agent_id, id)))[0];
+const byToolUseId = async (tx: Tx, id: string) => (await tx.select().from(agents).where(eq(agents.tool_use_id, id)))[0];
+const byAgentId = async (tx: Tx, id: string) => (await tx.select().from(agents).where(eq(agents.agent_id, id)))[0];
 
-const settle = (a: AgentRow["status"], b: AgentRow["status"]) =>
-  a === "running" ? b : a;
+const settle = (a: AgentRow["status"], b: AgentRow["status"]) => (a === "running" ? b : a);
 
 /** Rows created from an agent_stop that beat its agent_launched carry this prefix. */
 const pendingKey = (agentId: string) => `agent:${agentId}`;
 
-async function applyAgentStart(
-  tx: Tx,
-  e: Extract<FactoryEvent, { kind: "agent_start" }>,
-) {
+async function applyAgentStart(tx: Tx, e: Extract<FactoryEvent, { kind: "agent_start" }>) {
   await tx
     .insert(agents)
     .values({
@@ -143,25 +131,16 @@ async function applyAgentStart(
       // Status is untouched: a stop that already landed stays final.
       set: {
         started_at: sql.raw(`least(agents."started_at", excluded."started_at")`),
-        parent_agent_id: sql.raw(
-          `coalesce(excluded."parent_agent_id", agents."parent_agent_id")`,
-        ),
-        subagent_type: sql.raw(
-          `coalesce(excluded."subagent_type", agents."subagent_type")`,
-        ),
-        description: sql.raw(
-          `coalesce(excluded."description", agents."description")`,
-        ),
+        parent_agent_id: sql.raw(`coalesce(excluded."parent_agent_id", agents."parent_agent_id")`),
+        subagent_type: sql.raw(`coalesce(excluded."subagent_type", agents."subagent_type")`),
+        description: sql.raw(`coalesce(excluded."description", agents."description")`),
         // An existing row came from a stop or launch, whose model is the resolved id, not the alias.
         model: sql.raw(`coalesce(agents."model", excluded."model")`),
       },
     });
 }
 
-async function applyAgentLaunched(
-  tx: Tx,
-  e: Extract<FactoryEvent, { kind: "agent_launched" }>,
-) {
+async function applyAgentLaunched(tx: Tx, e: Extract<FactoryEvent, { kind: "agent_launched" }>) {
   const real = await byToolUseId(tx, e.toolUseId);
   const linked = await byAgentId(tx, e.agentId);
 
@@ -177,27 +156,17 @@ async function applyAgentLaunched(
         ended_at: real.ended_at ?? linked.ended_at,
         // The stop's model is a resolved id; the start's is the requested alias.
         model: linked.model ?? real.model,
-        started_at:
-          real.started_at < linked.started_at ? real.started_at : linked.started_at,
+        started_at: real.started_at < linked.started_at ? real.started_at : linked.started_at,
         input_tokens: Math.max(real.input_tokens, linked.input_tokens),
         output_tokens: Math.max(real.output_tokens, linked.output_tokens),
         cache_read_tokens: Math.max(real.cache_read_tokens, linked.cache_read_tokens),
-        cache_write_tokens: Math.max(
-          real.cache_write_tokens,
-          linked.cache_write_tokens,
-        ),
+        cache_write_tokens: Math.max(real.cache_write_tokens, linked.cache_write_tokens),
       })
       .where(eq(agents.tool_use_id, e.toolUseId));
   } else if (linked) {
-    await tx
-      .update(agents)
-      .set({ tool_use_id: e.toolUseId })
-      .where(eq(agents.tool_use_id, linked.tool_use_id));
+    await tx.update(agents).set({ tool_use_id: e.toolUseId }).where(eq(agents.tool_use_id, linked.tool_use_id));
   } else if (real) {
-    await tx
-      .update(agents)
-      .set({ agent_id: e.agentId })
-      .where(eq(agents.tool_use_id, e.toolUseId));
+    await tx.update(agents).set({ agent_id: e.agentId }).where(eq(agents.tool_use_id, e.toolUseId));
   } else {
     await tx.insert(agents).values({
       tool_use_id: e.toolUseId,
@@ -251,10 +220,7 @@ async function applyAgentUsage(tx: Tx, e: Extract<FactoryEvent, { kind: "usage" 
   }
 }
 
-async function applyAgentStop(
-  tx: Tx,
-  e: Extract<FactoryEvent, { kind: "agent_stop" }>,
-) {
+async function applyAgentStop(tx: Tx, e: Extract<FactoryEvent, { kind: "agent_stop" }>) {
   const existing = await byAgentId(tx, e.agentId);
   if (!existing) {
     await tx.insert(agents).values({
@@ -285,9 +251,7 @@ async function applyAgentStop(
 }
 
 const ifNewerStage = (column: string, value = `excluded."${column}"`) =>
-  sql.raw(
-    `case when runs."stage_at" is null or excluded."stage_at" >= runs."stage_at" then ${value} else runs."${column}" end`,
-  );
+  sql.raw(`case when runs."stage_at" is null or excluded."stage_at" >= runs."stage_at" then ${value} else runs."${column}" end`);
 
 /** A stage report that arrives late never overwrites a newer one. */
 async function applyStage(tx: Tx, e: Extract<FactoryEvent, { kind: "stage" }>) {
@@ -369,7 +333,18 @@ async function applyEvidence(tx: Tx, e: Extract<FactoryEvent, { kind: "evidence"
   const at = when(e.at);
   await tx
     .insert(jobEvidence)
-    .values({ job_key: e.jobKey, sha: e.sha, attempt: e.attempt, repo: e.repo, clean: e.clean, producer: e.producer, source: e.source, checks: e.checks, event_id: e.eventId, recorded_at: at })
+    .values({
+      job_key: e.jobKey,
+      sha: e.sha,
+      attempt: e.attempt,
+      repo: e.repo,
+      clean: e.clean,
+      producer: e.producer,
+      source: e.source,
+      checks: e.checks,
+      event_id: e.eventId,
+      recorded_at: at,
+    })
     .onConflictDoUpdate({
       target: [jobEvidence.job_key, jobEvidence.sha],
       set: {
@@ -392,14 +367,26 @@ async function applyEvidence(tx: Tx, e: Extract<FactoryEvent, { kind: "evidence"
     .where(and(eq(jobEvidence.job_key, e.jobKey), eq(jobEvidence.attempt, e.attempt)))
     .orderBy(desc(jobEvidence.recorded_at))
     .limit(1);
-  if (latest) await tx.update(jobs).set({ evidence: summarize(latest, latest.recorded_at) }).where(eq(jobs.id, job.id));
+  if (latest)
+    await tx
+      .update(jobs)
+      .set({ evidence: summarize(latest, latest.recorded_at) })
+      .where(eq(jobs.id, job.id));
 }
 
 /** Stores one attached image; a redelivered event changes nothing. Screenshots open no run. */
 async function applyScreenshot(tx: Tx, e: Extract<FactoryEvent, { kind: "screenshot" }>) {
   await tx
     .insert(jobScreenshots)
-    .values({ stage_event_id: e.stageEventId, file: e.file, job_key: e.jobKey, content_type: e.contentType, bytes: Buffer.from(e.data, "base64"), event_id: e.eventId, recorded_at: when(e.at) })
+    .values({
+      stage_event_id: e.stageEventId,
+      file: e.file,
+      job_key: e.jobKey,
+      content_type: e.contentType,
+      bytes: Buffer.from(e.data, "base64"),
+      event_id: e.eventId,
+      recorded_at: when(e.at),
+    })
     .onConflictDoNothing();
 }
 
@@ -459,10 +446,7 @@ export type IngestResult = {
  * Appends events and applies projections in one transaction. Events that were
  * already stored are skipped, so a retried batch changes nothing.
  */
-export async function ingest(
-  db: Db,
-  batch: FactoryEvent[],
-): Promise<IngestResult> {
+export async function ingest(db: Db, batch: FactoryEvent[]): Promise<IngestResult> {
   return db.transaction(async (tx) => {
     // Projections read-then-write agent rows, so one session is handled by one batch at a time.
     const sessionIds = [...new Set(batch.map((e) => e.sessionId))].sort();
@@ -496,7 +480,10 @@ export async function ingest(
       .selectDistinct({ branch: runs.branch })
       .from(runs)
       .where(and(inArray(runs.session_id, sessionIds), isNotNull(runs.job_key), isNotNull(runs.branch)));
-    const spend = await branchSpend(tx, branches.map((b) => b.branch!));
+    const spend = await branchSpend(
+      tx,
+      branches.map((b) => b.branch!),
+    );
     return { received: batch.length, inserted: stored.length, spend, refused };
   });
 }

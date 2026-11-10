@@ -34,7 +34,8 @@ const summary = (result: FlushResult) => ({
 async function flush(fs: OutboxFs, state: string, budgetMs: number, detail: Record<string, unknown>) {
   try {
     const result = await flushOutbox(fs, state, outboxClient.send, { budgetMs });
-    if (result.delivered > 0 || result.rejected.length > 0 || result.stuck.length > 0 || result.error) sandboxRuntime.log("outbox:flushed", { ...detail, ...summary(result) });
+    if (result.delivered > 0 || result.rejected.length > 0 || result.stuck.length > 0 || result.error)
+      sandboxRuntime.log("outbox:flushed", { ...detail, ...summary(result) });
     if (result.left > HIGH_WATER) sandboxRuntime.log("outbox:backlog", { ...detail, left: result.left });
     return result;
   } catch (error) {

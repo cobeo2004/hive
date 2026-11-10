@@ -14,15 +14,19 @@ const key = `REGRESS-${Date.now() % 1_000_000}`;
 const otherKey = `REGRESSB-${Date.now() % 1_000_000}`;
 const t0 = Date.now() - 60_000;
 const usage = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, model: "claude-sonnet-5-5" };
-const ev = (n: number, body: Record<string, unknown>) =>
-  eventSchema.parse({ sessionId: run, eventId: `${run}-${n}`, ...body });
+const ev = (n: number, body: Record<string, unknown>) => eventSchema.parse({ sessionId: run, eventId: `${run}-${n}`, ...body });
 
 const jobKey = `REG-${Date.now()}`;
 await db.insert(jobs).values(linearJob(run, jobKey, { claimed_at: new Date(t0), updated_at: new Date(t0) }));
 const jobRow = async () => (await db.select().from(jobs).where(eq(jobs.key, jobKey)))[0]!;
 const runRow = async () => (await db.select().from(runs).where(eq(runs.session_id, run)))[0]!;
 const eventRow = async (id: number | string) =>
-  (await db.select().from(events).where(eq(events.event_id, typeof id === "number" ? `${run}-${id}` : id)))[0]!;
+  (
+    await db
+      .select()
+      .from(events)
+      .where(eq(events.event_id, typeof id === "number" ? `${run}-${id}` : id))
+  )[0]!;
 
 try {
   await ingest(db, [
@@ -38,10 +42,11 @@ try {
     ev(4, { kind: "agent_stop", at: t0 + 20_000, agentId: `${run}-a`, status: "completed", usage, model: "claude-haiku-5-5" }),
     ev(5, { kind: "agent_launched", at: t0 + 20_100, toolUseId: `${run}-tu`, agentId: `${run}-a` }),
   ]);
-  await ingest(db, [
-    ev(6, { kind: "agent_start", at: t0 + 15_000, toolUseId: `${run}-tu`, subagentType: "Explore", description: "late", model: "haiku" }),
-  ]);
-  const [a] = await db.select().from(agents).where(eq(agents.tool_use_id, `${run}-tu`));
+  await ingest(db, [ev(6, { kind: "agent_start", at: t0 + 15_000, toolUseId: `${run}-tu`, subagentType: "Explore", description: "late", model: "haiku" })]);
+  const [a] = await db
+    .select()
+    .from(agents)
+    .where(eq(agents.tool_use_id, `${run}-tu`));
   assert.equal(a.model, "claude-haiku-5-5", "a late agent_start keeps the resolved model id");
   assert.equal(a.status, "completed", "a late agent_start keeps the agent completed");
 
@@ -50,16 +55,19 @@ try {
     ev(8, { kind: "stage", at: t0 + 40_000, stage: "pr", summary: "opened", prUrl: "https://github.com/x/y/pull/1" }),
     ev(9, { kind: "turn_stop", at: t0 + 41_000, usage }),
   ]);
-  await ingest(db, [
-    ev(10, { kind: "stage", at: t0 + 35_000, stage: "verifying", summary: "late" }),
-  ]);
+  await ingest(db, [ev(10, { kind: "stage", at: t0 + 35_000, stage: "verifying", summary: "late" })]);
   const [s] = await db.select().from(runs).where(eq(runs.session_id, run));
   assert.equal(s.stage, "pr", "a late stage report does not move the stage back");
   assert.equal(s.stage_summary, "opened", "a late stage report keeps the newer summary");
   assert.equal(s.pr_url, "https://github.com/x/y/pull/1");
   assert.equal(s.job_key, key, "the stage report's job key fills a run that had none");
-  await ingest(db, [ev(17, { kind: "stage", at: t0 + 30_500, stage: "triage", summary: "s", jobKey: otherKey, branch: `hive/${otherKey}-a2`, sessionId: `${run}-b` })]);
-  const [b] = await db.select().from(runs).where(eq(runs.session_id, `${run}-b`));
+  await ingest(db, [
+    ev(17, { kind: "stage", at: t0 + 30_500, stage: "triage", summary: "s", jobKey: otherKey, branch: `hive/${otherKey}-a2`, sessionId: `${run}-b` }),
+  ]);
+  const [b] = await db
+    .select()
+    .from(runs)
+    .where(eq(runs.session_id, `${run}-b`));
   assert.equal(b.branch, `hive/${otherKey}-a2`, "a run first seen through a stage report keeps its branch");
   assert.equal(s.status, "idle", "stage reports leave the status alone");
 
@@ -75,18 +83,17 @@ try {
   const running = await ingest(db, [
     ev(21, { kind: "usage", at: t0 + 43_000, usage: bigUsage, agents: [{ agentId: `${run}-sub`, toolUseId: `${run}-tu-sub`, usage: subUsage }] }),
   ]);
-  const [sub] = await db.select().from(agents).where(eq(agents.agent_id, `${run}-sub`));
+  const [sub] = await db
+    .select()
+    .from(agents)
+    .where(eq(agents.agent_id, `${run}-sub`));
   assert.equal(sub.status, "running", "a subagent seen only in a usage snapshot stays running");
   assert.equal(sub.tool_use_id, `${run}-tu-sub`, "the snapshot links the agent to its Agent tool call");
   assert.ok(running.spend[`hive/${key}`]! > before + 0.9, "a running subagent counts toward the job's spend");
-  const stopped = await ingest(db, [
-    ev(22, { kind: "agent_stop", at: t0 + 44_000, agentId: `${run}-sub`, status: "completed", usage: subUsage }),
-  ]);
+  const stopped = await ingest(db, [ev(22, { kind: "agent_stop", at: t0 + 44_000, agentId: `${run}-sub`, status: "completed", usage: subUsage })]);
   assert.equal(stopped.spend[`hive/${key}`], running.spend[`hive/${key}`], "its SubagentStop does not count it twice");
 
-  await ingest(db, [
-    ev(11, { kind: "stage", at: t0 + 50_000, stage: "waiting", summary: "blocked", question: "Which breakpoint?" }),
-  ]);
+  await ingest(db, [ev(11, { kind: "stage", at: t0 + 50_000, stage: "waiting", summary: "blocked", question: "Which breakpoint?" })]);
   const [w] = await db.select().from(runs).where(eq(runs.session_id, run));
   assert.equal(w.question, "Which breakpoint?");
   assert.equal(w.pr_url, "https://github.com/x/y/pull/1", "a later stage without a PR keeps the PR link");
@@ -101,9 +108,7 @@ try {
   assert.equal((await eventRow(13)).refusal, null, "and its stored event carries no refusal");
   assert.equal((await runRow()).stage, "pr", "and the run takes the stage too");
   assert.equal(moved.stage_event_id, `${run}-13`, "the job remembers the event its stage came from");
-  await ingest(db, [
-    ev(14, { kind: "stage", at: t0 + 61_000, stage: "implementing", summary: "late", jobKey }),
-  ]);
+  await ingest(db, [ev(14, { kind: "stage", at: t0 + 61_000, stage: "implementing", summary: "late", jobKey })]);
   await db.update(jobs).set({ attempt: 2 }).where(eq(jobs.key, jobKey));
   await ingest(db, [
     ev(15, { kind: "stage", at: t0 + 63_000, stage: "failed", summary: "old thread", jobKey, branch: `hive/${jobKey}` }),
@@ -134,7 +139,10 @@ try {
   assert.equal((await eventRow(18)).refusal, "failed -> pr (report) is not in STAGE_TRANSITIONS", "the stored event is marked refused");
   assert.equal((await eventRow(`resume:${run}:c-1`)).refusal, "failed -> queued (resume) is not in STAGE_TRANSITIONS");
   await ingest(db, [
-    { ...ev(24, { kind: "stage", at: t0 + 67_000, stage: "merged", summary: "Merged", prUrl: "https://github.com/x/y/pull/2", jobKey }), eventId: `merged:https://github.com/x/y/pull/2:${run}` },
+    {
+      ...ev(24, { kind: "stage", at: t0 + 67_000, stage: "merged", summary: "Merged", prUrl: "https://github.com/x/y/pull/2", jobKey }),
+      eventId: `merged:https://github.com/x/y/pull/2:${run}`,
+    },
   ]);
   assert.equal((await jobRow()).stage, "merged", "a PR a human merged after the attempt failed still marks the job merged");
   const merged = await jobRow();

@@ -124,7 +124,10 @@ async function checkThread(row: JobRow, stop: StopRecord, threadId: string, timi
   if (parent.state !== "running" && running.length === 0) {
     const quietSince = stop.quietSince ?? iso;
     if (now - ms(quietSince) >= timings.settleMs) {
-      const tree = subagents.length > 0 ? `its ${plural(subagents.length, "subagent thread")} ${subagents.length === 1 ? "has" : "have"} settled` : "it has no subagent threads";
+      const tree =
+        subagents.length > 0
+          ? `its ${plural(subagents.length, "subagent thread")} ${subagents.length === 1 ? "has" : "have"} settled`
+          : "it has no subagent threads";
       const evidence = `T3 showed the thread with no active run for ${Math.round((now - ms(quietSince)) / 1000)} s, and ${tree}.`;
       return (await settle(row, stop, "confirmed", evidence, now)) && "confirmed";
     }
@@ -151,11 +154,21 @@ async function checkThread(row: JobRow, stop: StopRecord, threadId: string, timi
   const results = [];
   for (const target of targets) {
     const requestId = `marshal-factory:stop:${row.id}:${stop.requestedAt}:retry-${stop.retries}:${target.threadId}:${target.runId ?? "latest"}`;
-    const outcome = await threads.interrupt(target.threadId, requestId, reason, host).catch((error: unknown) => ({ kind: "error" as const, reason: message(error) }));
+    const outcome = await threads
+      .interrupt(target.threadId, requestId, reason, host)
+      .catch((error: unknown) => ({ kind: "error" as const, reason: message(error) }));
     results.push({ threadId: target.threadId, outcome });
   }
   const step = interruptStep(results);
-  const moved = await advance(row.id, stop, { ...stop, state: "escalated", how: "interrupt", escalatedAt: stop.escalatedAt ?? iso, checkedAt: iso, quietSince: null, step });
+  const moved = await advance(row.id, stop, {
+    ...stop,
+    state: "escalated",
+    how: "interrupt",
+    escalatedAt: stop.escalatedAt ?? iso,
+    checkedAt: iso,
+    quietSince: null,
+    step,
+  });
   return moved && "interrupting";
 }
 

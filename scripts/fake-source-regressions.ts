@@ -54,7 +54,13 @@ registerSource(
     writeBack: async (job, t) => (call("writeBack", (job as Fake).key, t.stage), t.stage !== "triage"),
     replies: async () => ({ kind: "wait" }),
     acknowledgeReplies: async () => undefined,
-    stopWanted: async (open) => (call("stopWanted", open.map((j) => j.key)), []),
+    stopWanted: async (open) => (
+      call(
+        "stopWanted",
+        open.map((j) => j.key),
+      ),
+      []
+    ),
     confirmStop: async (id, detail) => (call("confirmStop", id, detail), { stop: false }),
     note: async (job, noteKey, body) => call("note", job.key, noteKey, body),
     overrides: (state) => ({ ...NO_OVERRIDES, runsOn: (state as unknown as typeof draft.sourceState).asks.runsOn }),
@@ -84,7 +90,17 @@ const row = async () => parseJob((await db.select().from(jobs).where(eq(jobs.id,
 const at = Date.now();
 const sessionId = `fake-source-${stamp}`;
 const report = (n: number, stage: string, extra: Record<string, unknown> = {}) =>
-  eventSchema.parse({ eventId: `${sessionId}-${n}`, sessionId, at: at + n, kind: "stage", stage, summary: `${stage} it`, jobKey: parseBranch(branch)?.key, branch, ...extra });
+  eventSchema.parse({
+    eventId: `${sessionId}-${n}`,
+    sessionId,
+    at: at + n,
+    kind: "stage",
+    stage,
+    summary: `${stage} it`,
+    jobKey: parseBranch(branch)?.key,
+    branch,
+    ...extra,
+  });
 
 try {
   assert.ok(isJobSource(SOURCE) && allSources().some((s) => s.source === SOURCE), "the fake source is registered beside Linear");
@@ -121,7 +137,18 @@ try {
   await announceFallbacks(await row(), { notes: ["Runs on fell back."] });
 
   // The thread reports on its branch; the hook derives the job from the branch alone.
-  await ingest(db, [eventSchema.parse({ eventId: `${sessionId}-0`, sessionId, at, kind: "session_start", cwd: "/w", branch, repo: "factory-demo", t3ThreadId: `thread-${stamp}` })]);
+  await ingest(db, [
+    eventSchema.parse({
+      eventId: `${sessionId}-0`,
+      sessionId,
+      at,
+      kind: "session_start",
+      cwd: "/w",
+      branch,
+      repo: "factory-demo",
+      t3ThreadId: `thread-${stamp}`,
+    }),
+  ]);
   await ingest(db, [report(1, "triage")]);
   assert.deepEqual((await ops.writeBack({ only: [key] })).synced, [], "a stage the source has nothing to say about is synced without a write");
   await ingest(db, [report(2, "implementing"), report(3, "pr", { prUrl: `https://github.com/${REPO}/pull/${stamp}` })]);

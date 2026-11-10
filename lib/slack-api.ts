@@ -38,7 +38,15 @@ export type SlackClient = ReturnType<typeof slackClient>;
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-export function slackClient({ token, baseUrl = SLACK_API_URL, minGapMs = 1_000, maxWaitMs = 10_000, retries = 2, sleep = wait, now = Date.now }: SlackClientOptions) {
+export function slackClient({
+  token,
+  baseUrl = SLACK_API_URL,
+  minGapMs = 1_000,
+  maxWaitMs = 10_000,
+  retries = 2,
+  sleep = wait,
+  now = Date.now,
+}: SlackClientOptions) {
   let chain: Promise<unknown> = Promise.resolve();
   let lastCallAt = 0;
   let pausedUntil = 0;
@@ -99,6 +107,16 @@ export function slackClient({ token, baseUrl = SLACK_API_URL, minGapMs = 1_000, 
       const email = (body.user as { profile?: { email?: unknown } } | undefined)?.profile?.email;
       return typeof email === "string" && email ? email : null;
     },
+    /** A Slack user's id from their email (bot scope users:read.email); null when no one there has that email. */
+    async userIdByEmail(email: string) {
+      try {
+        const body = await call("users.lookupByEmail", { email });
+        return str((body.user as { id?: unknown } | undefined)?.id, "user id");
+      } catch (error) {
+        if (error instanceof SlackApiError && error.code === "users_not_found") return null;
+        throw error;
+      }
+    },
     /** The DM channel with a user; chat.update needs its id, not the user's. */
     async openDm(user: string) {
       const body = await call("conversations.open", { users: user });
@@ -132,4 +150,18 @@ export async function postResponse(url: string, body: object) {
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) throw new SlackApiError("response_url", `http_${response.status}`);
+}
+
+/**
+ * A Slack user's id for this email, as `/setup`'s Account step checks it (R5, R6). Null when Slack has
+ * no one with that email, the panel has no SLACK_BOT_TOKEN, or Slack fails: the page never fails on it.
+ */
+export async function userByEmail(email: string): Promise<string | null> {
+  const token = process.env.SLACK_BOT_TOKEN?.trim();
+  if (!token) return null;
+  try {
+    return await slackClient({ token, baseUrl: process.env.SLACK_API_URL?.trim() || undefined, minGapMs: 0 }).userIdByEmail(email.trim());
+  } catch {
+    return null;
+  }
 }

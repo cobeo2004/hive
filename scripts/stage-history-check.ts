@@ -18,8 +18,7 @@ import { canTransition, decideStage, type StageMove, type StageRow } from "../li
 
 try {
   process.loadEnvFile(".env.local");
-} catch {
-}
+} catch {}
 const { db } = await import("../db/client");
 const { events, jobs, runs } = await import("../db/schema");
 
@@ -129,7 +128,9 @@ for (const job of claimed) {
   const old = `${asIngested.stage} a${asIngested.attempt}`;
   finals.push({ key: job.key, "old rules": old, table, "jobs row": row });
   if (table !== row || old !== row || byTable.stage_event_id !== job.stage_event_id) {
-    problems.push(`MISMATCH ${job.key}: replay ends at ${table} (old rules ${old}, event ${byTable.stage_event_id}), the row says ${row} (event ${job.stage_event_id})`);
+    problems.push(
+      `MISMATCH ${job.key}: replay ends at ${table} (old rules ${old}, event ${byTable.stage_event_id}), the row says ${row} (event ${job.stage_event_id})`,
+    );
   }
 }
 

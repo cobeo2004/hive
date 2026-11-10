@@ -38,7 +38,17 @@ type LinkField = {
   readOnly?: boolean;
 };
 
-function LinkForm({ fields, submitLabel, submit, onDone }: { fields: readonly LinkField[]; submitLabel: string; submit: (values: Record<string, string>) => Promise<Result>; onDone: () => void }) {
+function LinkForm({
+  fields,
+  submitLabel,
+  submit,
+  onDone,
+}: {
+  fields: readonly LinkField[];
+  submitLabel: string;
+  submit: (values: Record<string, string>) => Promise<Result>;
+  onDone: () => void;
+}) {
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(fields.map((field) => [field.name, field.value ?? ""])));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);

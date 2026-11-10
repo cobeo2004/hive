@@ -131,8 +131,7 @@ export function boardCards(jobs: readonly JobRow[], runs: readonly RunRow[], har
     runs.filter((r) => r.job_key !== null),
     (r) => r.job_key!,
   );
-  const newestFirst = (rows: readonly RunRow[]) =>
-    [...rows].sort((a, b) => stagedAt(b) - stagedAt(a));
+  const newestFirst = (rows: readonly RunRow[]) => [...rows].sort((a, b) => stagedAt(b) - stagedAt(a));
 
   const fromJobs = jobs.map((job): BoardCard => {
     const jobRuns = newestFirst(byKey.get(job.key) ?? []);
@@ -165,41 +164,36 @@ export function boardCards(jobs: readonly JobRow[], runs: readonly RunRow[], har
   });
 
   const claimed = new Set(jobs.map((j) => j.key));
-  const unclaimed = runs.filter(
-    (r): r is RunRow & { stage: Stage } =>
-      r.stage !== null && !(r.job_key && claimed.has(r.job_key)),
-  );
-  const fromRuns = [...groupBy(unclaimed, (r) => r.job_key ?? r.session_id).entries()].map(
-    ([id, group]): BoardCard => {
-      const sorted = newestFirst(group);
-      const latest = sorted[0]! as RunRow & { stage: Stage };
-      return {
-        id,
-        jobId: null,
-        jobKey: latest.job_key,
-        title: latest.title ?? latest.job_key ?? "Factory run",
-        repo: latest.repo,
-        stage: latest.stage,
-        summary: latest.stage_summary,
-        question: latest.question,
-        prUrl: sorted.find((r) => r.pr_url)?.pr_url ?? null,
-        sourceLink: null,
-        machineId: null,
-        answeredAt: null,
-        attempt: 1,
-        attemptRuns: sorted,
-        nudgedAt: null,
-        latest,
-        runs: sorted,
-        harness: null,
-        runsOn: null,
-        mergeDecision: null,
-        evidence: null,
-        stop: null,
-        updatedAt: new Date(Math.max(...sorted.map((r) => r.last_event_at.getTime()))),
-      };
-    },
-  );
+  const unclaimed = runs.filter((r): r is RunRow & { stage: Stage } => r.stage !== null && !(r.job_key && claimed.has(r.job_key)));
+  const fromRuns = [...groupBy(unclaimed, (r) => r.job_key ?? r.session_id).entries()].map(([id, group]): BoardCard => {
+    const sorted = newestFirst(group);
+    const latest = sorted[0]! as RunRow & { stage: Stage };
+    return {
+      id,
+      jobId: null,
+      jobKey: latest.job_key,
+      title: latest.title ?? latest.job_key ?? "Factory run",
+      repo: latest.repo,
+      stage: latest.stage,
+      summary: latest.stage_summary,
+      question: latest.question,
+      prUrl: sorted.find((r) => r.pr_url)?.pr_url ?? null,
+      sourceLink: null,
+      machineId: null,
+      answeredAt: null,
+      attempt: 1,
+      attemptRuns: sorted,
+      nudgedAt: null,
+      latest,
+      runs: sorted,
+      harness: null,
+      runsOn: null,
+      mergeDecision: null,
+      evidence: null,
+      stop: null,
+      updatedAt: new Date(Math.max(...sorted.map((r) => r.last_event_at.getTime()))),
+    };
+  });
   return [...fromJobs, ...fromRuns];
 }
 

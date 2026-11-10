@@ -60,7 +60,12 @@ async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
 }
 const idOf = async (k: string) => (await row(k)).id;
 const reclaimSql = async (k: string) =>
-  (await db.select({ ok: sql<boolean>`${canReclaimSql}` }).from(jobs).where(eq(jobs.key, k)))[0]!.ok;
+  (
+    await db
+      .select({ ok: sql<boolean>`${canReclaimSql}` })
+      .from(jobs)
+      .where(eq(jobs.key, k))
+  )[0]!.ok;
 const S = 1000;
 
 try {
@@ -86,7 +91,13 @@ try {
           return { stdout: JSON.stringify({ structuredContent: { threads: page, nextCursor: toolArgs.cursor === 0 ? 2 : null } }), stderr: "" };
         }
         if (toolArgs.threadId === "full-access") {
-          return { stdout: JSON.stringify({ isError: true, content: [{ type: "text", text: "Thread full-access now runs in full-access mode, above this caller's." }] }), stderr: "" };
+          return {
+            stdout: JSON.stringify({
+              isError: true,
+              content: [{ type: "text", text: "Thread full-access now runs in full-access mode, above this caller's." }],
+            }),
+            stderr: "",
+          };
         }
         return { stdout: JSON.stringify({ structuredContent: { threadId: toolArgs.threadId, runId: "r", status: "interrupt_requested" } }), stderr: "" };
       },
@@ -102,12 +113,25 @@ try {
     assert.deepEqual(await interruptThread(sandbox, "t-1", "req-1", "stop"), { kind: "requested" });
     const refused = await interruptThread(sandbox, "full-access", "req-2", "stop");
     assert.equal(refused.kind, "refused", "T3's refusal is an outcome, not an error");
-    assert.ok(calls.every((c) => !c.args.join(" ").includes("secret-token")), "the token never goes into argv");
+    assert.ok(
+      calls.every((c) => !c.args.join(" ").includes("secret-token")),
+      "the token never goes into argv",
+    );
     const scripts = calls.filter((c) => c.command === "node");
-    assert.ok(scripts.length >= 4 && scripts.every((c) => c.input?.includes("secret-token") && c.input.includes("http://127.0.0.1:3773")), "in a sandbox the call runs there with node, token on stdin");
+    assert.ok(
+      scripts.length >= 4 && scripts.every((c) => c.input?.includes("secret-token") && c.input.includes("http://127.0.0.1:3773")),
+      "in a sandbox the call runs there with node, token on stdin",
+    );
     const issues = calls.filter((c) => c.args[2] === "issue");
-    assert.deepEqual(issues[0]!.args.filter((a, i) => issues[0]!.args[i - 1] === "--scope"), ["orchestration:read"], "a read signs in read-only");
-    assert.ok(issues.every((c) => c.args.includes("--ttl") && c.args[c.args.indexOf("--ttl") + 1] === "5m"), "short-lived sessions");
+    assert.deepEqual(
+      issues[0]!.args.filter((a, i) => issues[0]!.args[i - 1] === "--scope"),
+      ["orchestration:read"],
+      "a read signs in read-only",
+    );
+    assert.ok(
+      issues.every((c) => c.args.includes("--ttl") && c.args[c.args.indexOf("--ttl") + 1] === "5m"),
+      "short-lived sessions",
+    );
     assert.equal(calls.filter((c) => c.args[2] === "revoke").length, issues.length, "every session is revoked after use");
   }
 
@@ -119,7 +143,11 @@ try {
   let t0 = Date.now();
   let a = await row(A);
   assert.equal(a.stage, "failed");
-  assert.deepEqual([parseStop(a.stop)!.state, parseStop(a.stop)!.how, a.stop_sent_to], ["delivered", "message", "thread-A"], "the message went out and is recorded");
+  assert.deepEqual(
+    [parseStop(a.stop)!.state, parseStop(a.stop)!.how, a.stop_sent_to],
+    ["delivered", "message", "thread-A"],
+    "the message went out and is recorded",
+  );
   assert.ok(stopping(a), "a stop on its way keeps the job stopping");
   assert.equal(await machineInFlight(TEST_MACHINE_ID), inFlightBefore, "it keeps its capacity until confirmed");
   assert.equal(canReclaim(a), false);
@@ -159,14 +187,22 @@ try {
   assert.equal(interrupts.length, 0, "not before interruptAfter");
   assert.match((await stopOf(B)).step!, /still run/);
   await confirmStops({ only: [b], now: t0 + 70 * S });
-  assert.deepEqual(interrupts.map((i) => i.threadId), ["thread-B", "sub-B1"], "the thread and its running subagent, nothing else");
+  assert.deepEqual(
+    interrupts.map((i) => i.threadId),
+    ["thread-B", "sub-B1"],
+    "the thread and its running subagent, nothing else",
+  );
   assert.ok(interrupts[0]!.requestId.includes("run-B") && interrupts[1]!.requestId.includes("run-B1"), "one request id per run");
   assert.deepEqual([(await stopOf(B)).state, (await stopOf(B)).how], ["escalated", "interrupt"]);
   await confirmStops({ only: [b], now: t0 + 75 * S });
   assert.equal(interrupts.length, 2, "checks closer than checkSeconds don't ask again");
   activity.set("thread-B", idle);
   await confirmStops({ only: [b], now: t0 + 95 * S });
-  assert.deepEqual(interrupts.slice(2).map((i) => i.threadId), ["sub-B1"], "a subagent still running is interrupted again; the parent alone isn't enough");
+  assert.deepEqual(
+    interrupts.slice(2).map((i) => i.threadId),
+    ["sub-B1"],
+    "a subagent still running is interrupted again; the parent alone isn't enough",
+  );
   assert.equal((await stopOf(B)).quietSince, null, "a running subagent keeps the stop from settling");
   subagents.set("thread-B", [
     { threadId: "sub-B1", status: "interrupted", latestRunId: "run-B1" },
@@ -201,7 +237,10 @@ try {
   const before = interrupts.length;
   assert.deepEqual(await retryStop(d, t0 + 320 * S), { retried: D });
   assert.equal(interrupts.length, before + 1, "the retry interrupts at once");
-  const firstRound = interrupts.slice(0, before).filter((i) => i.threadId === "thread-D").map((i) => i.requestId);
+  const firstRound = interrupts
+    .slice(0, before)
+    .filter((i) => i.threadId === "thread-D")
+    .map((i) => i.requestId);
   assert.ok(firstRound.length > 0 && new Set(firstRound).size === 1, "within one round the request id repeats, so T3 ignores the repeat");
   assert.ok(!firstRound.includes(interrupts[before]!.requestId), "the retry is a new request id, so T3 does not take it for a repeat");
   assert.deepEqual([(await stopOf(D)).state, (await stopOf(D)).retries], ["escalated", 1]);
@@ -223,7 +262,10 @@ try {
   assert.match((await stopOf(U)).step!, /^Could not read the thread: T3 did not answer/);
   await confirmStops({ only: [await idOf(U)], now: t0 + 310 * S });
   assert.equal((await stopOf(U)).state, "unconfirmed", "a thread that can't be read is never taken as stopped");
-  await db.update(jobs).set({ dismissed_at: new Date(t0 + 400 * S) }).where(eq(jobs.key, U));
+  await db
+    .update(jobs)
+    .set({ dismissed_at: new Date(t0 + 400 * S) })
+    .where(eq(jobs.key, U));
   const uRow = await row(U);
   assert.deepEqual([inboxKind(uRow), canReclaim(uRow), await reclaimSql(U)], [null, true, true], "dismissed: out of the inbox, and a retry may start");
 
@@ -259,8 +301,24 @@ try {
 
   // --- Modal: ending the sandbox confirms the stop, once Modal no longer answers for it
   const M = await insert("M", { t3_thread_id: "thread-M", execution: "modal" });
-  const sbM = (await fakeModal.create({ name: `job-${M}`, tags: { job: M }, imageId: "im-test", secrets: {}, env: {}, encryptedPorts: [], limits: { appName: "x", cpu: 1, cpuLimit: 1, memoryMiB: 1, memoryLimitMiB: 1, timeoutMs: 1 } })) as FakeSandbox;
-  const sbStuck = (await fakeModal.create({ name: `job-${M}-stuck`, tags: { job: M }, imageId: "im-test", secrets: {}, env: {}, encryptedPorts: [], limits: { appName: "x", cpu: 1, cpuLimit: 1, memoryMiB: 1, memoryLimitMiB: 1, timeoutMs: 1 } })) as FakeSandbox;
+  const sbM = (await fakeModal.create({
+    name: `job-${M}`,
+    tags: { job: M },
+    imageId: "im-test",
+    secrets: {},
+    env: {},
+    encryptedPorts: [],
+    limits: { appName: "x", cpu: 1, cpuLimit: 1, memoryMiB: 1, memoryLimitMiB: 1, timeoutMs: 1 },
+  })) as FakeSandbox;
+  const sbStuck = (await fakeModal.create({
+    name: `job-${M}-stuck`,
+    tags: { job: M },
+    imageId: "im-test",
+    secrets: {},
+    env: {},
+    encryptedPorts: [],
+    limits: { appName: "x", cpu: 1, cpuLimit: 1, memoryMiB: 1, memoryLimitMiB: 1, timeoutMs: 1 },
+  })) as FakeSandbox;
   sbStuck.terminate = async () => {};
   const K = await insert("K", { t3_thread_id: "thread-K", execution: "modal", sandbox_id: sbStuck.sandboxId });
   await db.update(jobs).set({ sandbox_id: sbM.sandboxId }).where(eq(jobs.key, M));
@@ -282,6 +340,11 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
-  await db.delete(jobs).where(inArray(jobs.id, ids.map((id) => jobId("linear", id))));
+  await db.delete(jobs).where(
+    inArray(
+      jobs.id,
+      ids.map((id) => jobId("linear", id)),
+    ),
+  );
   process.exit(process.exitCode ?? 0);
 }

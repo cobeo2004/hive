@@ -29,10 +29,7 @@ function steps(reports: readonly Report[]): Step[] {
   );
   const current = now === -1 ? -1 : MAIN_PATH.indexOf(reports[now]!.event.stage);
   const ahead = current === -1 ? [] : MAIN_PATH.slice(current + 1);
-  return [
-    ...reported,
-    ...ahead.map((stage): Step => ({ key: stage, stage, event: undefined, refusal: null, state: "todo" })),
-  ];
+  return [...reported, ...ahead.map((stage): Step => ({ key: stage, stage, event: undefined, refusal: null, state: "todo" }))];
 }
 
 const DOT: Partial<Record<Stage, string>> = {
@@ -77,15 +74,9 @@ export function StageTimeline({ events }: { events: readonly EventRow[] }) {
             )}
           </div>
           {event?.answer && !refusal ? (
-            <blockquote className="mt-1 border-l-2 border-success/60 pl-2 whitespace-pre-wrap text-muted-foreground">
-              {event.answer}
-            </blockquote>
+            <blockquote className="mt-1 border-l-2 border-success/60 pl-2 whitespace-pre-wrap text-muted-foreground">{event.answer}</blockquote>
           ) : (
-            event && (
-              <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">
-                {refusal ?? event.question ?? event.summary}
-              </p>
-            )
+            event && <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{refusal ?? event.question ?? event.summary}</p>
           )}
         </li>
       ))}

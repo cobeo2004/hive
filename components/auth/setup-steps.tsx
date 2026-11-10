@@ -6,6 +6,7 @@ import QRCode from "react-qr-code";
 import { useState, type ReactNode } from "react";
 import { startTotp, verifyTotp } from "@/app/actions/access";
 import { finishSetup } from "@/app/actions/members";
+import { saveName } from "@/app/actions/setup";
 import { CopyButton } from "@/components/copy-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,11 +16,12 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-export type SetupUser = { name: string; email: string; role: "admin" | "engineer"; twoFactorEnabled: boolean };
+export type SetupUser = { name: string; email: string; role: "admin" | "engineer"; twoFactorEnabled: boolean; slackMatched: boolean };
 
-/** /setup (R5, R33): the Account step enrols TOTP, the Done step stamps setup_done_at and opens Jobs. PR4 adds the rest of the design. */
+/** /setup (R5, R33): the Account step saves the name and enrols TOTP, the Done step stamps setup_done_at and opens Jobs. */
 export function SetupSteps({ user }: { user: SetupUser }) {
   const [step, setStep] = useState<"account" | "done">("account");
+  const [name, setName] = useState(user.name);
   const [enrolled, setEnrolled] = useState(user.twoFactorEnabled);
   // Already enrolled means there are no new backup codes to save.
   const [saved, setSaved] = useState(user.twoFactorEnabled);
@@ -40,9 +42,9 @@ export function SetupSteps({ user }: { user: SetupUser }) {
 
       <div className="flex min-h-[26rem] flex-col gap-[18px] px-6 pt-7 pb-2">
         {step === "account" ? (
-          <Account enrolled={enrolled} onEnrolled={() => setEnrolled(true)} saved={saved} setSaved={setSaved} user={user} />
+          <Account enrolled={enrolled} name={name} onEnrolled={() => setEnrolled(true)} saved={saved} setSaved={setSaved} setName={setName} user={user} />
         ) : (
-          <Done user={user} />
+          <Done name={name} user={user} />
         )}
       </div>
 
@@ -77,7 +79,11 @@ function StepChip({ n, name, state }: { n: number; name: string; state: "todo" |
       <span
         className={cn(
           "grid size-[18px] place-items-center rounded-md border text-[10.5px] font-semibold",
-          state === "current" ? "border-foreground bg-foreground text-background" : state === "done" ? "border-transparent bg-success/12 text-success" : "border-border",
+          state === "current"
+            ? "border-foreground bg-foreground text-background"
+            : state === "done"
+              ? "border-transparent bg-success/12 text-success"
+              : "border-border",
         )}
       >
         {state === "done" ? <CheckIcon className="size-3" /> : n}
@@ -105,25 +111,57 @@ const ROLE_COPY = {
   engineer: { note: "Works jobs, connects your own agents, reviews PRs.", chip: "Set by an admin" },
 } as const;
 
-function Account({ user, enrolled, saved, onEnrolled, setSaved }: { user: SetupUser; enrolled: boolean; saved: boolean; onEnrolled: () => void; setSaved: (saved: boolean) => void }) {
+const firstName = (name: string) => name.trim().split(/\s+/)[0] || "";
+
+function Account({
+  user,
+  name,
+  setName,
+  enrolled,
+  saved,
+  onEnrolled,
+  setSaved,
+}: {
+  user: SetupUser;
+  name: string;
+  setName: (name: string) => void;
+  enrolled: boolean;
+  saved: boolean;
+  onEnrolled: () => void;
+  setSaved: (saved: boolean) => void;
+}) {
   const role = ROLE_COPY[user.role];
-  const initials = user.name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]!.toUpperCase())
-    .join("");
   return (
     <>
-      <h1 className="text-2xl font-semibold tracking-[-0.015em]">Welcome, {user.name.trim().split(/\s+/)[0]}</h1>
+      <h1 className="text-2xl font-semibold tracking-[-0.015em]">Welcome, {firstName(name) || "there"}</h1>
       <p className="text-sm text-muted-foreground">
         {user.role === "admin"
           ? "You're the first person here, so you're the admin. Check your details, then turn on two-factor authentication."
           : "An admin added you as an engineer. Check your details, then turn on two-factor authentication."}
       </p>
+      <Details name={name} setName={setName} user={user} />
       <div className="flex flex-col rounded-xl border">
-        <Row mark={initials || "ME"} note={user.email} title={user.name} />
-        <Row aside={<Badge variant="secondary">{role.chip}</Badge>} mark={user.role === "admin" ? "AD" : "EN"} note={role.note} title={user.role === "admin" ? "Admin" : "Engineer"} />
+        <Row
+          aside={<Badge variant="secondary">{role.chip}</Badge>}
+          mark={user.role === "admin" ? "AD" : "EN"}
+          note={role.note}
+          title={user.role === "admin" ? "Admin" : "Engineer"}
+        />
+        <Row
+          aside={
+            user.slackMatched ? (
+              <span className="flex items-center gap-1.5 text-sm text-success">
+                <CheckIcon className="size-4 shrink-0" />
+                Matched by email
+              </span>
+            ) : (
+              <span className="text-sm text-muted-foreground">Not found in Slack</span>
+            )
+          }
+          mark="SL"
+          note="Questions and PRs for you arrive as DMs, with buttons."
+          title="Slack"
+        />
       </div>
       <div className="flex flex-col gap-4 rounded-xl border bg-muted/40 p-4">
         <div className="flex flex-col gap-1">
@@ -136,14 +174,95 @@ function Account({ user, enrolled, saved, onEnrolled, setSaved }: { user: SetupU
   );
 }
 
+const trimmedName = (name: string) => name.trim();
+
+/** The Account step's own fields (R5): the name is saved to the signed-in user, the email only shown. */
+function Details({ user, name, setName }: { user: SetupUser; name: string; setName: (name: string) => void }) {
+  const router = useRouter();
+  const [saved, setSaved] = useState(trimmedName(user.name));
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
+  const trimmed = trimmedName(name);
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field>
+        <FieldLabel htmlFor="setup-name">Name</FieldLabel>
+        <div className="flex w-full gap-2">
+          <Input
+            id="setup-name"
+            maxLength={80}
+            onChange={(event) => {
+              setName(event.target.value);
+              setError(null);
+              setJustSaved(false);
+            }}
+            value={name}
+          />
+          <Button
+            disabled={pending || trimmed === saved || trimmed.length === 0}
+            onClick={async () => {
+              setPending(true);
+              setError(null);
+              const result = await saveName(name);
+              setPending(false);
+              if (!result.ok) return setError(result.message);
+              setSaved(result.name);
+              setName(result.name);
+              setJustSaved(true);
+              router.refresh();
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {pending ? "Saving" : "Save"}
+          </Button>
+        </div>
+        {error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : (
+          <FieldDescription>{justSaved ? "Saved." : "Your name on the jobs you own and in Slack."}</FieldDescription>
+        )}
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="setup-email">Email</FieldLabel>
+        <Input id="setup-email" readOnly value={user.email} />
+        <FieldDescription>The address your invite was sent to.</FieldDescription>
+      </Field>
+    </div>
+  );
+}
+
 type Started = { totpURI: string; secret: string; backupCodes: string[] };
 
 /** Password → QR code and secret → a code to check → the backup codes, shown once. */
-function Enrolment({ enrolled, onEnrolled, saved, setSaved }: { enrolled: boolean; onEnrolled: () => void; saved: boolean; setSaved: (saved: boolean) => void }) {
+function Enrolment({
+  enrolled,
+  onEnrolled,
+  saved,
+  setSaved,
+}: {
+  enrolled: boolean;
+  onEnrolled: () => void;
+  saved: boolean;
+  setSaved: (saved: boolean) => void;
+}) {
   const [started, setStarted] = useState<Started | null>(null);
   const [verified, setVerified] = useState(false);
   if (started && verified) return <BackupCodes codes={started.backupCodes} saved={saved} setSaved={setSaved} />;
-  if (started) return <Verify started={started} onVerified={() => { setVerified(true); onEnrolled(); }} />;
+  if (started)
+    return (
+      <Verify
+        started={started}
+        onVerified={() => {
+          setVerified(true);
+          onEnrolled();
+        }}
+      />
+    );
   if (enrolled)
     return (
       <p className="flex items-center gap-2 text-sm">
@@ -236,9 +355,7 @@ function Verify({ started, onVerified }: { started: Started; onVerified: () => v
 function BackupCodes({ codes, saved, setSaved }: { codes: string[]; saved: boolean; setSaved: (saved: boolean) => void }) {
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm">
-        Two-factor authentication is on. Save these backup codes: each works once, and Hive shows them only now.
-      </p>
+      <p className="text-sm">Two-factor authentication is on. Save these backup codes: each works once, and Hive shows them only now.</p>
       <div className="grid grid-cols-2 gap-x-6 gap-y-1 rounded-lg border bg-muted/50 p-4 font-mono text-sm">
         {codes.map((code) => (
           <span key={code}>{code}</span>
@@ -249,21 +366,20 @@ function BackupCodes({ codes, saved, setSaved }: { codes: string[]; saved: boole
           Copy
         </CopyButton>
         <label className="flex items-center gap-2 text-sm">
-          <Checkbox checked={saved} onCheckedChange={(checked) => setSaved(checked)} />
-          I saved these
+          <Checkbox checked={saved} onCheckedChange={(checked) => setSaved(checked)} />I saved these
         </label>
       </div>
     </div>
   );
 }
 
-function Done({ user }: { user: SetupUser }) {
+function Done({ user, name }: { user: SetupUser; name: string }) {
   return (
     <>
       <h1 className="text-2xl font-semibold tracking-[-0.015em]">You&apos;re set up</h1>
       <p className="text-sm text-muted-foreground">
-        Assign a Linear issue to Hive or label it <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">hive</code>, and it shows up under Jobs
-        within a minute.
+        Assign a Linear issue to Hive or label it <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">hive</code>, and it shows up
+        under Jobs within a minute.
       </p>
       <div className="flex flex-col rounded-xl border">
         <Row aside={<Badge variant="success">Ready</Badge>} mark="2F" note="Password and an authenticator code" title="Two-factor authentication" />
@@ -271,7 +387,7 @@ function Done({ user }: { user: SetupUser }) {
           aside={<Badge variant={user.role === "admin" ? "info" : "outline"}>{user.role === "admin" ? "Admin" : "Engineer"}</Badge>}
           mark={user.role === "admin" ? "AD" : "EN"}
           note={user.email}
-          title={user.name}
+          title={name.trim() || user.email}
         />
       </div>
       {user.role === "admin" && (

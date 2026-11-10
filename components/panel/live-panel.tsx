@@ -180,10 +180,7 @@ export function LivePanel({
   const { rows: machineRows } = useFeed(machines);
   const machineById = useMemo(() => new Map(machineRows.map((m) => [m.id, m])), [machineRows]);
 
-  const agentsBySession = useMemo(
-    () => groupBy(agentRows, (a) => a.session_id),
-    [agentRows],
-  );
+  const agentsBySession = useMemo(() => groupBy(agentRows, (a) => a.session_id), [agentRows]);
   const harnesses = useMemo(() => reportedHarnesses(machineRows, 0) ?? [], [machineRows]);
   const enabledHarnesses = useMemo(() => harnesses.filter((h) => h.enabled), [harnesses]);
   // Archived jobs leave the board, the list, the inbox and their counts.
@@ -204,9 +201,7 @@ export function LivePanel({
   }, [jobRows]);
   const startOfToday = useAfterHydration(() => new Date().setHours(0, 0, 0, 0), 0);
   const selectedRun = detail && runRows.find((r) => r.session_id === detail.sessionId);
-  const selectedJob = selectedRun?.job_key
-    ? jobRows.find((j) => j.key === selectedRun.job_key)
-    : undefined;
+  const selectedJob = selectedRun?.job_key ? jobRows.find((j) => j.key === selectedRun.job_key) : undefined;
 
   const inboxCount = useMemo(() => inboxItems(liveJobs).length, [liveJobs]);
   const fullView = useFullView();
@@ -303,7 +298,12 @@ export function LivePanel({
                   controls={
                     <>
                       <FullViewToggle {...fullView} />
-                      <Button render={<Link href={closeHref(view, jobView, showArchive)} scroll={false} />} variant="ghost" size="icon-sm" aria-label="Close run">
+                      <Button
+                        render={<Link href={closeHref(view, jobView, showArchive)} scroll={false} />}
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Close run"
+                      >
                         <XIcon />
                       </Button>
                     </>
@@ -338,7 +338,11 @@ export function LivePanel({
       <PanelFooter
         status={status}
         note={[`${active} active`, sandboxNote].filter(Boolean).join(" · ")}
-        summary={showArchive ? plural(shownCards.length, "archived job", "archived jobs") : footerSummary(view, { jobs: shownCards.length, sessions: unstaged.length, inbox: shownInbox })}
+        summary={
+          showArchive
+            ? plural(shownCards.length, "archived job", "archived jobs")
+            : footerSummary(view, { jobs: shownCards.length, sessions: unstaged.length, inbox: shownInbox })
+        }
         keys={
           fullView.full && (selectedRun || inboxOpen)
             ? FULL_VIEW_KEYS

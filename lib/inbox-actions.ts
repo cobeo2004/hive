@@ -112,7 +112,10 @@ export async function approveFromRunDetail(deps: InboxDeps, jobId: JobId, reques
 export type MergeTarget = { title: string; headSha: string; repo: string; mergeable: Mergeable };
 
 /** What run detail's merge dialog shows, read on the server through the App: null for a non-owner or a job with nothing to merge. */
-export async function mergeTarget(deps: Pick<InboxDeps, "db" | "user"> & { pulls: Pick<PullsClient, "pullRequest"> }, jobId: JobId): Promise<MergeTarget | null> {
+export async function mergeTarget(
+  deps: Pick<InboxDeps, "db" | "user"> & { pulls: Pick<PullsClient, "pullRequest"> },
+  jobId: JobId,
+): Promise<MergeTarget | null> {
   if (!isMember(await deps.user())) return null;
   const [job] = await deps.db.select().from(jobs).where(eq(jobs.id, jobId));
   if (!job || notMergeable(job)) return null;
@@ -153,7 +156,8 @@ export async function fileFollowUp(deps: InboxDeps, jobId: JobId, requestId: str
   const issue = followUpIssue(job, decision, text.data);
   const overrides = job.ticket_overrides;
   // A harness turned off since the original ran falls back to Settings rather than blocking the fix.
-  const provider = overrides?.provider && (await deps.newJob.harnesses())?.some((h) => h.id === overrides.provider && h.enabled) ? overrides.provider : undefined;
+  const provider =
+    overrides?.provider && (await deps.newJob.harnesses())?.some((h) => h.id === overrides.provider && h.enabled) ? overrides.provider : undefined;
   // The fix goes to main of the same repo; a repo disabled since then sends it to the default.
   const repo = (await deps.newJob.registry()).some((r) => r.repo === job.repo && r.enabled) ? job.repo : undefined;
   const filed = await createJob(deps.newJob, { ...issue, requestId, provider, execution: overrides?.execution, repo });
@@ -232,7 +236,10 @@ export async function retryFailed(deps: InboxDeps, jobId: JobId, requestId: stri
 export async function dismissJob(deps: InboxDeps, jobId: JobId): Promise<InboxOutcome> {
   const found = await ownerJob(deps, jobId, "dismiss");
   if (!found.ok) return found;
-  await deps.db.update(jobs).set({ dismissed_at: (deps.now ?? (() => new Date()))() }).where(eq(jobs.id, found.job.id));
+  await deps.db
+    .update(jobs)
+    .set({ dismissed_at: (deps.now ?? (() => new Date()))() })
+    .where(eq(jobs.id, found.job.id));
   return { ok: true, intentId: null };
 }
 
@@ -270,14 +277,18 @@ export function describeOutcome(kind: (typeof INBOX_INTENTS)[number], raw: strin
     case "close_job": {
       const c = result.close;
       if (!c) break;
-      return "closed" in c ? { status: "done", message: c.pr === "closed" ? "Closed the pull request and the job." : "Closed the job." } : { status: "failed", message: c.refused };
+      return "closed" in c
+        ? { status: "done", message: c.pr === "closed" ? "Closed the pull request and the job." : "Closed the job." }
+        : { status: "failed", message: c.refused };
     }
     case "answer":
       return { status: "done", message: "Answer sent. The job resumes." };
     case "retry_stop": {
       const r = result.retry;
       if (!r) break;
-      return "retried" in r ? { status: "done", message: "Interrupting the agent again; the job says when it stopped." } : { status: "failed", message: r.refused };
+      return "retried" in r
+        ? { status: "done", message: "Interrupting the agent again; the job says when it stopped." }
+        : { status: "failed", message: r.refused };
     }
     case "retry_job": {
       const a = result.attempt;

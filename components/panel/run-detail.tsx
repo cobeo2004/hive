@@ -283,8 +283,7 @@ export function RunDetail({
       {job && <StopBanner job={job} t3Href={stopThread ? t3ThreadLink(stopThread, environmentId) : null} />}
       {job?.nudged_at && job.nudged_stage === job.stage && (
         <div className="mx-4.5 mb-3.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs">
-          <span className="font-semibold text-warning">Stuck</span> · the
-          watchdog nudged this run at <Time date={job.nudged_at} /> in{" "}
+          <span className="font-semibold text-warning">Stuck</span> · the watchdog nudged this run at <Time date={job.nudged_at} /> in{" "}
           {STAGE_META[job.stage].label}. It fails if nothing moves.
         </div>
       )}
@@ -298,17 +297,13 @@ export function RunDetail({
       )}
       {job?.stage === "waiting" && job.question ? (
         <div className="mx-4.5 mb-3.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5">
-          <div className="text-xs font-semibold text-warning">
-            Question for you
-          </div>
+          <div className="text-xs font-semibold text-warning">Question for you</div>
           <p className="mt-1 whitespace-pre-wrap">{job.question}</p>
         </div>
       ) : null}
       {!job && run.stage === "waiting" && run.question && (
         <div className="mx-4.5 mb-3.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5">
-          <div className="text-xs font-semibold text-warning">
-            Question for you
-          </div>
+          <div className="text-xs font-semibold text-warning">Question for you</div>
           <p className="mt-1 whitespace-pre-wrap">{run.question}</p>
         </div>
       )}
@@ -318,9 +313,7 @@ export function RunDetail({
   );
   const timeline = (
     <section className="flex flex-col gap-2.5 px-4.5 py-3.5">
-      <h3 className="text-sm font-medium text-muted-foreground">
-        Timeline
-      </h3>
+      <h3 className="text-sm font-medium text-muted-foreground">Timeline</h3>
       <StageTimeline events={stageRows} />
     </section>
   );
@@ -329,16 +322,12 @@ export function RunDetail({
     <>
       <Separator />
       <section className="flex flex-col gap-2.5 px-4.5 py-3.5">
-        <h3 className="text-sm font-medium text-muted-foreground">
-          Agents · {agentRows.length}
-        </h3>
+        <h3 className="text-sm font-medium text-muted-foreground">Agents · {agentRows.length}</h3>
         <AgentTree run={run} agents={agentRows} />
       </section>
       <Separator />
       <section className="flex flex-col gap-2.5 px-4.5 py-3.5">
-        <h3 className="text-sm font-medium text-muted-foreground">
-          Live events
-        </h3>
+        <h3 className="text-sm font-medium text-muted-foreground">Live events</h3>
         <EventFeed events={eventRows} />
       </section>
     </>

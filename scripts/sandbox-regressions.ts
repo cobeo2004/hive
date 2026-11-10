@@ -42,7 +42,11 @@ fake.answer = (_sandbox, argv) => {
 };
 assert.equal(host.t3, "t3");
 assert.deepEqual(await host.run("echo", ["hi"], { input: "in", cwd: "/w", timeoutMs: 1_000 }), { stdout: "hi", stderr: "warn" });
-assert.deepEqual(box.execs.at(-1), { argv: ["echo", "hi"], params: { workdir: "/w", timeoutMs: 1_000 }, input: "in", closed: true }, "argv, workdir, timeout, and stdin written then closed");
+assert.deepEqual(
+  box.execs.at(-1),
+  { argv: ["echo", "hi"], params: { workdir: "/w", timeoutMs: 1_000 }, input: "in", closed: true },
+  "argv, workdir, timeout, and stdin written then closed",
+);
 await host.run("echo", []);
 assert.deepEqual([box.execs.at(-1)!.params, box.execs.at(-1)!.closed], [{}, true], "stdin is closed even without input");
 const failed = (await host.run("fail", ["x"]).catch((error: unknown) => error)) as ExecError;
@@ -108,7 +112,8 @@ assert.equal(parseVersion("claudeCode", "2.1.310 (Claude Code)"), "2.1.310");
 assert.equal(parseVersion("codex", "codex-cli 0.164.0"), "0.164.0");
 assert.equal(parseVersion("codex", "error: no such command"), null, "output without a version parses to none");
 assert.equal(parseVersion("playwrightMcp", "Version 0.0.83\n"), "0.0.83");
-const plugins = (enabled: boolean) => JSON.stringify([{ id: PSTACK_PLUGIN, version: "0.9.69", enabled, installPath: "/root/.claude/plugins/cache/pstack-claude/pstack/0.9.69" }]);
+const plugins = (enabled: boolean) =>
+  JSON.stringify([{ id: PSTACK_PLUGIN, version: "0.9.69", enabled, installPath: "/root/.claude/plugins/cache/pstack-claude/pstack/0.9.69" }]);
 assert.equal(enabledPstack(plugins(true))?.version, "0.9.69");
 assert.equal(enabledPstack(plugins(false)), null, "a disabled PStack does not count");
 assert.equal(enabledPstack("[]"), null);
@@ -116,12 +121,26 @@ assert.equal(enabledPstack("not json"), null);
 assert.equal(pinnedVersions(pins).pstack, `${pins.pstack.version}@${pins.pstack.commit.slice(0, 12)}`, "PStack is pinned by version and commit");
 assert.equal(imageProblem(image, pins), undefined, "an image built with every pin can launch");
 assert.match(imageProblem(null, pins)!, /no sandbox image is built/);
-for (const [component, name] of [["t3", "T3"], ["claudeCode", "Claude Code"], ["codex", "Codex"], ["playwrightMcp", "Playwright MCP"], ["pstack", "PStack"]] as const) {
+for (const [component, name] of [
+  ["t3", "T3"],
+  ["claudeCode", "Claude Code"],
+  ["codex", "Codex"],
+  ["playwrightMcp", "Playwright MCP"],
+  ["pstack", "PStack"],
+] as const) {
   const stale = { ...image, ...(component === "t3" && { t3Version: "0.0.1" }), versions: { ...image.versions, [component]: "0.0.1" } };
-  assert.equal(imageProblem(stale, pins), `Rebuild the sandbox image: ${name} 0.0.1 → ${pinnedVersions(pins)[component]}; the runner rebuilds it on its tick, or run bun scripts/sandbox-image.ts`, `a ${name} mismatch alone makes the image outdated`);
+  assert.equal(
+    imageProblem(stale, pins),
+    `Rebuild the sandbox image: ${name} 0.0.1 → ${pinnedVersions(pins)[component]}; the runner rebuilds it on its tick, or run bun scripts/sandbox-image.ts`,
+    `a ${name} mismatch alone makes the image outdated`,
+  );
 }
 const beforePins = { ...image, versions: undefined };
-assert.match(imageProblem(beforePins, pins)!, /^Rebuild the sandbox image: Claude Code missing → .+, Codex missing → .+, Playwright MCP missing → .+, PStack missing → .+;/, "an image built before the other pins is outdated");
+assert.match(
+  imageProblem(beforePins, pins)!,
+  /^Rebuild the sandbox image: Claude Code missing → .+, Codex missing → .+, Playwright MCP missing → .+, PStack missing → .+;/,
+  "an image built before the other pins is outdated",
+);
 
 let claudeToken: string | undefined;
 const slots = [slotA];
@@ -136,11 +155,24 @@ Object.assign(sandboxRuntime, {
   slotHealthPath: join(mkdtempSync(join(tmpdir(), "slot-health-")), "codex-slots.json"),
 });
 const claudeCode = { provider: "claudeAgent", model: "claude-opus-5-5" };
-const entry = (key: string, harness = claudeCode) => ({ key, sandbox_id: null, attempt: 1, source: "linear" as const, repo: "ski043/factory-demo", branch: `hive/${key}`, threadTitle: `${key} t`, message: `Work ${key}`, harness, ticket: null });
+const entry = (key: string, harness = claudeCode) => ({
+  key,
+  sandbox_id: null,
+  attempt: 1,
+  source: "linear" as const,
+  repo: "ski043/factory-demo",
+  branch: `hive/${key}`,
+  threadTitle: `${key} t`,
+  message: `Work ${key}`,
+  harness,
+  ticket: null,
+});
 const row = async (key: string) => (await db.select().from(jobs).where(eq(jobs.key, key)))[0]!;
 const ids = keys.map((k) => `sandbox-regress-${k}`);
 
-const committedWiring = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: 'bun "/Users/someone/marshal-factory/hooks/report.ts"' }] }] } });
+const committedWiring = JSON.stringify({
+  hooks: { Stop: [{ hooks: [{ type: "command", command: 'bun "/Users/someone/marshal-factory/hooks/report.ts"' }] }] },
+});
 let pstackListed = false;
 let start: Reply = { stdout: '{"threadId":"thread-1"}' };
 let clone: Reply = {};
@@ -173,7 +205,10 @@ try {
   assert.equal((await row(keys[0]!)).t3_thread_id, null, "nor with an outdated one");
   assert.deepEqual(events.at(-1), {
     event: "sandbox:no-image",
-    detail: { queued: [keys[0]], reason: `Rebuild the sandbox image: Claude Code 2.1.309 → ${pins.claudeCodeVersion}; the runner rebuilds it on its tick, or run bun scripts/sandbox-image.ts` },
+    detail: {
+      queued: [keys[0]],
+      reason: `Rebuild the sandbox image: Claude Code 2.1.309 → ${pins.claudeCodeVersion}; the runner rebuilds it on its tick, or run bun scripts/sandbox-image.ts`,
+    },
   });
   sandboxRuntime.image = () => image;
   assert.equal(fake.created, 0, "and no sandbox was created");
@@ -192,7 +227,10 @@ try {
   assert.deepEqual([a.execution, a.ticket_overrides], ["modal", ticket], "the job records where it runs and its ticket's overrides");
   const sbA = sandboxes.get(a.sandbox_id!)!;
   assert.deepEqual([a.t3_thread_id, a.codex_slot, a.provider, a.model], ["thread-1", slotA, "codex", "gpt-6-astra"]);
-  assert.ok(events.some((e) => e.event === "sandbox:harness-fallback" && e.detail.key === keys[0]), "the fallback is logged");
+  assert.ok(
+    events.some((e) => e.event === "sandbox:harness-fallback" && e.detail.key === keys[0]),
+    "the fallback is logged",
+  );
   assert.deepEqual(seenAtFirstExec[0], { sandbox_id: sbA.sandboxId, codex_slot: slotA }, "the sandbox and the slot are on the job before anything runs in it");
   assert.deepEqual(sbA.spec!.tags, { job: keys[0], attempt: "1", label: config.factory.label, machine: TEST_MACHINE_ID });
   assert.match(sbA.spec!.name, new RegExp(`^job-${keys[0]}-a1-[0-9a-z]+$`));
@@ -210,21 +248,40 @@ try {
     },
   });
   assert.equal(sbA.files.get("/root/.codex/auth.json"), `{"slot":"${slotA}"}`, "the slot's login");
-  assert.match(sbA.files.get("/root/.codex/config.toml")!, /\[mcp_servers\.factory-report\]\ncommand = "bun"\nargs = \["\/opt\/marshal-factory\/mcp\/factory-report\.ts"\]/);
+  assert.match(
+    sbA.files.get("/root/.codex/config.toml")!,
+    /\[mcp_servers\.factory-report\]\ncommand = "bun"\nargs = \["\/opt\/marshal-factory\/mcp\/factory-report\.ts"\]/,
+  );
   assert.ok(sbA.files.get("/root/.codex/config.toml")!.startsWith(imageCodexConfig), "the image's PStack plugin stays enabled for Codex");
   assert.ok(
-    sbA.files.get("/root/.codex/config.toml")!.includes(`env = { FACTORY_REPORTER = "mcp", FACTORY_JOB_KEY = "${keys[0]}", FACTORY_ATTEMPT = "1", FACTORY_REPO = "factory-demo" }`),
+    sbA.files
+      .get("/root/.codex/config.toml")!
+      .includes(`env = { FACTORY_REPORTER = "mcp", FACTORY_JOB_KEY = "${keys[0]}", FACTORY_ATTEMPT = "1", FACTORY_REPO = "factory-demo" }`),
     "Codex's report server posts for this job's attempt",
   );
-  assert.ok(events.some((e) => e.event === "sandbox:no-pstack" && e.detail.plugin === PSTACK_PLUGIN), "a sandbox whose claude lacks PStack is logged");
+  assert.ok(
+    events.some((e) => e.event === "sandbox:no-pstack" && e.detail.plugin === PSTACK_PLUGIN),
+    "a sandbox whose claude lacks PStack is logged",
+  );
   assert.equal(sbA.files.get("/root/.config/marshal-factory/github-token"), "ghs_fake_installation_token");
   assert.deepEqual(JSON.parse(sbA.files.get("/root/.config/marshal-factory/config.json")!), { ingestUrl: config.ingestUrl, secret: config.secret });
-  assert.match(sbA.files.get("/root/.claude/settings.json")!, /bun \\"\/opt\/marshal-factory\/hooks\/report\.ts\\"/, "user-level hooks point at the sandbox's factory");
+  assert.match(
+    sbA.files.get("/root/.claude/settings.json")!,
+    /bun \\"\/opt\/marshal-factory\/hooks\/report\.ts\\"/,
+    "user-level hooks point at the sandbox's factory",
+  );
   assert.doesNotMatch(sbA.files.get("/root/.claude/settings.json")!, /hooks\/budget\.ts/, "and wire no budget hook");
   assert.equal(JSON.parse(sbA.files.get("/root/.claude.json")!).mcpServers["factory-report"].args[0], "/opt/marshal-factory/mcp/factory-report.ts");
-  assert.deepEqual(JSON.parse(sbA.files.get("/root/.claude.json")!).mcpServers["factory-report"].env, { FACTORY_REPORTER: "hook" }, "Claude Code's hooks report its stages, so its server only validates");
+  assert.deepEqual(
+    JSON.parse(sbA.files.get("/root/.claude.json")!).mcpServers["factory-report"].env,
+    { FACTORY_REPORTER: "hook" },
+    "Claude Code's hooks report its stages, so its server only validates",
+  );
   assert.deepEqual(JSON.parse(sbA.files.get("/root/.claude.json")!).mcpServers.playwright, browserServer, "Claude Code gets the headless browser server");
-  assert.ok(sbA.files.get("/root/.codex/config.toml")!.includes(`[mcp_servers.playwright]\ncommand = "playwright-mcp"\nargs = ${JSON.stringify(browserServer.args)}\n`), "Codex gets the headless browser server");
+  assert.ok(
+    sbA.files.get("/root/.codex/config.toml")!.includes(`[mcp_servers.playwright]\ncommand = "playwright-mcp"\nargs = ${JSON.stringify(browserServer.args)}\n`),
+    "Codex gets the headless browser server",
+  );
   const argvs = sbA.execs.map((e) => e.argv.join(" "));
   for (const path of ["/root/.codex/auth.json", "/root/.config/marshal-factory/github-token", "/root/.config/marshal-factory/config.json"]) {
     assert.ok(argvs.includes(`chmod 600 ${path}`), `${path} is owner-only`);
@@ -233,9 +290,29 @@ try {
   assert.ok(argvs.includes(`git clone --quiet https://github.com/ski043/factory-demo.git ${REPO_DIR}`));
   assert.ok(argvs.includes("ln -sfn /opt/marshal-factory /Users/someone/marshal-factory"), "the committed wiring's factory path links to the sandbox's");
   const order = (needle: string) => argvs.findIndex((a) => a.includes(needle));
-  assert.ok(order("git clone") < order("t3 serve") && order("t3 serve") < order("t3 project add") && order("t3 project add") < order("t3 thread start"), "clone, serve, project, then the thread");
+  assert.ok(
+    order("git clone") < order("t3 serve") && order("t3 serve") < order("t3 project add") && order("t3 project add") < order("t3 thread start"),
+    "clone, serve, project, then the thread",
+  );
   const startExec = sbA.execs.find((e) => e.argv[2] === "start")!;
-  assert.deepEqual(startExec.argv, ["t3", "thread", "start", REPO_DIR, "-", "--worktree", "origin/main", "--branch", `hive/${keys[0]}`, "--title", `${keys[0]} t`, "--provider", "codex", "--model", "gpt-6-astra", "--json"]);
+  assert.deepEqual(startExec.argv, [
+    "t3",
+    "thread",
+    "start",
+    REPO_DIR,
+    "-",
+    "--worktree",
+    "origin/main",
+    "--branch",
+    `hive/${keys[0]}`,
+    "--title",
+    `${keys[0]} t`,
+    "--provider",
+    "codex",
+    "--model",
+    "gpt-6-astra",
+    "--json",
+  ]);
   assert.ok(startExec.input.startsWith(`Work ${keys[0]}\n\n## Factory playbook\n`), "the message, then the playbook the image holds");
 
   // The only slot is held now: the next job stays queued.
@@ -303,13 +380,22 @@ try {
   };
   const checkouts = new Map([["ski043/factory-demo", "/unused"]]);
   const recovered = await recoverPending(checkouts);
-  assert.deepEqual(recovered.find((r) => r.key === keys[3]), { key: keys[3], threadId: "thread-late" });
+  assert.deepEqual(
+    recovered.find((r) => r.key === keys[3]),
+    { key: keys[3], threadId: "thread-late" },
+  );
   assert.deepEqual([(await row(keys[3]!)).t3_thread_id, (await row(keys[3]!)).sandbox_id], ["thread-late", sbD.sandboxId], "bound in place");
 
   // A stale sandbox launch whose sandbox is gone has no thread: released, slot freed.
-  await db.update(jobs).set({ t3_thread_id: "pending:1", machine_id: TEST_MACHINE_ID, sandbox_id: "sb-vanished", codex_slot: `/tmp/slot-e-${stamp}` }).where(eq(jobs.key, keys[4]!));
+  await db
+    .update(jobs)
+    .set({ t3_thread_id: "pending:1", machine_id: TEST_MACHINE_ID, sandbox_id: "sb-vanished", codex_slot: `/tmp/slot-e-${stamp}` })
+    .where(eq(jobs.key, keys[4]!));
   const vanished = await recoverPending(checkouts);
-  assert.deepEqual(vanished.find((r) => r.key === keys[4]), { key: keys[4], threadId: null });
+  assert.deepEqual(
+    vanished.find((r) => r.key === keys[4]),
+    { key: keys[4], threadId: null },
+  );
   const e = await row(keys[4]!);
   assert.deepEqual([e.t3_thread_id, e.machine_id, e.sandbox_id, e.codex_slot], [null, null, null, null]);
 
@@ -318,7 +404,10 @@ try {
   sandboxes.set(sbF.sandboxId, sbF);
   fake.answer = () => ({ code: 1, stderr: "connection refused" });
   const staleMarker = `pending:${Date.now() - 20 * 60_000}`;
-  await db.update(jobs).set({ t3_thread_id: staleMarker, machine_id: TEST_MACHINE_ID, sandbox_id: sbF.sandboxId, codex_slot: `/tmp/slot-f-${stamp}` }).where(eq(jobs.key, keys[5]!));
+  await db
+    .update(jobs)
+    .set({ t3_thread_id: staleMarker, machine_id: TEST_MACHINE_ID, sandbox_id: sbF.sandboxId, codex_slot: `/tmp/slot-f-${stamp}` })
+    .where(eq(jobs.key, keys[5]!));
   const quiet = await recoverPending(checkouts);
   assert.equal(quiet.find((r) => r.key === keys[5])?.retry, "next pass");
   assert.equal((await row(keys[5]!)).t3_thread_id, staleMarker);
@@ -332,8 +421,14 @@ try {
   assert.equal(sbF.terminated, true);
 
   // A fresh marker is left alone, whatever its sandbox says.
-  await db.update(jobs).set({ t3_thread_id: `pending:${Date.now()}`, machine_id: TEST_MACHINE_ID, sandbox_id: "sb-vanished" }).where(eq(jobs.key, keys[4]!));
-  assert.equal((await recoverPending(checkouts)).find((r) => r.key === keys[4]), undefined);
+  await db
+    .update(jobs)
+    .set({ t3_thread_id: `pending:${Date.now()}`, machine_id: TEST_MACHINE_ID, sandbox_id: "sb-vanished" })
+    .where(eq(jobs.key, keys[4]!));
+  assert.equal(
+    (await recoverPending(checkouts)).find((r) => r.key === keys[4]),
+    undefined,
+  );
   await db.update(jobs).set({ t3_thread_id: null, machine_id: null, sandbox_id: null }).where(eq(jobs.key, keys[4]!));
 
   // The execution setting: local unless saved otherwise.
@@ -351,7 +446,12 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
-  await db.delete(jobs).where(inArray(jobs.id, ids.map((id) => jobId("linear", id))));
+  await db.delete(jobs).where(
+    inArray(
+      jobs.id,
+      ids.map((id) => jobId("linear", id)),
+    ),
+  );
   await db.delete(settings).where(eq(settings.id, SETTINGS_ID));
   if (original) await db.insert(settings).values(original);
   process.exit(process.exitCode ?? 0);

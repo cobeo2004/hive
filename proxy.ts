@@ -11,16 +11,15 @@ export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const api = path.startsWith("/api/");
   if (!user) {
-    return api
-      ? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-      : NextResponse.redirect(new URL(LOGIN, request.url));
+    return api ? NextResponse.json({ error: "Unauthorized" }, { status: 401 }) : NextResponse.redirect(new URL(LOGIN, request.url));
   }
+  const setupPath = path === SETUP || path.startsWith(`${SETUP}/`) || path.startsWith(`${SETUP}.`);
   if (user.twoFactorEnabled !== true || !user.setupDoneAt) {
-    if (path === SETUP || path.startsWith(`${SETUP}/`) || path.startsWith(`${SETUP}.`)) return NextResponse.next();
-    return api
-      ? NextResponse.json({ error: "Finish setup first" }, { status: 403 })
-      : NextResponse.redirect(new URL(SETUP, request.url));
+    if (setupPath) return NextResponse.next();
+    return api ? NextResponse.json({ error: "Finish setup first" }, { status: 403 }) : NextResponse.redirect(new URL(SETUP, request.url));
   }
+  // A finished user has no setup left to do.
+  if (setupPath) return NextResponse.redirect(new URL("/", request.url));
   return NextResponse.next();
 }
 
@@ -28,5 +27,7 @@ export async function proxy(request: NextRequest) {
 // The link pages check their token on the server. The public paths have no session: ingest checks its Bearer
 // secret, webhooks and Slack their signatures.
 export const config = {
-  matcher: ["/((?!(?:auth/sign-in|auth/setup|auth/accept|auth/reset|auth/forbidden|api/auth|api/slack|api/ingest|api/webhooks|_next/static|_next/image|favicon\\.ico)(?:/|$|\\.rsc$|\\.segments/)).*)"],
+  matcher: [
+    "/((?!(?:auth/sign-in|auth/setup|auth/accept|auth/reset|auth/forbidden|api/auth|api/slack|api/ingest|api/webhooks|_next/static|_next/image|favicon\\.ico)(?:/|$|\\.rsc$|\\.segments/)).*)",
+  ],
 };

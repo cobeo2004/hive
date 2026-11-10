@@ -34,8 +34,7 @@ type HookInput = Record<string, unknown> & {
   agent_type?: string;
 };
 
-const str = (value: unknown) =>
-  typeof value === "string" && value !== "" ? value : undefined;
+const str = (value: unknown) => (typeof value === "string" && value !== "" ? value : undefined);
 
 const SETTLE_POLL_MS = 250;
 const SETTLE_TRIES = 12;
@@ -70,9 +69,7 @@ async function gitContext(cwd: string) {
   const [branch, toplevel, commonDir] = await Promise.all([
     sh("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"]).catch(() => undefined),
     sh("git", ["-C", cwd, "rev-parse", "--show-toplevel"]).catch(() => undefined),
-    sh("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"]).catch(
-      () => undefined,
-    ),
+    sh("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"]).catch(() => undefined),
   ]);
   // A T3 worktree lives outside the project folder; the shared .git dir points back to it.
   const mainRoot = commonDir ? dirname(commonDir) : toplevel;
@@ -82,32 +79,21 @@ async function gitContext(cwd: string) {
 type T3Thread = { threadId: string; title?: string; status?: string };
 
 /** The running thread whose worktree is this session's directory; omitted when T3 can't say. */
-async function findT3Thread(
-  cwd: string,
-  { toplevel, mainRoot }: { toplevel?: string; mainRoot?: string },
-) {
+async function findT3Thread(cwd: string, { toplevel, mainRoot }: { toplevel?: string; mainRoot?: string }) {
   try {
-    const list = JSON.parse(
-      await sh(T3, ["thread", "list", "--project", mainRoot ?? cwd, "--json"]),
-    ) as T3Thread[];
+    const list = JSON.parse(await sh(T3, ["thread", "list", "--project", mainRoot ?? cwd, "--json"])) as T3Thread[];
     const running = list.filter((thread) => thread.status === "running");
     const shown = await Promise.all(
       running.map(async (thread) => {
         try {
-          const detail = JSON.parse(
-            await sh(T3, ["thread", "show", thread.threadId, "--json"]),
-          ) as { thread?: { worktreePath?: string | null } };
+          const detail = JSON.parse(await sh(T3, ["thread", "show", thread.threadId, "--json"])) as { thread?: { worktreePath?: string | null } };
           return { thread, worktreePath: detail.thread?.worktreePath ?? undefined };
         } catch {
           return undefined;
         }
       }),
     );
-    const withTree = shown.find(
-      (entry) =>
-        entry?.worktreePath !== undefined &&
-        (entry.worktreePath === cwd || entry.worktreePath === toplevel),
-    );
+    const withTree = shown.find((entry) => entry?.worktreePath !== undefined && (entry.worktreePath === cwd || entry.worktreePath === toplevel));
     // Threads that run in the project folder have no worktree; only an unambiguous one counts.
     const local = shown.filter((entry) => entry && entry.worktreePath === undefined);
     const match = withTree ?? (local.length === 1 ? local[0] : undefined);
@@ -194,7 +180,9 @@ async function toEvent(
         const stage: FactoryEvent = { ...base, kind: "stage", ...report.data, jobKey, branch: git.branch };
         const refs = report.data.assessment?.screenshots ?? [];
         // The images go first, so the panel never shows an assessment whose screenshots haven't arrived.
-        return jobKey && refs.length > 0 ? [...screenshotEvents(refs, { jobKey, stageEventId: base.eventId, sessionId: base.sessionId, at: base.at }), stage] : stage;
+        return jobKey && refs.length > 0
+          ? [...screenshotEvents(refs, { jobKey, stageEventId: base.eventId, sessionId: base.sessionId, at: base.at }), stage]
+          : stage;
       }
       const agentId = str(input.tool_response?.agentId);
       if (input.tool_name === "Agent" && input.tool_use_id && agentId) {
@@ -235,9 +223,7 @@ async function main() {
   const sessionId = str(input.session_id);
   if (!readIngestTarget() || !sessionId) return;
 
-  const eventId = createHash("sha256")
-    .update(`${input.hook_event_name}\n${raw}`)
-    .digest("hex");
+  const eventId = createHash("sha256").update(`${input.hook_event_name}\n${raw}`).digest("hex");
   const event = await toEvent(input, {
     eventId,
     sessionId,

@@ -19,7 +19,17 @@ import {
   type InboxOutcome,
 } from "@/lib/inbox-actions";
 import { mergeDecisionSchema } from "@/lib/merge-decision";
-import { ITEM_BLOCK_PREFIX, notifyEvents, PENDING_LABELS, redact, renderMessage, slackAction, SLACK_ACTION_IDS, type MessageFacts, type NotifyEvent } from "@/lib/slack";
+import {
+  ITEM_BLOCK_PREFIX,
+  notifyEvents,
+  PENDING_LABELS,
+  redact,
+  renderMessage,
+  slackAction,
+  SLACK_ACTION_IDS,
+  type MessageFacts,
+  type NotifyEvent,
+} from "@/lib/slack";
 import type { SlackClient } from "@/lib/slack-api";
 import { NEW_JOB_CALLBACK_ID, newJobSubmitted, sendToFactory, shortcutSchema } from "@/lib/slack-new-job";
 import { ephemeral, invalidSignature, NO_TOKEN, NOT_MEMBER, parseJson, safeMessage, signedBody, uuidFrom } from "@/lib/slack-request";
@@ -74,7 +84,10 @@ async function nextRequestId(deps: InteractionDeps, eventId: string, action: Inb
   if (!(action in INTENT_KINDS)) return id;
   const kind = INTENT_KINDS[action as keyof typeof INTENT_KINDS];
   for (;;) {
-    const [intent] = await deps.inbox.db.select().from(intents).where(eq(intents.id, `panel:${kind}:${id}`));
+    const [intent] = await deps.inbox.db
+      .select()
+      .from(intents)
+      .where(eq(intents.id, `panel:${kind}:${id}`));
     if (!intent?.handled_at || describeOutcome(kind, intent.result).status !== "failed") return id;
     id = slackRequestId(eventId, action, id);
   }
@@ -104,9 +117,23 @@ function modalCopy(action: ModalAction, job: JobRow): ModalCopy {
   const title = MODAL_TITLES[action];
   switch (action) {
     case "answer":
-      return { title, label: "Your answer", hint: "Posted on the issue as your reply; the agent resumes with it.", submit: "Send answer", optional: false, max: MAX_FEEDBACK_CHARS };
+      return {
+        title,
+        label: "Your answer",
+        hint: "Posted on the issue as your reply; the agent resumes with it.",
+        submit: "Send answer",
+        optional: false,
+        max: MAX_FEEDBACK_CHARS,
+      };
     case "request_changes":
-      return { title, label: "What should change", hint: "Sent to the agent, which updates the same branch and PR.", submit: "Request changes", optional: false, max: MAX_FEEDBACK_CHARS };
+      return {
+        title,
+        label: "What should change",
+        hint: "Sent to the agent, which updates the same branch and PR.",
+        submit: "Request changes",
+        optional: false,
+        max: MAX_FEEDBACK_CHARS,
+      };
     case "follow_up":
       return {
         title,

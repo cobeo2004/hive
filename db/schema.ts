@@ -32,11 +32,7 @@ import type { TicketRecord } from "../lib/ticket-overrides";
 
 export const runStatus = pgEnum("run_status", ["active", "idle", "ended"]);
 export const runStage = pgEnum("run_stage", STAGES);
-export const agentStatus = pgEnum("agent_status", [
-  "running",
-  "completed",
-  "failed",
-]);
+export const agentStatus = pgEnum("agent_status", ["running", "completed", "failed"]);
 
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -44,9 +40,7 @@ const tokens = () => ({
   input_tokens: doublePrecision("input_tokens").notNull().default(0),
   output_tokens: doublePrecision("output_tokens").notNull().default(0),
   cache_read_tokens: doublePrecision("cache_read_tokens").notNull().default(0),
-  cache_write_tokens: doublePrecision("cache_write_tokens")
-    .notNull()
-    .default(0),
+  cache_write_tokens: doublePrecision("cache_write_tokens").notNull().default(0),
 });
 
 export const events = pgTable(
@@ -62,10 +56,7 @@ export const events = pgTable(
     /** Why ingest refused this stage event; null when the job and the run took it. */
     refusal: text("refusal"),
   },
-  (t) => [
-    index("events_session_at_idx").on(t.session_id, t.at),
-    index("events_job_key_idx").on(t.job_key),
-  ],
+  (t) => [index("events_session_at_idx").on(t.session_id, t.at), index("events_job_key_idx").on(t.job_key)],
 );
 
 export const runs = pgTable(
@@ -438,7 +429,18 @@ export const repoSettings = pgTable(
   ],
 );
 
-export const auditAction = pgEnum("audit_action", ["merge_requested", "merge_succeeded", "merge_failed", "sandbox_login_failed", "merge_decided", "override_fallback", "follow_up_filed", "review_dropped", "job_archived", "job_unarchived"]);
+export const auditAction = pgEnum("audit_action", [
+  "merge_requested",
+  "merge_succeeded",
+  "merge_failed",
+  "sandbox_login_failed",
+  "merge_decided",
+  "override_fallback",
+  "follow_up_filed",
+  "review_dropped",
+  "job_archived",
+  "job_unarchived",
+]);
 export const auditResult = pgEnum("audit_result", ["ok", "head_moved", "not_mergeable", "refused", "error"]);
 
 /** Who asked the factory to change something outside it, and what happened. */
@@ -506,7 +508,9 @@ export const session = pgTable(
     updatedAt: ts("updated_at").notNull().defaultNow(),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
-    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
     impersonatedBy: text("impersonated_by"),
   },
   (t) => [index("session_user_id_idx").on(t.userId)],
@@ -518,7 +522,9 @@ export const account = pgTable(
     id: text("id").primaryKey(),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
-    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
     accessToken: text("access_token"),
     refreshToken: text("refresh_token"),
     idToken: text("id_token"),
@@ -551,7 +557,9 @@ export const twoFactor = pgTable(
     id: text("id").primaryKey(),
     secret: text("secret").notNull(),
     backupCodes: text("backup_codes").notNull(),
-    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
     verified: boolean("verified").default(true),
     failedVerificationCount: integer("failed_verification_count").default(0),
     lockedUntil: ts("locked_until"),

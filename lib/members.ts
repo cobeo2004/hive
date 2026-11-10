@@ -79,12 +79,26 @@ export async function createMemberResetLink(deps: MembersDeps, email: string): P
   }
 }
 
+/** Saves the signed-in user's own name (R5); trimmed, 1 to 80 characters, and no one else's row. */
+export async function saveOwnName(deps: MembersDeps, name: string): Promise<{ ok: true; name: string } | Refused> {
+  const actor = await deps.user();
+  if (!actor) return { ok: false, status: 403, message: "Sign in to Hive first." };
+  const trimmed = name.trim();
+  if (trimmed.length < 1 || trimmed.length > 80) return { ok: false, status: 400, message: "A name is 1 to 80 characters." };
+  const updated = await db.update(user).set({ name: trimmed, updatedAt: new Date() }).where(eq(user.email, actor.email)).returning({ id: user.id });
+  if (updated.length === 0) return { ok: false, status: 400, message: "No such member." };
+  return { ok: true, name: trimmed };
+}
+
 /** Ends /setup for the signed-in user once TOTP is on (R33). */
 export async function finishSetup(deps: MembersDeps): Promise<{ ok: true } | Refused> {
   const actor = await deps.user();
   if (!actor) return { ok: false, status: 403, message: "Sign in to Hive first." };
   // Not isMember: that needs setup done, which is what this sets.
   if (actor.twoFactorEnabled !== true) return { ok: false, status: 400, message: "Turn on two-factor authentication first." };
-  await db.update(user).set({ setupDoneAt: new Date() }).where(and(eq(user.email, actor.email), eq(user.twoFactorEnabled, true)));
+  await db
+    .update(user)
+    .set({ setupDoneAt: new Date() })
+    .where(and(eq(user.email, actor.email), eq(user.twoFactorEnabled, true)));
   return { ok: true };
 }

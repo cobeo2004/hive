@@ -15,14 +15,17 @@ import { message, withTimeout } from "./queue";
 
 const run = promisify(execFile);
 const RUNNER_DIR = join(import.meta.dirname, "..");
-const text = async (cmd: string, args: string[], cwd?: string) =>
-  (await run(cmd, args, { cwd, timeout: 5_000, maxBuffer: 1024 * 1024 })).stdout;
+const text = async (cmd: string, args: string[], cwd?: string) => (await run(cmd, args, { cwd, timeout: 5_000, maxBuffer: 1024 * 1024 })).stdout;
 
 export type Machine = { id: string; name: string; idFrom: "config" | "ioreg" | "hostname" };
 
 /** Falls back to the host name when ioreg fails, so the runner starts instead of crash-looping under launchd. */
 export async function identify(override?: string): Promise<Machine> {
-  const name = (await text("scutil", ["--get", "ComputerName"]).then((out) => out.trim(), () => "")) || hostname();
+  const name =
+    (await text("scutil", ["--get", "ComputerName"]).then(
+      (out) => out.trim(),
+      () => "",
+    )) || hostname();
   if (override) return { id: override, name, idFrom: "config" };
   const uuid = await text("ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"]).then(
     (out) => /"IOPlatformUUID" = "([^"]+)"/.exec(out)?.[1],
@@ -98,7 +101,10 @@ export function inventoryCollectors(): InventoryCollectors {
       Promise.all(
         factory.repos.map(async (path) => ({
           path,
-          origin: await text("git", ["-C", path, "remote", "get-url", "origin"]).then((url) => parseOrigin(url) ?? UNKNOWN, () => UNKNOWN),
+          origin: await text("git", ["-C", path, "remote", "get-url", "origin"]).then(
+            (url) => parseOrigin(url) ?? UNKNOWN,
+            () => UNKNOWN,
+          ),
         })),
       ),
     harnesses: async () => readHarnesses(),
@@ -132,11 +138,7 @@ export async function writeHeartbeat(machine: Machine, heartbeat: Heartbeat, now
 }
 
 export async function writeInventory(machineId: string, inventory: Inventory, now: Date) {
-  const updated = await db
-    .update(machines)
-    .set({ inventory, inventory_at: now })
-    .where(eq(machines.id, machineId))
-    .returning({ id: machines.id });
+  const updated = await db.update(machines).set({ inventory, inventory_at: now }).where(eq(machines.id, machineId)).returning({ id: machines.id });
   return updated.length > 0;
 }
 
@@ -182,7 +184,12 @@ export function createBeat({
     const started = now();
     const heartbeat = await collectHeartbeat(heartbeatCollectors);
     await writeHeartbeat(machine, heartbeat, new Date(now()));
-    log("heartbeat", { ms: now() - started, unknown: Object.entries(heartbeat).filter(([, v]) => v === UNKNOWN).map(([k]) => k) });
+    log("heartbeat", {
+      ms: now() - started,
+      unknown: Object.entries(heartbeat)
+        .filter(([, v]) => v === UNKNOWN)
+        .map(([k]) => k),
+    });
     if (!withInventory || (inventoryAt !== undefined && now() - inventoryAt < inventoryMs)) return;
     const collectedAt = now();
     const asked = freshAsked;
@@ -206,7 +213,11 @@ export function createBeat({
     }
     running = true;
     try {
-      await withTimeout(() => beatOnce(withInventory), timeoutMs, (error) => log("heartbeat:late-error", { error: message(error) }));
+      await withTimeout(
+        () => beatOnce(withInventory),
+        timeoutMs,
+        (error) => log("heartbeat:late-error", { error: message(error) }),
+      );
     } catch (error) {
       log("heartbeat:error", { error: message(error) });
     } finally {

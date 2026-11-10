@@ -20,7 +20,11 @@ assert.equal(factoryPlaybook("local"), join(root, "playbooks/factory.md"));
 assert.ok(existsSync(factoryPlaybook("local")), "the local path is a file the runner's thread can open");
 const none = { sandbox_id: null, sandbox_snapshot: null };
 assert.equal(jobExecution({ execution: "modal", ...none }), "modal");
-assert.equal(jobExecution({ execution: null, sandbox_id: null, sandbox_snapshot: "im-snap" }), "modal", "a hibernated job without a recorded execution ran in a sandbox");
+assert.equal(
+  jobExecution({ execution: null, sandbox_id: null, sandbox_snapshot: "im-snap" }),
+  "modal",
+  "a hibernated job without a recorded execution ran in a sandbox",
+);
 assert.equal(jobExecution({ execution: null, ...none }), "local");
 
 // The launch message names the host's path, and a repo copy only adds notes.
@@ -41,9 +45,16 @@ for (const execution of ["modal", "local"] as const) {
   assert.ok(bare.startsWith("Work FAC-1: Title\n\n## Factory playbook\n"), `${execution}: the section follows the message`);
   assert.ok(bare.includes(`The factory playbook is ${path}.`), `${execution}: names ${path}`);
   assert.ok(!bare.includes(REPO_PLAYBOOK), `${execution}: a repo without a copy hears nothing about one`);
-  assert.deepEqual(calls, [["git", "-C", "/work/repo", "cat-file", "-e", `origin/main:${REPO_PLAYBOOK}`]], `${execution}: the copy is looked up on main in the job's checkout`);
+  assert.deepEqual(
+    calls,
+    [["git", "-C", "/work/repo", "cat-file", "-e", `origin/main:${REPO_PLAYBOOK}`]],
+    `${execution}: the copy is looked up on main in the job's checkout`,
+  );
   const withCopy = await withPlaybook("Work FAC-1: Title", execution, host(true), "/work/repo");
-  assert.ok(withCopy.includes(`This repository also has ${REPO_PLAYBOOK}. The factory playbook at ${path} is authoritative`), `${execution}: the factory playbook wins over a repo copy`);
+  assert.ok(
+    withCopy.includes(`This repository also has ${REPO_PLAYBOOK}. The factory playbook at ${path} is authoritative`),
+    `${execution}: the factory playbook wins over a repo copy`,
+  );
   assert.ok(withCopy.includes("only for notes specific to this repository"));
 }
 
@@ -64,7 +75,8 @@ const files = new Map<string, string>();
 const fs = { writeText: async (text: string, path: string) => void files.set(path, text), readText: async (path: string) => files.get(path)! };
 const version = await installPlaybooks(fs);
 assert.deepEqual([...files.keys()], [`${SANDBOX_PLAYBOOKS}/factory.md`, `${SANDBOX_PLAYBOOKS}/onboarding.md`]);
-for (const file of ["factory.md", "onboarding.md"]) assert.equal(files.get(`${SANDBOX_PLAYBOOKS}/${file}`), readFileSync(join(root, "playbooks", file), "utf8"), `${file} is copied as is`);
+for (const file of ["factory.md", "onboarding.md"])
+  assert.equal(files.get(`${SANDBOX_PLAYBOOKS}/${file}`), readFileSync(join(root, "playbooks", file), "utf8"), `${file} is copied as is`);
 assert.match(version, /^[0-9a-f]{12}$/);
 assert.equal(version, pinnedVersions(pins).playbooks, "the image's playbooks match the runner's pin");
 const garbled = { ...fs, readText: async (path: string) => `${files.get(path)!} ` };
@@ -76,13 +88,27 @@ assert.equal(imageProblem(image, pins), undefined);
 const edited = playbooksVersion((file) => `${readFileSync(join(root, "playbooks", file), "utf8")}\nOne more rule.`);
 assert.notEqual(edited, version, "an edit changes the version");
 const older = { ...image, versions: { ...image.versions, playbooks: edited } };
-assert.equal(imageProblem(older, pins), `Rebuild the sandbox image: Factory playbooks ${edited} → ${version}; the runner rebuilds it on its tick, or run bun scripts/sandbox-image.ts`);
-assert.match(imageProblem({ ...image, versions: { ...image.versions, playbooks: undefined } }, pins)!, /^Rebuild the sandbox image: Factory playbooks missing → /, "an image from before the playbooks shipped is outdated");
+assert.equal(
+  imageProblem(older, pins),
+  `Rebuild the sandbox image: Factory playbooks ${edited} → ${version}; the runner rebuilds it on its tick, or run bun scripts/sandbox-image.ts`,
+);
+assert.match(
+  imageProblem({ ...image, versions: { ...image.versions, playbooks: undefined } }, pins)!,
+  /^Rebuild the sandbox image: Factory playbooks missing → /,
+  "an image from before the playbooks shipped is outdated",
+);
 
 // What the playbook points at still resolves from outside the repo.
 const playbook = readFileSync(join(root, "playbooks/factory.md"), "utf8");
-assert.match(playbook, /^---\nextends: bug-fix, feature, opening-a-pr, babysit\n/, "it extends PStack's bundled playbooks, which the image and the runner have");
-assert.ok(playbook.includes("`factory-verify`") && playbook.includes("hooks/verify.ts"), "it names factory-verify by PATH and by the factory root, not by a repo path");
+assert.match(
+  playbook,
+  /^---\nextends: bug-fix, feature, opening-a-pr, babysit\n/,
+  "it extends PStack's bundled playbooks, which the image and the runner have",
+);
+assert.ok(
+  playbook.includes("`factory-verify`") && playbook.includes("hooks/verify.ts"),
+  "it names factory-verify by PATH and by the factory root, not by a repo path",
+);
 assert.ok(!playbook.includes(REPO_PLAYBOOK), "it never names a repo copy as its own location");
 
 console.log("playbook regressions passed");

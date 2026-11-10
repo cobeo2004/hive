@@ -9,8 +9,7 @@ import { json, withHooks, withServer, type Json } from "../lib/target-wiring";
 
 const root = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
-const readJson = (path: string): Json =>
-  existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Json) : {};
+const readJson = (path: string): Json => (existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Json) : {});
 
 function write(path: string, content: string) {
   if (existsSync(path) && readFileSync(path, "utf8") === content) {
@@ -46,15 +45,10 @@ const settingsPath = join(target, ".claude/settings.json");
 write(settingsPath, json(withHooks(readJson(settingsPath), root)));
 const mcpPath = join(target, ".mcp.json");
 write(mcpPath, json(withServer(readJson(mcpPath), root)));
-write(
-  join(target, ".agents/playbooks/factory.md"),
-  readFileSync(join(root, "playbooks/factory.md"), "utf8"),
-);
+write(join(target, ".agents/playbooks/factory.md"), readFileSync(join(root, "playbooks/factory.md"), "utf8"));
 
 // Claude Code puts isolated subagents in .claude/worktrees/; linting them breaks the repo's lint.
-const eslintConfig = ["eslint.config.mjs", "eslint.config.js", "eslint.config.ts"]
-  .map((name) => join(target, name))
-  .find(existsSync);
+const eslintConfig = ["eslint.config.mjs", "eslint.config.js", "eslint.config.ts"].map((name) => join(target, name)).find(existsSync);
 if (eslintConfig) {
   const text = readFileSync(eslintConfig, "utf8");
   if (text.includes(".claude/")) console.log(`unchanged ${eslintConfig}`);

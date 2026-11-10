@@ -33,7 +33,13 @@ async function Panel({ searchParams }: { searchParams: Promise<Record<string, st
 
 export default function RepositoriesPage(props: PageProps<"/repositories">) {
   return (
-    <Suspense fallback={<PageSkeleton title="Repositories"><RowsSkeleton /></PageSkeleton>}>
+    <Suspense
+      fallback={
+        <PageSkeleton title="Repositories">
+          <RowsSkeleton />
+        </PageSkeleton>
+      }
+    >
       <Panel searchParams={props.searchParams} />
     </Suspense>
   );
