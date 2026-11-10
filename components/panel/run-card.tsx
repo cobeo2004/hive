@@ -25,7 +25,15 @@ const cardClass = (selected: boolean) =>
 
 /** What the given runs cost, their subagents included. */
 const attemptCost = (runs: readonly RunRow[], agents: readonly AgentRow[]) =>
-  runs.reduce((sum, run) => sum + runCost(run, agents.filter((a) => a.session_id === run.session_id)), 0);
+  runs.reduce(
+    (sum, run) =>
+      sum +
+      runCost(
+        run,
+        agents.filter((a) => a.session_id === run.session_id),
+      ),
+    0,
+  );
 
 function AgentsAndCost({
   runs,
@@ -43,11 +51,7 @@ function AgentsAndCost({
   const total = allRuns && allRuns.length !== runs.length ? costOf(allRuns) : undefined;
   return (
     <>
-      {agents.length > 0 && (
-        <span>
-          {running > 0 ? `${running}/${agents.length}` : agents.length} agents
-        </span>
-      )}
+      {agents.length > 0 && <span>{running > 0 ? `${running}/${agents.length}` : agents.length} agents</span>}
       <span className="font-mono" title={total !== undefined ? "spend of this attempt" : undefined}>
         {formatUsd(cost)}
       </span>
@@ -103,7 +107,10 @@ const STOP_TONE: Record<StopView["kind"], string> = {
 /** Where the job's stop is; an unconfirmed one links to its thread in T3 when the card knows the link. */
 export function StopLine({ view, t3Href }: { view: StopView; t3Href?: string }) {
   return (
-    <p className={cn("flex flex-wrap items-center gap-x-1.5 text-xs", STOP_TONE[view.kind])} title={view.kind === "stopping" ? undefined : view.kind === "confirmed" ? view.evidence : view.reason}>
+    <p
+      className={cn("flex flex-wrap items-center gap-x-1.5 text-xs", STOP_TONE[view.kind])}
+      title={view.kind === "stopping" ? undefined : view.kind === "confirmed" ? view.evidence : view.reason}
+    >
       {view.kind === "stopping" && <Spinner className="size-2.5" />}
       {stopLine(view)}
       {view.kind === "unconfirmed" && t3Href && (
@@ -181,21 +188,9 @@ export function StageCard({
   );
 }
 
-export function RunCard({
-  run,
-  agents,
-  selected,
-}: {
-  run: RunRow;
-  agents: readonly AgentRow[];
-  selected: boolean;
-}) {
+export function RunCard({ run, agents, selected }: { run: RunRow; agents: readonly AgentRow[]; selected: boolean }) {
   return (
-    <Link
-      href={activityHref(run.session_id)}
-      scroll={false}
-      className={cn(cardClass(selected), run.status === "ended" && "opacity-60")}
-    >
+    <Link href={activityHref(run.session_id)} scroll={false} className={cn(cardClass(selected), run.status === "ended" && "opacity-60")}>
       <div className="flex items-center gap-1.5 font-mono text-xs text-faint">
         {run.status === "active" && <Spinner className="size-2.5" />}
         {run.job_key ?? shortId(run.session_id)}

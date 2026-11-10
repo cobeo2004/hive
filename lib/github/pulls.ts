@@ -47,8 +47,7 @@ const pullSchema = z.object({
 const stateOf = (pull: z.infer<typeof pullSchema>): PullState => (pull.merged_at ? "merged" : pull.state);
 
 /** GitHub answers `mergeable: null` while it computes mergeability in the background. */
-const mergeableOf = (mergeable: boolean | null): Mergeable =>
-  mergeable === null ? "unknown" : mergeable ? "mergeable" : "conflicting";
+const mergeableOf = (mergeable: boolean | null): Mergeable => (mergeable === null ? "unknown" : mergeable ? "mergeable" : "conflicting");
 
 const messageOf = (json: unknown) => z.object({ message: z.string() }).safeParse(json).data?.message ?? "";
 
@@ -100,13 +99,17 @@ export function checkStateOf(
   noCi?: NoCiFacts,
 ): { checks: CheckState; bugbot: BugbotReview } {
   const others = runs.filter((run) => !isBugbot(run));
-  const states: CheckState[] = others.map((run) =>
-    run.status !== "completed" ? "pending" : PASSING.has(run.conclusion ?? "") ? "success" : "failure",
-  );
+  const states: CheckState[] = others.map((run) => (run.status !== "completed" ? "pending" : PASSING.has(run.conclusion ?? "") ? "success" : "failure"));
   if (status.total_count > 0) states.push(status.state === "success" ? "success" : status.state === "pending" ? "pending" : "failure");
   if (!complete) states.push("pending");
   const unreported = states.length === 0 && noCi !== undefined && noCi.required.length === 0 && noCi.now - noCi.pushedAt >= noCi.graceMs;
-  const checks: CheckState = states.includes("failure") ? "failure" : unreported ? "none" : states.length === 0 || states.includes("pending") ? "pending" : "success";
+  const checks: CheckState = states.includes("failure")
+    ? "failure"
+    : unreported
+      ? "none"
+      : states.length === 0 || states.includes("pending")
+        ? "pending"
+        : "success";
   return { checks, bugbot: bugbotReviewOf(runs) };
 }
 
@@ -116,7 +119,12 @@ const nothingReported = (report: { runs: readonly CheckRun[]; status: { total_co
 
 const branchProtectionSchema = z.object({
   protection: z
-    .object({ required_status_checks: z.object({ contexts: z.array(z.string()).default([]), checks: z.array(z.object({ context: z.string() })).default([]) }).nullable().optional() })
+    .object({
+      required_status_checks: z
+        .object({ contexts: z.array(z.string()).default([]), checks: z.array(z.object({ context: z.string() })).default([]) })
+        .nullable()
+        .optional(),
+    })
     .optional(),
 });
 const branchRulesSchema = z.array(
@@ -126,7 +134,9 @@ const branchRulesSchema = z.array(
 /** The status checks a branch's protection and its rulesets require, from what the App may read. */
 export function requiredChecksOf(protection: unknown, rules: unknown): string[] {
   const required = branchProtectionSchema.safeParse(protection).data?.protection?.required_status_checks;
-  const fromRules = (branchRulesSchema.safeParse(rules).data ?? []).filter((r) => r.type === "required_status_checks").flatMap((r) => r.parameters?.required_status_checks ?? []);
+  const fromRules = (branchRulesSchema.safeParse(rules).data ?? [])
+    .filter((r) => r.type === "required_status_checks")
+    .flatMap((r) => r.parameters?.required_status_checks ?? []);
   return [...new Set([...(required?.contexts ?? []), ...(required?.checks ?? []).map((c) => c.context), ...fromRules.map((c) => c.context)])];
 }
 
@@ -314,9 +324,7 @@ export function pullsClient({ api, tokens }: { api: string; tokens: TokenSource 
       for (let page = 1; page <= FILE_PAGES; page++) {
         const { json } = await request(repo, "GET", `/repos/${repo}/pulls/${number}/files?per_page=100&page=${page}`);
         const batch = z.array(fileSchema).parse(json);
-        files.push(
-          ...batch.map((f) => ({ path: f.filename, additions: f.additions, deletions: f.deletions })),
-        );
+        files.push(...batch.map((f) => ({ path: f.filename, additions: f.additions, deletions: f.deletions })));
         if (batch.length < 100) break;
       }
       return files;

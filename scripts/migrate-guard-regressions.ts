@@ -13,7 +13,11 @@ const PREVIEW_POOLED = "postgresql://u:p@ep-preview-branch-a1b2c3d4-pooler.c-2.e
 const preview = { VERCEL_ENV: "preview", DATABASE_URL: PREVIEW_POOLED, DATABASE_URL_UNPOOLED: PREVIEW };
 assert.equal(migrateRefusal(preview), null, "a preview migrates its own branch");
 assert.match(migrateRefusal({ ...preview, DATABASE_URL_UNPOOLED: PRODUCTION }) ?? "", /DATABASE_URL_UNPOOLED points at the production branch/);
-assert.match(migrateRefusal({ ...preview, DATABASE_URL: PRODUCTION_POOLED }) ?? "", /DATABASE_URL points at the production branch/, "the pooled host counts as production");
+assert.match(
+  migrateRefusal({ ...preview, DATABASE_URL: PRODUCTION_POOLED }) ?? "",
+  /DATABASE_URL points at the production branch/,
+  "the pooled host counts as production",
+);
 assert.match(migrateRefusal({ ...preview, DATABASE_URL_UNPOOLED: undefined }) ?? "", /DATABASE_URL_UNPOOLED is not set/, "a missing URL refuses");
 assert.match(migrateRefusal({ ...preview, DATABASE_URL: "not a url" }) ?? "", /not a valid URL/, "an unparsable URL refuses");
 assert.match(
@@ -42,10 +46,18 @@ refusesProduction(`${GENERIC}&options=-c%20search_path%3Dpublic%20endpoint%3DEP-
 refusesProduction(`${PREVIEW}&options=endpoint%3Dep-odd-field-b95xpf9v`, "an endpoint option that disagrees with the host refuses");
 refusesProduction(GENERIC.replace("u:p@", "u:endpoint%3Dep-odd-field-b95xpf9v%3Bp@"), "an endpoint in the password counts");
 assert.match(migrateRefusal(viaPreview(`${PREVIEW}&hostaddr=192.0.2.1`)) ?? "", /hostaddr/, "a hostaddr hides the endpoint, so it refuses");
-assert.match(migrateRefusal(viaPreview("postgresql://u:p@/neondb?sslmode=require")) ?? "", /names no host/, "an empty host would fall back to PGHOST, so it refuses");
+assert.match(
+  migrateRefusal(viaPreview("postgresql://u:p@/neondb?sslmode=require")) ?? "",
+  /names no host/,
+  "an empty host would fall back to PGHOST, so it refuses",
+);
 assert.match(migrateRefusal(viaPreview(`${PREVIEW}&host=a.neon.tech,${PRODUCTION_HOST}`)) ?? "", /names more than one endpoint/, "a host list refuses");
 
-assert.equal(endpointOf(PREVIEW.replace("ep-preview-branch-a1b2c3d4", "EP-PREVIEW-BRANCH-A1B2C3D4")), "ep-preview-branch-a1b2c3d4", "endpoints compare in lowercase");
+assert.equal(
+  endpointOf(PREVIEW.replace("ep-preview-branch-a1b2c3d4", "EP-PREVIEW-BRANCH-A1B2C3D4")),
+  "ep-preview-branch-a1b2c3d4",
+  "endpoints compare in lowercase",
+);
 assert.equal(endpointOf(`${GENERIC}&options=endpoint%3Dep-preview-branch-a1b2c3d4`), "ep-preview-branch-a1b2c3d4");
 assert.equal(migrateRefusal(viaPreview(`${GENERIC}&options=endpoint%3Dep-preview-branch-a1b2c3d4`)), null, "a preview may select its own endpoint by option");
 assert.equal(migrateRefusal(viaPreview(`${PREVIEW}&options=endpoint%3Dep-preview-branch-a1b2c3d4`)), null, "an option that agrees with the host is fine");

@@ -122,12 +122,19 @@ async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | 
 }
 
 /** The runner's verification record for this head: failed once it couldn't, running once it started. */
-function verificationRecord(job: Job, previous: MergeDecision | null, result: Exclude<Evaluated, "unchanged">, recipe: Recipe | null, now: number): RunnerVerificationRecord | undefined {
+function verificationRecord(
+  job: Job,
+  previous: MergeDecision | null,
+  result: Exclude<Evaluated, "unchanged">,
+  recipe: Recipe | null,
+  now: number,
+): RunnerVerificationRecord | undefined {
   const sha = result.headSha;
   if (!sha) return undefined;
   const kept = previous?.verification?.sha === sha ? previous.verification : undefined;
   if (result.runner?.kind === "failed") return { sha, at: kept?.at ?? new Date(now).toISOString(), state: "failed", reason: result.runner.reason };
-  if (result.decision.verify && startVerification(job, sha, recipe, (event) => ingestClient.post(event))) return { sha, at: new Date(now).toISOString(), state: "running" };
+  if (result.decision.verify && startVerification(job, sha, recipe, (event) => ingestClient.post(event)))
+    return { sha, at: new Date(now).toISOString(), state: "running" };
   return kept;
 }
 
@@ -157,7 +164,8 @@ export async function decideMerges({ now = Date.now(), only }: { now?: number; o
       // GitHub refused this head before; asking again would only be refused again.
       const blocked = previous?.blocked && previous.headSha === result.headSha ? previous.blocked : undefined;
       const decided = { outcome: result.decision.outcome, reasons: result.decision.reasons };
-      const decision = blocked && decided.outcome === "merge" && policy.autonomy === "auto" ? { outcome: "handover" as const, reasons: [blockedReason(blocked)] } : decided;
+      const decision =
+        blocked && decided.outcome === "merge" && policy.autonomy === "auto" ? { outcome: "handover" as const, reasons: [blockedReason(blocked)] } : decided;
       const verification = verificationRecord(job, previous, result, recipe, now);
       const next: MergeDecision = {
         ...decision,
@@ -206,7 +214,17 @@ export async function approveMerge(id: JobId, { actor, headSha, via }: ApproveDe
   if (!row) return { refused: `No job ${id}.` };
   const job = parseJob(row);
   const audit = (action: AuditRow["action"], result: AuditRow["result"], head: string, detail: string) =>
-    db.insert(auditLog).values({ id: randomUUID(), at: new Date(now), actor, action, job_id: job.id, target: job.pr_url ?? job.url, head_sha: head, result, detail: `${detail} · via ${via}`.slice(0, 2000) });
+    db.insert(auditLog).values({
+      id: randomUUID(),
+      at: new Date(now),
+      actor,
+      action,
+      job_id: job.id,
+      target: job.pr_url ?? job.url,
+      head_sha: head,
+      result,
+      detail: `${detail} · via ${via}`.slice(0, 2000),
+    });
   const stop = async (result: Exclude<AuditRow["result"], "ok" | null>, head: string, outcome: Approval & ({ blocked: string } | { refused: string })) => {
     await audit("merge_failed", result, head, "blocked" in outcome ? outcome.blocked : outcome.refused);
     return outcome;
@@ -218,7 +236,9 @@ export async function approveMerge(id: JobId, { actor, headSha, via }: ApproveDe
   const detail = await github.pullDetail(job.pr_url);
   if (detail.state !== "open") return stop("refused", detail.headSha, { refused: `The pull request is already ${detail.state}.` });
   if (headSha && detail.headSha !== headSha) {
-    return stop("head_moved", headSha, { refused: `The pull request moved to ${detail.headSha.slice(0, 7)} since you reviewed ${headSha.slice(0, 7)}. Review the new commit first.` });
+    return stop("head_moved", headSha, {
+      refused: `The pull request moved to ${detail.headSha.slice(0, 7)} since you reviewed ${headSha.slice(0, 7)}. Review the new commit first.`,
+    });
   }
   const seenAt = previous?.headSha === detail.headSha && previous.headSeenAt ? Date.parse(previous.headSeenAt) : undefined;
   const pr = await prFacts(job.pr_url, job.repo as RepoName, detail.headSha, detail.baseRef, detail.mergeable, seenAt);

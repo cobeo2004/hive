@@ -7,15 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { authClient } from "@/lib/auth/client";
 
 const COPY = {
-  "not-owner": {
-    title: "Not an owner",
-    description: "This account is signed in but is not an owner of the factory.",
+  admin: {
+    title: "Admins only",
+    description: "This page is for Hive admins. Ask an admin if you need it.",
     action: "Sign in with another account",
-  },
-  unverified: {
-    title: "Email not verified",
-    description: "The owner account has not confirmed its email yet. Sign in again to get a code.",
-    action: "Sign in again",
   },
 } as const;
 

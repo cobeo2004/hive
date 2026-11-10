@@ -109,7 +109,10 @@ function Row({ entry, open, cursor, onFocus }: { entry: Entry; open: boolean; cu
         className="absolute inset-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       />
       {cursor && <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-foreground" />}
-      <span className={cn("size-2 shrink-0 rounded-full", row.enabled ? "bg-success" : "bg-muted-foreground/50")} title={row.enabled ? "Takes new jobs" : "Disabled"} />
+      <span
+        className={cn("size-2 shrink-0 rounded-full", row.enabled ? "bg-success" : "bg-muted-foreground/50")}
+        title={row.enabled ? "Takes new jobs" : "Disabled"}
+      />
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="truncate font-medium">{displayName(row)}</span>
         {row.is_default && (
@@ -300,8 +303,8 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
               </Select>
             </Field>
             <p className="col-span-2 text-sm text-muted-foreground">
-              A ticket&apos;s Harness or Runs on label beats these, and these beat Settings. A local run needs a runner&apos;s checkout of the repo;
-              without one the job runs in a cloud sandbox, or waits until it can.
+              A ticket&apos;s Harness or Runs on label beats these, and these beat Settings. A local run needs a runner&apos;s checkout of the repo; without one
+              the job runs in a cloud sandbox, or waits until it can.
             </p>
           </div>
           <Field>
@@ -326,7 +329,8 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
               Require Bugbot review
             </FieldLabel>
             <FieldDescription>
-              A pull request waits for Bugbot&apos;s review and doesn&apos;t merge on its own with an unresolved medium or high finding. Turn it off for a repo without Bugbot, so the factory neither waits for its review nor reads its findings.
+              A pull request waits for Bugbot&apos;s review and doesn&apos;t merge on its own with an unresolved medium or high finding. Turn it off for a repo
+              without Bugbot, so the factory neither waits for its review nor reads its findings.
             </FieldDescription>
           </Field>
           {failure && (

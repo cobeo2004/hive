@@ -39,16 +39,13 @@ type IntentRow = typeof intents.$inferSelect;
 
 const machine = await thisMachine();
 
-const log = (event: string, detail: Record<string, unknown> = {}) =>
-  console.log(JSON.stringify({ at: new Date().toISOString(), event, ...detail }));
+const log = (event: string, detail: Record<string, unknown> = {}) => console.log(JSON.stringify({ at: new Date().toISOString(), event, ...detail }));
 
 const logWorktree = (check: Record<string, unknown>) => log("worktree", check);
 
 const queue = serialQueue(log);
 // A backstop: a stray rejection is logged instead of taking the daemon down.
-process.on("unhandledRejection", (reason) =>
-  log("unhandledRejection", { error: reason instanceof Error ? reason.message : String(reason) }),
-);
+process.on("unhandledRejection", (reason) => log("unhandledRejection", { error: reason instanceof Error ? reason.message : String(reason) }));
 const serial = queue.serial;
 
 /** Launches what this machine has room for, then tells each source about the jobs it now holds. */
@@ -287,7 +284,10 @@ async function checkJobs() {
 function onTable(table: string) {
   if (table === "intents") void openIntents().then(takeIntents);
   // ponytail: a burst of job changes during one check is covered by that check or the next tick.
-  if (table === "jobs") jobsCheck ??= checkJobs().catch((error) => log("listen:jobs-error", { error: String(error) })).finally(() => (jobsCheck = undefined));
+  if (table === "jobs")
+    jobsCheck ??= checkJobs()
+      .catch((error) => log("listen:jobs-error", { error: String(error) }))
+      .finally(() => (jobsCheck = undefined));
 }
 const listener = keepListening({
   listen: async (onClose) => {

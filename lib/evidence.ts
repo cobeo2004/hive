@@ -129,7 +129,16 @@ export function planChecks({ recipe, packageJson, files }: { recipe: Recipe | nu
 }
 
 /** Names whose values never belong in an output tail, whatever the recipe lists. */
-export const SECRET_ENV = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "GH_TOKEN", "FACTORY_INGEST_SECRET", "DATABASE_URL", "DATABASE_URL_UNPOOLED"];
+export const SECRET_ENV = [
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "GITHUB_TOKEN",
+  "GH_TOKEN",
+  "FACTORY_INGEST_SECRET",
+  "DATABASE_URL",
+  "DATABASE_URL_UNPOOLED",
+];
 
 /**
  * The end of a check's output worth keeping: credentials redacted by name and by shape
@@ -195,7 +204,14 @@ export const headEvidenceSchema = z.discriminatedUnion("state", [
 ]);
 export type HeadEvidence = z.infer<typeof headEvidenceSchema>;
 
-export type EvidenceRow = { sha: string; clean: boolean; producer: Producer; source: CheckSource; checks: readonly Pick<EvidenceCheck, "name" | "passed" | "command">[]; recordedAt: Date };
+export type EvidenceRow = {
+  sha: string;
+  clean: boolean;
+  producer: Producer;
+  source: CheckSource;
+  checks: readonly Pick<EvidenceCheck, "name" | "passed" | "command">[];
+  recordedAt: Date;
+};
 
 /**
  * What the evidence for this attempt says about `headSha`. `required` is the repo's recorded recipe

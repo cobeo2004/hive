@@ -182,7 +182,10 @@ done
 /** Every rollout under codexHome written to since `sinceMs`, read on the host in one command. */
 export async function readRollouts(host: JobHost, codexHome: string, sinceMs: number, now = Date.now()): Promise<Rollout[]> {
   const minutes = Math.max(1, Math.ceil((now - sinceMs) / 60_000));
-  const { stdout } = await host.run("sh", ["-c", READ_SCRIPT, "sh", `${codexHome}/sessions`, String(minutes)], { timeoutMs: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  const { stdout } = await host.run("sh", ["-c", READ_SCRIPT, "sh", `${codexHome}/sessions`, String(minutes)], {
+    timeoutMs: 60_000,
+    maxBuffer: 64 * 1024 * 1024,
+  });
   return stdout
     .split(RECORD)
     .slice(1)

@@ -25,16 +25,8 @@ assert.deepEqual(watch({ ...base, thread: "stopped", lastEventAt: ago(3) }, limi
 const nudged = { ...base, thread: "stopped" as const, nudgedAt: ago(10), nudgedStage: "implementing" as const, lastEventAt: ago(10) };
 assert.deepEqual(watch(nudged, limits), { kind: "ok" }, "never nudged twice in the same stage");
 assert.equal(watch({ ...nudged, nudgedAt: ago(31), lastEventAt: ago(31) }, limits).kind, "fail", "still stuck after the second threshold");
-assert.deepEqual(
-  watch({ ...nudged, nudgedAt: ago(40), lastEventAt: ago(5) }, limits),
-  { kind: "ok" },
-  "activity after the nudge restarts the fail clock",
-);
-assert.deepEqual(
-  watch({ ...base, nudgedAt: ago(40), nudgedStage: "investigating" }, limits),
-  { kind: "reset" },
-  "moving to another stage clears the nudge",
-);
+assert.deepEqual(watch({ ...nudged, nudgedAt: ago(40), lastEventAt: ago(5) }, limits), { kind: "ok" }, "activity after the nudge restarts the fail clock");
+assert.deepEqual(watch({ ...base, nudgedAt: ago(40), nudgedStage: "investigating" }, limits), { kind: "reset" }, "moving to another stage clears the nudge");
 assert.equal(watch({ ...base, thread: "gone" }, limits).kind, "fail", "a vanished thread fails at once");
 
 const untracked = { ...base, tracked: false };

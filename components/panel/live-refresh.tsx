@@ -22,7 +22,12 @@ const subscribe = (listener: () => void) => {
   return () => void listeners.delete(listener);
 };
 
-export const useLiveStatus = () => useSyncExternalStore(subscribe, () => status, () => initialStatus);
+export const useLiveStatus = () =>
+  useSyncExternalStore(
+    subscribe,
+    () => status,
+    () => initialStatus,
+  );
 
 export function useFeed<Row>(feed: Feed<Row>) {
   return { rows: feed.initialData, status: useLiveStatus() };

@@ -38,7 +38,11 @@ const logLineSchema = z.object({ at: z.string(), event: z.string(), result: z.un
 
 /** The steps of a tick or reconcile result that returned an error instead of their result. */
 const failedSteps = (result: unknown) =>
-  result && typeof result === "object" ? Object.entries(result).filter(([, v]) => v && typeof v === "object" && "error" in v).map(([k]) => k) : [];
+  result && typeof result === "object"
+    ? Object.entries(result)
+        .filter(([, v]) => v && typeof v === "object" && "error" in v)
+        .map(([k]) => k)
+    : [];
 
 /**
  * How the runner came up, from the log lines written since it was restarted: clean at its first
@@ -71,4 +75,25 @@ export function startupVerdict(lines: readonly string[]): StartupVerdict {
     }
   }
   return { state: "waiting" };
+}
+
+/**
+ * Resolves once `url` answers 200, asking every `everyMs` (R2). A refused connection or any other
+ * status is not ready yet; it rejects, naming the URL, when `timeoutMs` passes first.
+ */
+export async function waitForPanel(url: string, { timeoutMs, everyMs }: { timeoutMs: number; everyMs: number }): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const left = deadline - Date.now();
+    if (left <= 0) throw new Error(`the panel at ${url} did not answer 200 within ${Math.round(timeoutMs / 1_000)}s`);
+    try {
+      // The panel redirects a signed-out request to this page, so following one would hide a broken build.
+      const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(Math.min(left, 10_000)) });
+      await response.arrayBuffer();
+      if (response.status === 200) return;
+    } catch {
+      // A refused connection or a timeout is the panel not being up yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, everyMs));
+  }
 }

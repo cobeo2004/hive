@@ -1,35 +1,25 @@
-import "./test-guard";
 import assert from "node:assert/strict";
-import { isAllowlisted, isOwner } from "../lib/auth/owner";
+import { isAdmin, isMember } from "../lib/auth/owner";
 
-const OWNER = "owner@example.com";
+// R4, R33: a member is a user with TOTP on who finished /setup; an admin is a member with the admin role.
+const admin = { email: "admin@unibuz.com.au", role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
+const engineer = { email: "eng@unibuz.com.au", role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() };
 
-assert.equal(isAllowlisted(OWNER, undefined), false, "an unset allowlist denies everyone");
-assert.equal(isAllowlisted(OWNER, ""), false, "an empty allowlist denies everyone");
-assert.equal(isAllowlisted(OWNER, " , ,"), false, "an allowlist of blanks denies everyone");
-assert.equal(isAllowlisted("", " , ,"), false, "an empty email never matches a blank entry");
-assert.equal(isAllowlisted(OWNER, "someone@example.com"), false, "an email missing from the allowlist is denied");
-assert.equal(isAllowlisted(null, OWNER), false, "a missing email is denied");
-assert.equal(isAllowlisted(OWNER, OWNER), true);
-assert.equal(isAllowlisted("Owner@Example.COM", "owner@EXAMPLE.com"), true, "matching ignores case");
-assert.equal(isAllowlisted(OWNER, " other@example.com ,  owner@example.com  "), true, "entries are trimmed");
-assert.equal(isAllowlisted(`owner@example.com.evil`, OWNER), false, "a suffix does not match");
-
-assert.equal(isOwner({ email: OWNER, emailVerified: true }, OWNER), true, "a verified allowlisted account is the owner");
-assert.equal(isOwner({ email: OWNER, emailVerified: false }, OWNER), false, "an unverified allowlisted account is not the owner");
-assert.equal(
-  isOwner({ email: OWNER } as unknown as { email: string; emailVerified: boolean }, OWNER),
-  false,
-  "a session without the verified flag is not the owner",
-);
-assert.equal(isOwner({ email: "stranger@example.com", emailVerified: true }, OWNER), false, "verification does not stand in for the allowlist");
-assert.equal(isOwner(null, OWNER), false, "no session is not the owner");
-
-const saved = process.env.FACTORY_OWNER_EMAILS;
-process.env.FACTORY_OWNER_EMAILS = OWNER;
-assert.equal(isOwner({ email: OWNER, emailVerified: true }), true, "the default allowlist is FACTORY_OWNER_EMAILS");
-delete process.env.FACTORY_OWNER_EMAILS;
-assert.equal(isOwner({ email: OWNER, emailVerified: true }), false, "an unset FACTORY_OWNER_EMAILS denies the owner");
-if (saved !== undefined) process.env.FACTORY_OWNER_EMAILS = saved;
+assert.equal(isMember(engineer), true, "an engineer with TOTP is a member");
+assert.equal(isAdmin(engineer), false, "an engineer is not an admin");
+assert.equal(isMember(admin), true);
+assert.equal(isAdmin(admin), true, "an admin with TOTP is an admin");
+for (const user of [{ ...engineer, twoFactorEnabled: false }, { ...engineer, twoFactorEnabled: null }, { email: engineer.email }]) {
+  assert.equal(isMember(user), false, `a user without TOTP is not a member (${JSON.stringify(user)})`);
+}
+assert.equal(isAdmin({ ...admin, twoFactorEnabled: false }), false, "an admin without TOTP is not an admin");
+for (const setupDoneAt of [null, undefined]) {
+  assert.equal(isMember({ ...engineer, setupDoneAt }), false, "TOTP without finished setup is not a member");
+  assert.equal(isAdmin({ ...admin, setupDoneAt }), false, "nor an admin");
+}
+assert.equal(isAdmin({ ...admin, role: "Admin" }), false, "the role matches exactly");
+assert.equal(isAdmin({ ...admin, role: "admin,engineer" }), false, "a role list is not admin");
+assert.equal(isMember(null), false, "no session is not a member");
+assert.equal(isAdmin(undefined), false, "no session is not an admin");
 
 console.log("owner regressions passed");

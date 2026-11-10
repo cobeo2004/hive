@@ -206,7 +206,9 @@ export async function buildSandboxImage({
   let sandbox: SandboxHandle | undefined;
   try {
     bundleDir = mkdtempSync(join(tmpdir(), "factory-bundle-"));
-    await execFileAsync("bun", ["build", ...IMAGE_BUNDLES, "--target=bun", "--root", ".", "--outdir", bundleDir, "--entry-naming", "[dir]/[name].ts"], { cwd: ROOT });
+    await execFileAsync("bun", ["build", ...IMAGE_BUNDLES, "--target=bun", "--root", ".", "--outdir", bundleDir, "--entry-naming", "[dir]/[name].ts"], {
+      cwd: ROOT,
+    });
     log(`bundled ${IMAGE_BUNDLES.join(", ")}`);
     if (signal?.aborted) throw new Error("the build was stopped");
     sandbox = await open(limits, log);
@@ -229,7 +231,11 @@ export async function buildSandboxImage({
     };
     const drift = imageDrift(built, pinned);
     if (drift.length > 0) throw new Error(`the build sandbox does not match the pins: ${rebuildText(drift)}`);
-    log(`versions: ${Object.entries(built).map(([component, version]) => `${component} ${version}`).join(" | ")} | bun ${await sh(sandbox, "bun --version")}`);
+    log(
+      `versions: ${Object.entries(built)
+        .map(([component, version]) => `${component} ${version}`)
+        .join(" | ")} | bun ${await sh(sandbox, "bun --version")}`,
+    );
     await sh(sandbox, `cd /tmp && echo '{}' | bun ${FACTORY_ROOT}/hooks/report.ts && echo '{}' | bun ${FACTORY_ROOT}/hooks/budget.ts`);
     // Outside a git repo factory-verify refuses with exit 2, which shows the bundle loads.
     await sh(sandbox, `cd /tmp && { factory-verify --no-post 2>/dev/null; test $? -eq 2; }`);

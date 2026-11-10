@@ -9,13 +9,7 @@ export async function claimConflict(db: NodePgDatabase<typeof schema>, id: JobId
   const claimed = await db
     .update(jobs)
     .set({ conflict_head: head })
-    .where(
-      and(
-        eq(jobs.id, id),
-        eq(jobs.stage, "pr"),
-        or(isNull(jobs.conflict_head), ne(jobs.conflict_head, head)),
-      ),
-    )
+    .where(and(eq(jobs.id, id), eq(jobs.stage, "pr"), or(isNull(jobs.conflict_head), ne(jobs.conflict_head, head))))
     .returning({ key: jobs.key });
   return claimed.length > 0;
 }

@@ -107,7 +107,10 @@ export function sandboxHarness(harness: HarnessChoice, driver: string, hasClaude
   if (driver === CODEX) return { choice: { provider: CODEX, model: harness.model } };
   if (driver === CLAUDE && hasClaude) return { choice: { provider: CLAUDE, model: harness.model } };
   const why = driver === CLAUDE ? "this runner has no CLAUDE_CODE_OAUTH_TOKEN" : `sandboxes have no ${driver} harness`;
-  return { choice: { provider: CODEX, model: codexModel }, fallback: `${harness.provider} / ${harness.model} cannot run in a sandbox (${why}); launching on ${CODEX} / ${codexModel}` };
+  return {
+    choice: { provider: CODEX, model: codexModel },
+    fallback: `${harness.provider} / ${harness.model} cannot run in a sandbox (${why}); launching on ${CODEX} / ${codexModel}`,
+  };
 }
 
 /** Only a sandbox thread on Codex needs a Codex login slot; Claude Code logs in with the runner's token, in any number of sandboxes. */
@@ -150,8 +153,7 @@ async function pstackEnabled(host: JobHost) {
 export const ingestConfig = (config: Pick<FactoryConfig, "ingestUrl" | "secret">) => json({ ingestUrl: config.ingestUrl, secret: config.secret });
 
 /** Secrets the sandbox's processes see as environment variables; never an API key that would bill per token. */
-export const sandboxSecrets = (claudeToken: string | undefined): Record<string, string> =>
-  claudeToken ? { CLAUDE_CODE_OAUTH_TOKEN: claudeToken } : {};
+export const sandboxSecrets = (claudeToken: string | undefined): Record<string, string> => (claudeToken ? { CLAUDE_CODE_OAUTH_TOKEN: claudeToken } : {});
 
 const sh = async (host: JobHost, script: string, timeoutMs = 60_000) => (await host.run("bash", ["-c", script], { timeoutMs })).stdout;
 
@@ -248,7 +250,10 @@ export async function setupSandbox(host: JobHost, setup: SandboxSetup, codexMode
       await installCodexLogin(host, codex.slot, codex.auth);
     }
   }
-  await host.writeFile(`${CODEX_HOME}/config.toml`, codexConfig(await host.readFile(`${CODEX_HOME}/config.toml`), setup.job && { ...setup.job, repo: setup.repo }));
+  await host.writeFile(
+    `${CODEX_HOME}/config.toml`,
+    codexConfig(await host.readFile(`${CODEX_HOME}/config.toml`), setup.job && { ...setup.job, repo: setup.repo }),
+  );
   await host.writeFile(`${T3_USERDATA}/settings.json`, json(t3Settings(choice, hasClaude)));
   if (setup.ingest !== null) await writeSecretFile(host, INGEST_CONFIG_PATH, setup.ingest);
   await writeGithubToken(host, setup.githubToken);
@@ -324,14 +329,26 @@ export async function pairT3(host: JobHost, baseUrl: string): Promise<T3Pairing>
 export async function stopT3(host: JobHost) {
   // The bracket keeps the pattern from matching this script's own command line.
   const server = "[t]3 serve";
-  await sh(host, `pkill -TERM -f '${server}'; for i in $(seq 1 20); do pgrep -f '${server}' >/dev/null || exit 0; sleep 0.5; done; pkill -KILL -f '${server}'; exit 0`);
+  await sh(
+    host,
+    `pkill -TERM -f '${server}'; for i in $(seq 1 20); do pgrep -f '${server}' >/dev/null || exit 0; sleep 0.5; done; pkill -KILL -f '${server}'; exit 0`,
+  );
 }
 
 /**
  * Creates the job's sandbox, from the image or from its hibernation snapshot; its id must be
  * recorded on the job before anything else runs in it.
  */
-export async function createJobSandbox({ key, attempt, label, machineId, imageId, limits, claudeToken, namedSecrets = [] }: {
+export async function createJobSandbox({
+  key,
+  attempt,
+  label,
+  machineId,
+  imageId,
+  limits,
+  claudeToken,
+  namedSecrets = [],
+}: {
   key: string;
   attempt: number;
   label: string;

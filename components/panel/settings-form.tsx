@@ -13,7 +13,19 @@ import { Spinner } from "@/components/ui/spinner";
 import type { MachineRow, NotificationSettingsRow, SettingsRow } from "@/db/schema";
 import { DEFAULT_EXECUTION, EXECUTIONS, type Execution } from "@/lib/execution";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, harnessLabel, trackingOf, type Harness, type Tracking } from "@/lib/harness";
-import { componentName, IMAGE_COMPONENTS, rebuildText, reportedDrift, reportedHarnesses, reportedSandbox, reportedSlack, sandboxLogin, type SandboxReadiness } from "@/lib/machine";
+import type { Member } from "@/lib/members";
+import {
+  componentName,
+  IMAGE_COMPONENTS,
+  rebuildText,
+  reportedDrift,
+  reportedHarnesses,
+  reportedSandbox,
+  reportedSlack,
+  sandboxLogin,
+  type SandboxReadiness,
+} from "@/lib/machine";
+import { MembersSection } from "./members-section";
 import { NotificationsCard } from "./notifications-card";
 import { useFeed, type Feed } from "./live-refresh";
 import { PanelFooter, PanelHeader } from "./panel-header";
@@ -44,9 +56,7 @@ function UntrackedWarning({ name, tracking }: { name: string; tracking: Exclude<
   return (
     <div role="note" className="flex gap-2.5 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
       <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-warning" />
-      <p>
-        {shows} The board still shows when a run is queued and launched, and the watchdog still fails a run whose thread is gone.
-      </p>
+      <p>{shows} The board still shows when a run is queued and launched, and the watchdog still fails a run whose thread is gone.</p>
     </div>
   );
 }
@@ -146,8 +156,8 @@ function sandboxChecks(readiness: SandboxReadiness): Check[] {
           label: "No Claude token: Claude Code jobs will run on Codex",
           howTo: (
             <>
-              Run <Cmd>claude setup-token</Cmd>, add the token as <Cmd>CLAUDE_CODE_OAUTH_TOKEN</Cmd> to the runner checkout&apos;s{" "}
-              <Cmd>.env.local</Cmd> and restart the runner.
+              Run <Cmd>claude setup-token</Cmd>, add the token as <Cmd>CLAUDE_CODE_OAUTH_TOKEN</Cmd> to the runner checkout&apos;s <Cmd>.env.local</Cmd> and
+              restart the runner.
             </>
           ),
         },
@@ -158,7 +168,8 @@ function sandboxChecks(readiness: SandboxReadiness): Check[] {
         readiness.codexSlots === 0 || unusable > 0 ? (
           <>
             {unusable > 0 && "Log in again in an unusable slot to clear it. "}
-            Run <Cmd>{`mkdir -p ~/.codex-factory-${readiness.codexSlots + unusable + 1} && CODEX_HOME=~/.codex-factory-${readiness.codexSlots + unusable + 1} codex login --device-auth`}</Cmd>{" "}
+            Run{" "}
+            <Cmd>{`mkdir -p ~/.codex-factory-${readiness.codexSlots + unusable + 1} && CODEX_HOME=~/.codex-factory-${readiness.codexSlots + unusable + 1} codex login --device-auth`}</Cmd>{" "}
             to add a login, and list its folder in <Cmd>factory.sandbox.codexSlots</Cmd> in the runner&apos;s config.json.
           </>
         ) : undefined,
@@ -196,8 +207,8 @@ function SandboxReadinessList({ readiness }: { readiness: SandboxReadiness | nul
       </ul>
       {readiness.maxParallel !== undefined && (
         <p className="text-muted-foreground">
-          The runner runs at most {readiness.maxParallel} sandboxes at once (<Cmd>factory.sandbox.maxParallel</Cmd>), and every
-          job also counts against <Cmd>factory.maxInFlight</Cmd>. Both are set in the runner&apos;s config.json.
+          The runner runs at most {readiness.maxParallel} sandboxes at once (<Cmd>factory.sandbox.maxParallel</Cmd>), and every job also counts against{" "}
+          <Cmd>factory.maxInFlight</Cmd>. Both are set in the runner&apos;s config.json.
         </p>
       )}
     </div>
@@ -211,8 +222,7 @@ function Current({ saved, harnesses }: { saved: SettingsRow | null; harnesses: r
   return (
     <div className="flex flex-col gap-1 text-sm">
       <div>
-        New threads start on <span className="font-medium">{current.harness}</span> with{" "}
-        <span className="font-medium">{current.model}</span>, on{" "}
+        New threads start on <span className="font-medium">{current.harness}</span> with <span className="font-medium">{current.model}</span>, on{" "}
         <span className="font-medium">{EXECUTION_LABELS[saved?.execution ?? DEFAULT_EXECUTION]}</span>
         <span className="font-mono text-xs text-muted-foreground">
           {" "}
@@ -226,8 +236,8 @@ function Current({ saved, harnesses }: { saved: SettingsRow | null; harnesses: r
           </>
         ) : (
           <>
-            From the runner config default. A runner whose config.json sets <span className="font-mono text-xs">factory.provider</span>{" "}
-            and <span className="font-mono text-xs">factory.model</span> uses those until you save settings here.
+            From the runner config default. A runner whose config.json sets <span className="font-mono text-xs">factory.provider</span> and{" "}
+            <span className="font-mono text-xs">factory.model</span> uses those until you save settings here.
           </>
         )}
       </div>
@@ -235,7 +245,17 @@ function Current({ saved, harnesses }: { saved: SettingsRow | null; harnesses: r
   );
 }
 
-export function SettingsForm({ machines, saved, notifications }: { machines: Feed<MachineRow>; saved: SettingsRow | null; notifications: NotificationSettingsRow | null }) {
+export function SettingsForm({
+  machines,
+  members,
+  saved,
+  notifications,
+}: {
+  machines: Feed<MachineRow>;
+  members: Member[];
+  saved: SettingsRow | null;
+  notifications: NotificationSettingsRow | null;
+}) {
   const router = useRouter();
   const { rows, status } = useFeed(machines);
   const now = useNow(CLOCK_TICK_MS);
@@ -287,8 +307,8 @@ export function SettingsForm({ machines, saved, notifications }: { machines: Fee
             title="New jobs"
             description={
               <>
-                The T3 harness and model every runner starts new factory threads on, and where they run. Threads already running keep theirs. A
-                repository can override these, and sets how far the factory merges, on{" "}
+                The T3 harness and model every runner starts new factory threads on, and where they run. Threads already running keep theirs. A repository can
+                override these, and sets how far the factory merges, on{" "}
                 <Link href="/repositories" className="underline underline-offset-2">
                   Repositories
                 </Link>
@@ -301,19 +321,15 @@ export function SettingsForm({ machines, saved, notifications }: { machines: Fee
                 <Current saved={saved} harnesses={reported ?? []} />
                 {reported === null ? (
                   <p className="text-sm text-muted-foreground">
-                    No machine has reported its harnesses yet. The runner reports them with its inventory, at startup and every
-                    few minutes; once one has, you can pick a harness here.
+                    No machine has reported its harnesses yet. The runner reports them with its inventory, at startup and every few minutes; once one has, you
+                    can pick a harness here.
                   </p>
                 ) : (
                   <div className="flex flex-col gap-5">
                     <div className="grid gap-5 sm:grid-cols-2">
                       <Field>
                         <FieldLabel htmlFor="settings-harness">Harness</FieldLabel>
-                        <Select
-                          items={harnesses.map((h) => ({ value: h.id, label: h.name }))}
-                          value={harness ? provider : null}
-                          onValueChange={pickHarness}
-                        >
+                        <Select items={harnesses.map((h) => ({ value: h.id, label: h.name }))} value={harness ? provider : null} onValueChange={pickHarness}>
                           <SelectTrigger id="settings-harness" className="w-full">
                             <SelectValue placeholder="Pick a harness" />
                           </SelectTrigger>
@@ -400,6 +416,7 @@ export function SettingsForm({ machines, saved, notifications }: { machines: Fee
             </Card>
           </SettingsSection>
           <NotificationsCard saved={notifications} slack={slack} />
+          <MembersSection members={members} />
         </div>
       </div>
       <PanelFooter status={status} />

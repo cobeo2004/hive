@@ -36,7 +36,9 @@ export class LinearError extends Error {
 
 /** Linear stores a create under the id we pass, so a replayed create fails instead of duplicating. */
 export function commentId(...parts: string[]) {
-  const hex = createHash("sha256").update(`marshal-factory\n${parts.join("\n")}`).digest("hex");
+  const hex = createHash("sha256")
+    .update(`marshal-factory\n${parts.join("\n")}`)
+    .digest("hex");
   const variant = ((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
@@ -86,7 +88,11 @@ export function linearClient(apiKey: string, { fetch: fetchImpl = realFetch, sle
       const [first] = json.errors;
       throw new LinearError(
         first!.extensions?.userPresentableMessage ?? first!.message,
-        first!.message.startsWith("conflict on insert") ? "conflict" : [first!.message, first!.extensions?.userPresentableMessage].some((m) => m && NOT_FOUND.test(m)) ? "not_found" : first!.extensions?.code,
+        first!.message.startsWith("conflict on insert")
+          ? "conflict"
+          : [first!.message, first!.extensions?.userPresentableMessage].some((m) => m && NOT_FOUND.test(m))
+            ? "not_found"
+            : first!.extensions?.code,
       );
     }
     return schema.parse(json.data);
@@ -99,9 +105,7 @@ export function linearClient(apiKey: string, { fetch: fetchImpl = realFetch, sle
         { key },
         z.object({
           teams: z.object({
-            nodes: z.array(
-              z.object({ id: z.string(), key: z.string(), states: z.object({ nodes: z.array(stateSchema) }) }),
-            ),
+            nodes: z.array(z.object({ id: z.string(), key: z.string(), states: z.object({ nodes: z.array(stateSchema) }) })),
           }),
         }),
       );
@@ -186,10 +190,7 @@ export function linearClient(apiKey: string, { fetch: fetchImpl = realFetch, sle
       await this.update(issueId, { stateId });
     },
 
-    async update(
-      issueId: string,
-      input: { stateId?: string; addedLabelIds?: string[]; removedLabelIds?: string[] },
-    ) {
+    async update(issueId: string, input: { stateId?: string; addedLabelIds?: string[]; removedLabelIds?: string[] }) {
       await gql(
         `mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success } }`,
         { id: issueId, input },

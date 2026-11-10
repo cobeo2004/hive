@@ -30,7 +30,19 @@ export const T3_PORT = 3773;
 export const BROWSER_SERVER = "playwright";
 export const browserServer = {
   command: "playwright-mcp",
-  args: ["--headless", "--isolated", "--browser", "chromium", "--no-sandbox", "--output-dir", SCREENSHOT_DIR, "--proxy-server", "http://127.0.0.1:9", "--proxy-bypass", "localhost,127.0.0.1,[::1]"],
+  args: [
+    "--headless",
+    "--isolated",
+    "--browser",
+    "chromium",
+    "--no-sandbox",
+    "--output-dir",
+    SCREENSHOT_DIR,
+    "--proxy-server",
+    "http://127.0.0.1:9",
+    "--proxy-bypass",
+    "localhost,127.0.0.1,[::1]",
+  ],
 };
 
 /**
@@ -117,7 +129,9 @@ export function parseVersion(component: Exclude<ImageComponent, "pstack" | "play
   return pattern.exec(output.trim())?.[1] ?? null;
 }
 
-const pluginListSchema = z.array(z.object({ id: z.string(), version: z.string().optional(), enabled: z.boolean().optional(), installPath: z.string().optional() }));
+const pluginListSchema = z.array(
+  z.object({ id: z.string(), version: z.string().optional(), enabled: z.boolean().optional(), installPath: z.string().optional() }),
+);
 
 /** PStack's entry in `claude plugin list --json` when it is installed and enabled, else null. */
 export function enabledPstack(output: string) {
@@ -203,7 +217,11 @@ export function sandboxReadiness(
     // The image id stays on the runner; its version, build time and commit say nothing secret.
     imageInfo: image && { t3Version: image.t3Version, builtAt: image.builtAt, factoryCommit: image.factoryCommit, versions: builtVersions(image) },
     ...(limits.t3Version && { pinnedT3Version: limits.t3Version }),
-    ...(t3Version && claudeCodeVersion && codexVersion && playwrightMcpVersion && pstack && { pinnedVersions: pinnedVersions({ t3Version, claudeCodeVersion, codexVersion, playwrightMcpVersion, pstack }) }),
+    ...(t3Version &&
+      claudeCodeVersion &&
+      codexVersion &&
+      playwrightMcpVersion &&
+      pstack && { pinnedVersions: pinnedVersions({ t3Version, claudeCodeVersion, codexVersion, playwrightMcpVersion, pstack }) }),
     ...(limits.maxParallel && { maxParallel: limits.maxParallel }),
   };
 }

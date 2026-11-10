@@ -5,15 +5,7 @@ import { useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import type { MachineRow } from "@/db/schema";
-import {
-  isOnline,
-  parseHeartbeat,
-  parseInventory,
-  UNKNOWN,
-  type Heartbeat,
-  type Inventory,
-  type Known,
-} from "@/lib/machine";
+import { isOnline, parseHeartbeat, parseInventory, UNKNOWN, type Heartbeat, type Inventory, type Known } from "@/lib/machine";
 import { cn } from "@/lib/utils";
 import { useFeed, type Feed } from "./live-refresh";
 import { PanelFooter, PanelHeader } from "./panel-header";
@@ -48,7 +40,14 @@ function Meter({ label, value, detail, used }: { label: string; value: ReactNode
         <span className="text-xs tabular-nums text-muted-foreground">{pct === null ? "" : `${pct}%`}</span>
       </div>
       <div className="truncate font-medium tabular-nums">{value}</div>
-      <div className="h-1 overflow-hidden rounded-full bg-muted" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct ?? undefined}>
+      <div
+        className="h-1 overflow-hidden rounded-full bg-muted"
+        role="meter"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct ?? undefined}
+      >
         {pct !== null && <div className={cn("h-full rounded-full", tone)} style={{ width: `${pct}%` }} />}
       </div>
       {detail && <div className="truncate text-xs text-muted-foreground">{detail}</div>}
@@ -71,12 +70,7 @@ function Resources({ heartbeat }: { heartbeat: Heartbeat | null }) {
         detail={capacity && (capacity.inFlight >= capacity.max ? "Full; new jobs wait" : `${capacity.max - capacity.inFlight} free`)}
         used={capacity && capacity.inFlight / capacity.max}
       />
-      <Meter
-        label="CPU"
-        value={cpu ? `load ${cpu.load1.toFixed(2)}` : unknownValue}
-        detail={cpu && `${cpu.cores} cores`}
-        used={cpu && cpu.load1 / cpu.cores}
-      />
+      <Meter label="CPU" value={cpu ? `load ${cpu.load1.toFixed(2)}` : unknownValue} detail={cpu && `${cpu.cores} cores`} used={cpu && cpu.load1 / cpu.cores} />
       <Meter
         label="Memory"
         value={memory ? gb(memory.usedBytes) : unknownValue}
@@ -151,7 +145,10 @@ function Workspaces({ inventory }: { inventory: Inventory | null }) {
           />
         ))}
       </ListSection>
-      <ListSection title="Other T3 projects" note={inventory.projects.source === UNKNOWN ? "unknown" : `${others.length} · ${PROJECT_SOURCE[inventory.projects.source]}`}>
+      <ListSection
+        title="Other T3 projects"
+        note={inventory.projects.source === UNKNOWN ? "unknown" : `${others.length} · ${PROJECT_SOURCE[inventory.projects.source]}`}
+      >
         {others.length === 0 && <li className="px-3 py-2 text-muted-foreground">{scanned ? "None" : "The runner could not read T3's projects."}</li>}
         {shown.map((p) => (
           <PathRow key={p.path} icon={<FolderIcon />} title={p.title} path={p.path} />
@@ -212,10 +209,7 @@ function MachineSection({ machine, now }: { machine: MachineRow; now: number | n
     <section aria-label={machine.name} className="flex flex-col gap-4 py-6 first:pt-0 last:pb-0">
       <header className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span
-            className={cn("size-2 shrink-0 rounded-full", online === null ? "bg-faint" : online ? "bg-success" : "bg-muted-foreground/40")}
-            aria-hidden
-          />
+          <span className={cn("size-2 shrink-0 rounded-full", online === null ? "bg-faint" : online ? "bg-success" : "bg-muted-foreground/40")} aria-hidden />
           <h2 className="text-base font-semibold">{machine.name}</h2>
           {online !== null && (
             <Badge variant="outline" className={cn("rounded-md font-normal", online ? "text-success" : "text-muted-foreground")}>
@@ -241,15 +235,13 @@ function MachineSection({ machine, now }: { machine: MachineRow; now: number | n
 export function Machines({ machines }: { machines: Feed<MachineRow> }) {
   const { rows, status } = useFeed(machines);
   const now = useNow(CLOCK_TICK_MS);
-  const onlineMachines =
-    now === null ? null : rows.filter((m) => isOnline(m.last_seen_at, now)).length;
+  const onlineMachines = now === null ? null : rows.filter((m) => isOnline(m.last_seen_at, now)).length;
   // Online machines first, then the most recently seen.
   const sorted =
     now === null
       ? rows
       : [...rows].sort(
-          (a, b) =>
-            Number(isOnline(b.last_seen_at, now)) - Number(isOnline(a.last_seen_at, now)) || b.last_seen_at.getTime() - a.last_seen_at.getTime(),
+          (a, b) => Number(isOnline(b.last_seen_at, now)) - Number(isOnline(a.last_seen_at, now)) || b.last_seen_at.getTime() - a.last_seen_at.getTime(),
         );
 
   return (
@@ -261,9 +253,7 @@ export function Machines({ machines }: { machines: Feed<MachineRow> }) {
             <Empty className="border">
               <EmptyHeader>
                 <EmptyTitle>No machines yet</EmptyTitle>
-                <EmptyDescription>
-                  A machine appears here as soon as its runner sends its first heartbeat.
-                </EmptyDescription>
+                <EmptyDescription>A machine appears here as soon as its runner sends its first heartbeat.</EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : (

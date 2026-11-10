@@ -12,10 +12,7 @@ export function ModelChip({ model }: { model: string | null }) {
   if (!model) return null;
   const family = Object.keys(TONES).find((name) => model.includes(name));
   return (
-    <Badge
-      variant="outline"
-      className={cn("rounded-md font-normal", family && TONES[family])}
-    >
+    <Badge variant="outline" className={cn("rounded-md font-normal", family && TONES[family])}>
       {model.replace(/^claude-/, "")}
     </Badge>
   );

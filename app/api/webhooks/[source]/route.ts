@@ -22,17 +22,18 @@ async function record(source: string, deliveryId: string, event: string, payload
       .returning({ id: webhookDeliveries.delivery_id });
     if (fresh.length === 0) return { duplicate: true, intent: null };
     for (const intent of all) {
-      const [byPr] = intent.prUrl && !intent.jobId
-        ? await tx.select({ id: jobs.id }).from(jobs).where(eq(jobs.pr_url, intent.prUrl))
-        : [];
-      await tx.insert(intents).values({
-        id: `${source}:${intent.key ?? deliveryId}`,
-        kind: intent.kind,
-        job_id: intent.jobId ?? byPr?.id,
-        pr_url: intent.prUrl,
-        detail: intent.detail,
-        created_at: now,
-      }).onConflictDoNothing();
+      const [byPr] = intent.prUrl && !intent.jobId ? await tx.select({ id: jobs.id }).from(jobs).where(eq(jobs.pr_url, intent.prUrl)) : [];
+      await tx
+        .insert(intents)
+        .values({
+          id: `${source}:${intent.key ?? deliveryId}`,
+          kind: intent.kind,
+          job_id: intent.jobId ?? byPr?.id,
+          pr_url: intent.prUrl,
+          detail: intent.detail,
+          created_at: now,
+        })
+        .onConflictDoNothing();
     }
     return { duplicate: false, intent: all.map((i) => i.kind).join(",") || null };
   });

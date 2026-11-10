@@ -2,11 +2,7 @@ import { Separator as SeparatorPrimitive } from "@base-ui/react/separator";
 import type React from "react";
 import { cn } from "@/lib/utils";
 
-export function Separator({
-  className,
-  orientation = "horizontal",
-  ...props
-}: SeparatorPrimitive.Props): React.ReactElement {
+export function Separator({ className, orientation = "horizontal", ...props }: SeparatorPrimitive.Props): React.ReactElement {
   return (
     <SeparatorPrimitive
       className={cn(

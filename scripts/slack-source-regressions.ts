@@ -8,18 +8,27 @@ import type { FileDraft } from "../lib/sources/types";
 // a fake source that files one issue per request id, as Linear does.
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 const TOKEN = "xoxb-regression-token-0123456789";
 const SIGNING = "regression-signing-secret-abcdef";
 const OWNER_SLACK = "U0OWNER";
+const ENGINEER = "eng@example.com";
+const ENGINEER_SLACK = "U0ENG";
+/** The emails users.info gives; the stranger's Slack email has no Hive account. */
+const SLACK_EMAILS: Record<string, string> = { [OWNER_SLACK]: OWNER, [ENGINEER_SLACK]: ENGINEER, U0STRANGER: "stranger@example.com" };
 
 const { db } = await import("../db/client");
 const { postResponse, slackClient } = await import("../lib/slack-api");
-const { handleInteraction, MAX_SKEW_SECONDS, NOT_OWNER, ownerFromAllowlist } = await import("../lib/slack-interactions");
+const { handleInteraction, MAX_SKEW_SECONDS, NOT_MEMBER } = await import("../lib/slack-interactions");
 const { handleCommand, LOADING, NEW_JOB_BLOCKS, NEW_JOB_CALLBACK_ID, newJobRequestId, SETTINGS_DEFAULT, USAGE } = await import("../lib/slack-new-job");
 const { HARNESS_GROUP, RUNS_ON_GROUP } = await import("../lib/ticket-overrides");
 const { REPOSITORY_GROUP } = await import("../lib/repositories");
 const { serve } = await import("./serve");
+const { memberByEmail } = await import("../lib/members");
+const { user: users } = await import("../db/schema");
+const { inArray: within } = await import("drizzle-orm");
+const hiveUser = (id: string, email: string, role: string) => ({ id, name: email, email, role, twoFactorEnabled: true, setupDoneAt: new Date() });
+await db.delete(users).where(within(users.email, [OWNER, ENGINEER]));
+await db.insert(users).values([hiveUser(`slack-owner-${Date.now()}`, OWNER, "admin"), hiveUser(`slack-eng-${Date.now()}`, ENGINEER, "engineer")]);
 
 // --- the fake Slack: Web API calls under /api/, response_url posts under /response/
 type Call = { method: string; params: Record<string, string> };
@@ -40,6 +49,7 @@ const server = await serve(0, async (request) => {
   calls.push({ method, params });
   timeline.push(method);
   if (request.headers.get("authorization") !== `Bearer ${TOKEN}`) return Response.json({ ok: false, error: "invalid_auth" });
+  if (method === "users.info") return Response.json({ ok: true, user: { id: params.user, profile: { email: SLACK_EMAILS[params.user!] } } });
   switch (method) {
     case "views.open":
       return Response.json({ ok: true, view: { id: `V${calls.length}`, hash: `hash-${calls.length}` } });
@@ -66,7 +76,8 @@ const tasks: Promise<void>[] = [];
 const drain = async () => {
   while (tasks.length > 0) await Promise.all(tasks.splice(0));
 };
-const owner = async () => ownerFromAllowlist();
+const owner = async () => ({ email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() });
+const slack = slackClient({ token: TOKEN, baseUrl: `${base}/api/`, minGapMs: 0 });
 const registry = [
   { repo: "acme/shop", display_name: "Shop", enabled: true, is_default: true },
   { repo: "acme/api", display_name: null, enabled: true, is_default: false },
@@ -79,7 +90,8 @@ const harnesses = [
 const deps = {
   signingSecret: SIGNING,
   ownerSlackId: OWNER_SLACK,
-  slack: slackClient({ token: TOKEN, baseUrl: `${base}/api/`, minGapMs: 0 }),
+  member: async (id: string) => memberByEmail(await slack.userEmail(id)),
+  slack,
   respond: postResponse,
   inbox: {
     db,
@@ -109,9 +121,20 @@ const sign = (body: string, ts = Math.floor(Date.now() / 1000), secret = SIGNING
 let urls = 0;
 const command = (text: string, user = OWNER_SLACK, headers?: (body: string) => Record<string, string>) => {
   const response_url = `${base}/response/${++urls}`;
-  const body = new URLSearchParams({ command: "/factory", text, user_id: user, channel_id: "C0GENERAL", trigger_id: `trigger-${urls}`, response_url }).toString();
+  const body = new URLSearchParams({
+    command: "/factory",
+    text,
+    user_id: user,
+    channel_id: "C0GENERAL",
+    trigger_id: `trigger-${urls}`,
+    response_url,
+  }).toString();
   const sent = handleCommand(
-    new Request("http://localhost/api/slack/commands", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...(headers ?? sign)(body) }, body }),
+    new Request("http://localhost/api/slack/commands", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...(headers ?? sign)(body) },
+      body,
+    }),
     deps,
   );
   return { response_url, trigger: `trigger-${urls}`, sent };
@@ -149,7 +172,12 @@ const lastView = (trigger: string) => {
 };
 /** What a request did before its ack: the loading view, and nothing read before it. */
 const openedFirst = (from: number) => {
-  assert.equal(timeline[from], "views.open", `the loading view opens first, not after ${timeline.slice(from).join(", ")}`);
+  // users.info, which finds the clicker's Hive user, is the one call allowed before it.
+  assert.equal(
+    timeline.slice(from).filter((m) => m !== "users.info")[0],
+    "views.open",
+    `the loading view opens first, not after ${timeline.slice(from).join(", ")}`,
+  );
   const loading = JSON.parse(calls.findLast((c) => c.method === "views.open")!.params.view!) as { submit?: unknown; callback_id: string };
   assert.match(JSON.stringify(loading), new RegExp(LOADING));
   assert.equal(loading.submit, undefined, "with nothing to submit");
@@ -186,16 +214,24 @@ try {
   // --- the commands route checks the signature first, like the interactivity route
   assert.equal((await command("", OWNER_SLACK, () => ({})).sent).status, 401, "no signature");
   assert.equal((await command("", OWNER_SLACK, (b) => sign(b, undefined, "wrong-secret")).sent).status, 401, "a wrong secret");
-  assert.equal((await command("", OWNER_SLACK, (b) => sign(b, Math.floor(Date.now() / 1000) - MAX_SKEW_SECONDS - 5)).sent).status, 401, "a replay older than five minutes");
+  assert.equal(
+    (await command("", OWNER_SLACK, (b) => sign(b, Math.floor(Date.now() / 1000) - MAX_SKEW_SECONDS - 5)).sent).status,
+    401,
+    "a replay older than five minutes",
+  );
   const body = new URLSearchParams({ command: "/factory", text: "", user_id: OWNER_SLACK, trigger_id: "t", response_url: `${base}/response/x` }).toString();
-  assert.equal((await handleCommand(new Request("http://localhost/", { method: "POST", headers: sign(body), body }), { ...deps, signingSecret: undefined })).status, 401, "no signing secret");
+  assert.equal(
+    (await handleCommand(new Request("http://localhost/", { method: "POST", headers: sign(body), body }), { ...deps, signingSecret: undefined })).status,
+    401,
+    "no signing secret",
+  );
   await drain();
   assert.equal(opens(), 0, "nothing opened for a bad signature");
 
-  // --- only the owner, with an ephemeral refusal
+  // --- a Slack user with no Hive account gets an ephemeral refusal
   const stranger = await command("Fix it", "U0STRANGER").sent;
   assert.equal(stranger.status, 200);
-  assert.deepEqual(await stranger.json(), { response_type: "ephemeral", replace_original: false, text: NOT_OWNER });
+  assert.deepEqual(await stranger.json(), { response_type: "ephemeral", replace_original: false, text: NOT_MEMBER });
   await drain();
   assert.equal(opens(), 0, "a stranger gets no modal");
 
@@ -206,6 +242,12 @@ try {
   await drain();
   assert.equal(opens(), 0);
 
+  // --- an engineer is a member, so /factory opens the modal for them too (R6)
+  const engineer = command("Engineer's job", ENGINEER_SLACK);
+  assert.equal((await engineer.sent).status, 200);
+  await drain();
+  assert.equal(opens(), 1, "an engineer gets the modal");
+
   // --- /factory opens the empty modal, the panel's defaults preselected
   const emptyFrom = timeline.length;
   const empty = command("");
@@ -214,19 +256,33 @@ try {
   assert.equal(await emptyAck.text(), "", "acked with nothing to show");
   openedFirst(emptyFrom);
   await drain();
-  assert.ok(timeline.indexOf("registry", emptyFrom) > emptyFrom && timeline.indexOf("views.update", emptyFrom) > timeline.indexOf("registry", emptyFrom), "repositories read after the open, the form after them");
+  assert.ok(
+    timeline.indexOf("registry", emptyFrom) > emptyFrom && timeline.indexOf("views.update", emptyFrom) > timeline.indexOf("registry", emptyFrom),
+    "repositories read after the open, the form after them",
+  );
   const blankView = lastView(empty.trigger);
   assert.equal(blankView.callback_id, NEW_JOB_CALLBACK_ID);
   assert.equal(block(blankView, NEW_JOB_BLOCKS.title)!.element!.initial_value, undefined);
   assert.equal(block(blankView, NEW_JOB_BLOCKS.description)!.optional, true, "a description is optional, as in the panel");
   const repo = block(blankView, NEW_JOB_BLOCKS.repo)!.element!;
-  assert.deepEqual(repo.options!.map((o) => o.value), ["acme/shop", "acme/api"], "the enabled repositories");
+  assert.deepEqual(
+    repo.options!.map((o) => o.value),
+    ["acme/shop", "acme/api"],
+    "the enabled repositories",
+  );
   assert.equal(repo.initial_option?.value, "acme/shop", "the default repository first");
   const harness = block(blankView, NEW_JOB_BLOCKS.harness)!.element!;
-  assert.deepEqual(harness.options!.map((o) => o.value), [SETTINGS_DEFAULT, "claude-1"], "Settings default and the enabled harnesses");
+  assert.deepEqual(
+    harness.options!.map((o) => o.value),
+    [SETTINGS_DEFAULT, "claude-1"],
+    "Settings default and the enabled harnesses",
+  );
   assert.equal(harness.initial_option?.value, SETTINGS_DEFAULT);
   const runsOn = block(blankView, NEW_JOB_BLOCKS.runsOn)!.element!;
-  assert.deepEqual(runsOn.options!.map((o) => o.text.text), ["Settings default", "Local", "Cloud"]);
+  assert.deepEqual(
+    runsOn.options!.map((o) => o.text.text),
+    ["Settings default", "Local", "Cloud"],
+  );
   assert.equal(runsOn.initial_option?.value, SETTINGS_DEFAULT);
   assert.ok(!JSON.stringify(blankView).includes("tracking-") && !/"[A-Z ]{6,}"/.test(JSON.stringify(blankView)), "plain sentence-case labels");
 
@@ -255,11 +311,15 @@ try {
   const strangerShortcut = shortcut({ ts: "1700000000.000100", text: "Do a thing" }, "U0STRANGER");
   assert.equal((await strangerShortcut.sent).status, 200);
   await drain();
-  assert.deepEqual(repliesTo(strangerShortcut.response_url), [NOT_OWNER]);
+  assert.deepEqual(repliesTo(strangerShortcut.response_url), [NOT_MEMBER]);
   assert.equal(opens(), opened, "no modal for a stranger's shortcut");
 
   const sharedFrom = timeline.length;
-  const shared = shortcut({ ts: "1700000000.000200", thread_ts: "1700000000.000100", text: "Cart total is wrong &amp; <https://shop.test/cart|the cart page> shows NaN\nSteps: add two items." });
+  const shared = shortcut({
+    ts: "1700000000.000200",
+    thread_ts: "1700000000.000100",
+    text: "Cart total is wrong &amp; <https://shop.test/cart|the cart page> shows NaN\nSteps: add two items.",
+  });
   await shared.sent;
   openedFirst(sharedFrom);
   await drain();
@@ -292,7 +352,7 @@ try {
   const tooShort = await submit("V0SHORT", sharedView, { title: "ab" });
   assert.deepEqual(await tooShort.json(), { response_action: "errors", errors: { [NEW_JOB_BLOCKS.title]: "Give the job a title of at least 3 characters." } });
   const strangerSubmit = await submit("V0SHORT", sharedView, { title: "A fine title" }, "U0STRANGER");
-  assert.deepEqual(await strangerSubmit.json(), { response_action: "errors", errors: { [NEW_JOB_BLOCKS.title]: NOT_OWNER } });
+  assert.deepEqual(await strangerSubmit.json(), { response_action: "errors", errors: { [NEW_JOB_BLOCKS.title]: NOT_MEMBER } });
   await drain();
   assert.equal(filings, 0, "nothing filed for a refused form");
 
@@ -325,7 +385,11 @@ try {
   assert.equal(responses.find((r) => shared.response_url.endsWith(r.path))!.body.response_type, "ephemeral");
   const threadReplies = calls.filter((c) => c.method === "chat.postMessage" && c.params.thread_ts);
   assert.ok(threadReplies.length >= 1);
-  assert.deepEqual([threadReplies[0]!.params.channel, threadReplies[0]!.params.thread_ts], ["C0GENERAL", "1700000000.000100"], "answered in the message's thread");
+  assert.deepEqual(
+    [threadReplies[0]!.params.channel, threadReplies[0]!.params.thread_ts],
+    ["C0GENERAL", "1700000000.000100"],
+    "answered in the message's thread",
+  );
   assert.match(threadReplies[0]!.params.blocks!, /Filed as <https:\/\/linear\.app\/x\/issue\/FAC-700\|FAC-700>/);
 
   // --- Settings default adds no override label; a command's job gets no thread reply
@@ -361,6 +425,7 @@ try {
   assert.ok(!JSON.stringify(responses).includes(TOKEN) && !JSON.stringify(calls).includes(SIGNING), "no secret reaches Slack");
   console.log("slack source regressions passed");
 } finally {
+  await db.delete(users).where(within(users.email, [OWNER, ENGINEER]));
   await server.close();
 }
 process.exit(0);

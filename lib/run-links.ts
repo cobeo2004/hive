@@ -5,8 +5,7 @@
 const SESSION_ID = /^[\w.:-]+(?:\/[\w.:-]+)*$/;
 const MAX_SESSION_ID = 128;
 
-export const parseSessionId = (value: string | null | undefined) =>
-  value && value.length <= MAX_SESSION_ID && SESSION_ID.test(value) ? value : undefined;
+export const parseSessionId = (value: string | null | undefined) => (value && value.length <= MAX_SESSION_ID && SESSION_ID.test(value) ? value : undefined);
 
 /** The activity page with the run open on the right. */
 export const activityHref = (sessionId: string) => `/activity?${new URLSearchParams({ run: sessionId })}`;

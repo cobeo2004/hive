@@ -37,10 +37,19 @@ import {
 } from "./ops";
 import { loginFailed, noteTokenWritten, retireSandbox, sandboxesInFlight } from "./lifecycle";
 import { announceFallbacks, capabilities, overrideRuntime, planLaunch, splitByExecution } from "./overrides";
-import { CodexLoginError, createJobSandbox, ingestConfig, needsCodexSlot, sandboxHarness, sandboxRuntime, setupSandbox, usableSlots, type CodexLogin } from "./sandbox";
+import {
+  CodexLoginError,
+  createJobSandbox,
+  ingestConfig,
+  needsCodexSlot,
+  sandboxHarness,
+  sandboxRuntime,
+  setupSandbox,
+  usableSlots,
+  type CodexLogin,
+} from "./sandbox";
 
-const sh = async (host: JobHost, cmd: string, args: string[], cwd?: string) =>
-  (await host.run(cmd, args, { cwd, timeoutMs: 60_000 })).stdout.trim();
+const sh = async (host: JobHost, cmd: string, args: string[], cwd?: string) => (await host.run(cmd, args, { cwd, timeoutMs: 60_000 })).stdout.trim();
 
 /** Thrown when T3 may have created the thread even though the start did not report it. */
 export class MaybeStartedError extends Error {}
@@ -60,9 +69,7 @@ export async function startThread(host: JobHost, repo: string, branch: string, t
 /** T3 prepares the worktree after start returns; wait for it and confirm it sits on fresh origin/main. */
 async function worktreeHead(threadId: string, host: JobHost) {
   for (let i = 0; i < 30; i++) {
-    const { thread } = z
-      .object({ thread: z.object({ worktreePath: z.string().nullable() }) })
-      .parse(await showThread(host, threadId, { timeoutMs: 60_000 }));
+    const { thread } = z.object({ thread: z.object({ worktreePath: z.string().nullable() }) }).parse(await showThread(host, threadId, { timeoutMs: 60_000 }));
     if (thread.worktreePath) {
       try {
         return { path: thread.worktreePath, head: await sh(host, "git", ["rev-parse", "HEAD"], thread.worktreePath) };
@@ -96,7 +103,8 @@ async function threadBranches(checkout: string, host: JobHost) {
 }
 
 type PendingLaunch = Awaited<ReturnType<typeof pendingLaunches>>[number];
-const inSandbox = (p: Pick<PendingLaunch, "execution" | "sandbox_id" | "codex_slot">) => p.execution === "modal" || p.sandbox_id !== null || p.codex_slot !== null;
+const inSandbox = (p: Pick<PendingLaunch, "execution" | "sandbox_id" | "codex_slot">) =>
+  p.execution === "modal" || p.sandbox_id !== null || p.codex_slot !== null;
 
 /** Ends a launch that made no thread: its sandbox first, so a cleared row never points at a live one. */
 export async function releaseSandboxLaunch(key: string, marker: string, sandboxId: string | null, slot: string | null) {
@@ -244,7 +252,11 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
   const repoDefaults: { repo: string; problems: string[] }[] = [];
   for (const { job, ...entry } of queued) {
     const asked = sourceFor(job.source).overrides(job.source_state);
-    const { defaults, problems } = withRepoDefaults(settings, registry.find((r) => r.repo === job.repo), harnesses);
+    const { defaults, problems } = withRepoDefaults(
+      settings,
+      registry.find((r) => r.repo === job.repo),
+      harnesses,
+    );
     if (problems.length > 0 && !repoDefaults.some((d) => d.repo === job.repo)) repoDefaults.push({ repo: job.repo, problems });
     const row = registry.find((r) => r.repo === job.repo);
     const image = repoImage(row, null);
@@ -320,7 +332,9 @@ async function launchLocal(
     const entry = pending.find((e) => e.key === result.key)!;
     const origin = origins.get(entry.repo)!;
     void worktreeHead(result.threadId, hosts.forJob(entry))
-      .then((tree) => onWorktree({ key: result.key, worktree: tree?.path, freshFromOrigin: tree ? tree.head === origin : undefined, originMain: origin.slice(0, 7) }))
+      .then((tree) =>
+        onWorktree({ key: result.key, worktree: tree?.path, freshFromOrigin: tree ? tree.head === origin : undefined, originMain: origin.slice(0, 7) }),
+      )
       .catch((error: unknown) => onWorktree({ key: result.key, error: String(error) }));
   }
   return launched;
@@ -341,7 +355,10 @@ class SandboxSetupError extends Error {}
  */
 export type SandboxStart = { imageId: string; namedSecrets: string[]; warm?: { setup: readonly string[] }; outdated?: string } | { blocked: string };
 
-export function sandboxStart(row: RepoSettingsRow | undefined, base: { imageId: string; builtAt: string; versions: ReturnType<typeof builtVersions> }): SandboxStart {
+export function sandboxStart(
+  row: RepoSettingsRow | undefined,
+  base: { imageId: string; builtAt: string; versions: ReturnType<typeof builtVersions> },
+): SandboxStart {
   const choice = repoImage(row, { versions: base.versions, builtAt: base.builtAt });
   const detail = parseDetail(row?.onboarding_detail);
   const namedSecrets = row && (detail.secretsSet ?? []).length > 0 ? [modalSecretName(row.repo)] : [];
@@ -384,14 +401,17 @@ export function withRecipeNote(message: string, row: RepoSettingsRow | undefined
   const detail = parseDetail(row?.onboarding_detail);
   if (!detail.recipe) return message;
   const unmerged = unmergedRecipe(row);
-  if (!unmerged) return `${message}\n\nThis repository's setup recipe is ${RECIPE_PATH}: run its setup commands in your worktree before anything else, and use its checks to verify.`;
+  if (!unmerged)
+    return `${message}\n\nThis repository's setup recipe is ${RECIPE_PATH}: run its setup commands in your worktree before anything else, and use its checks to verify.`;
   const checks = Object.entries(unmerged.checks ?? {});
   return [
     message,
     "",
     `This repository's setup recipe is not on main yet${detail.recipePr ? ` (it waits in ${detail.recipePr})` : ""}, so your worktree has no ${RECIPE_PATH}. Run these setup commands in your worktree before anything else:`,
     ...unmerged.setup.map((command) => `    ${command}`),
-    ...(checks.length > 0 ? ["", "Verify with these checks; factory-verify runs the same ones:", ...checks.map(([name, command]) => `    ${name}: ${command}`)] : []),
+    ...(checks.length > 0
+      ? ["", "Verify with these checks; factory-verify runs the same ones:", ...checks.map(([name, command]) => `    ${name}: ${command}`)]
+      : []),
   ].join("\n");
 }
 
@@ -406,7 +426,15 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
     return [];
   }
   const base = { imageId: image.imageId, builtAt: image.builtAt, versions: builtVersions(image) };
-  const starts = new Map(pending.map((entry) => [entry.key, sandboxStart(registry.find((r) => r.repo === entry.repo), base)]));
+  const starts = new Map(
+    pending.map((entry) => [
+      entry.key,
+      sandboxStart(
+        registry.find((r) => r.repo === entry.repo),
+        base,
+      ),
+    ]),
+  );
   const claudeToken = runtime.claudeToken();
   const byKey = new Map(pending.map((entry) => [entry.key, entry]));
   let room = limits.maxParallel - (await sandboxesInFlight(slot.id));
@@ -493,7 +521,15 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
         throw new SandboxSetupError(`sandbox setup failed: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
       }
       // Images stay on this machine for now; the thread gets the issue text with their links.
-      const message = await withPlaybook(withRecipeNote(entry.message, registry.find((r) => r.repo === entry.repo)), "modal", host, REPO_DIR);
+      const message = await withPlaybook(
+        withRecipeNote(
+          entry.message,
+          registry.find((r) => r.repo === entry.repo),
+        ),
+        "modal",
+        host,
+        REPO_DIR,
+      );
       return startThread(host, REPO_DIR, entry.branch, entry.threadTitle, message, ran);
     },
     bind: bindThread,

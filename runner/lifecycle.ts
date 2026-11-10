@@ -17,7 +17,19 @@ import { config } from "./config";
 import { thisMachine } from "./heartbeat";
 import { flushSandboxOutbox } from "./outbox";
 import { isolated } from "./reconcile";
-import { CodexLoginError, createJobSandbox, installCodexLogin, markSlotUnusable, needsCodexSlot, pairT3, sandboxRuntime, startT3, stopT3, usableSlots, writeGithubToken } from "./sandbox";
+import {
+  CodexLoginError,
+  createJobSandbox,
+  installCodexLogin,
+  markSlotUnusable,
+  needsCodexSlot,
+  pairT3,
+  sandboxRuntime,
+  startT3,
+  stopT3,
+  usableSlots,
+  writeGithubToken,
+} from "./sandbox";
 import { threads } from "./threads";
 import { verifyingKeys } from "./verify";
 
@@ -76,7 +88,10 @@ export async function sandboxesInFlight(machineId: string) {
       ),
     );
   const ids = rows.flatMap((r) => (r.sandbox_id ? [r.sandbox_id] : []));
-  const running = ids.length > 0 ? new Set((await modal.api.list(config.factory.sandbox.appName, { label: config.factory.label })).map((s) => s.sandboxId)) : new Set<string>();
+  const running =
+    ids.length > 0
+      ? new Set((await modal.api.list(config.factory.sandbox.appName, { label: config.factory.label })).map((s) => s.sandboxId))
+      : new Set<string>();
   return rows.filter((r) => !r.sandbox_id || running.has(r.sandbox_id)).length + waking;
 }
 
@@ -305,7 +320,16 @@ export async function hibernateIdle(now = Date.now()) {
   const rows = await db
     .select()
     .from(jobs)
-    .where(and(await mine(), inArray(jobs.stage, [...HIBERNATE_STAGES]), isNotNull(jobs.sandbox_id), isNull(jobs.sandbox_snapshot), isNotNull(jobs.t3_thread_id), notPending));
+    .where(
+      and(
+        await mine(),
+        inArray(jobs.stage, [...HIBERNATE_STAGES]),
+        isNotNull(jobs.sandbox_id),
+        isNull(jobs.sandbox_snapshot),
+        isNotNull(jobs.t3_thread_id),
+        notPending,
+      ),
+    );
   const verifying = verifyingKeys();
   return each(rows, async (row) => {
     if (stopOwed(row) || verifying.has(row.key)) return undefined;
@@ -318,7 +342,10 @@ export async function hibernateIdle(now = Date.now()) {
     if (state === "gone") {
       await recordJobCodexUsage(row.key, host);
       await retireSandbox(row.key, sandboxId, row.codex_slot);
-      await db.update(jobs).set({ codex_slot: null }).where(and(eq(jobs.key, row.key), eq(jobs.sandbox_id, sandboxId)));
+      await db
+        .update(jobs)
+        .set({ codex_slot: null })
+        .where(and(eq(jobs.key, row.key), eq(jobs.sandbox_id, sandboxId)));
       return row.codex_slot ? "gone, slot freed" : undefined;
     }
     // Whatever stays undelivered is in the snapshot, and the wake flushes it. A report delivered
@@ -349,7 +376,10 @@ export async function hibernateIdle(now = Date.now()) {
     }
     await terminateSandbox(sandboxId);
     tokenWrites.delete(sandboxId);
-    await db.update(jobs).set({ sandbox_id: null, codex_slot: null }).where(and(eq(jobs.key, row.key), eq(jobs.sandbox_id, sandboxId)));
+    await db
+      .update(jobs)
+      .set({ sandbox_id: null, codex_slot: null })
+      .where(and(eq(jobs.key, row.key), eq(jobs.sandbox_id, sandboxId)));
     log("sandbox:hibernated", { key: row.key, sandbox: sandboxId, stage: row.stage });
     return "hibernated";
   });
@@ -376,7 +406,8 @@ export async function wakeJob(job: HostedJob): Promise<JobHost> {
   waking++;
   try {
     const inFlight = (await sandboxesInFlight((await thisMachine()).id)) - 1;
-    if (inFlight >= limits.maxParallel) throw new WakeDeferredError(`${row.key} waits to wake: ${inFlight} sandboxes already run here (factory.sandbox.maxParallel ${limits.maxParallel})`);
+    if (inFlight >= limits.maxParallel)
+      throw new WakeDeferredError(`${row.key} waits to wake: ${inFlight} sandboxes already run here (factory.sandbox.maxParallel ${limits.maxParallel})`);
     return await wakeInRoom(row, snapshot, asleep);
   } finally {
     waking--;
@@ -411,7 +442,10 @@ async function wakeInRoom(row: JobRow, snapshot: string, asleep: SQL | undefined
     noteTokenWritten(sandboxId);
     await startT3(created.host);
     await flushSandboxOutbox(row.key, created.host);
-    await db.update(jobs).set({ sandbox_snapshot: null }).where(and(eq(jobs.key, row.key), eq(jobs.sandbox_id, sandboxId)));
+    await db
+      .update(jobs)
+      .set({ sandbox_snapshot: null })
+      .where(and(eq(jobs.key, row.key), eq(jobs.sandbox_id, sandboxId)));
     wokenAt.set(row.key, Date.now());
     log("sandbox:woken", { key: row.key, sandbox: sandboxId, slot });
     await deleteSnapshot(snapshot).catch((error: unknown) => log("sandbox:snapshot-delete-failed", { key: row.key, snapshot, error: message(error) }));
@@ -431,7 +465,10 @@ hosts.wake = wakeJob;
 
 /** Installation tokens last an hour: each running sandbox gets a fresh one every 40 minutes. */
 export async function refreshTokens(now = Date.now()) {
-  const rows = await db.select().from(jobs).where(and(await mine(), isNotNull(jobs.sandbox_id)));
+  const rows = await db
+    .select()
+    .from(jobs)
+    .where(and(await mine(), isNotNull(jobs.sandbox_id)));
   const live = new Set(rows.map((r) => r.sandbox_id!));
   for (const sandboxId of tokenWrites.keys()) if (!live.has(sandboxId)) tokenWrites.delete(sandboxId);
   return each(rows, async (row) => {
@@ -514,7 +551,9 @@ export async function reap() {
     const [cleared] = await db
       .update(jobs)
       .set({ codex_slot: null })
-      .where(and(eq(jobs.key, holder.key), eq(jobs.codex_slot, holder.codex_slot!), sql`${jobs.sandbox_id} is not distinct from ${holder.sandbox_id}`, notPending))
+      .where(
+        and(eq(jobs.key, holder.key), eq(jobs.codex_slot, holder.codex_slot!), sql`${jobs.sandbox_id} is not distinct from ${holder.sandbox_id}`, notPending),
+      )
       .returning({ key: jobs.key });
     if (cleared) freed.push(`${holder.key}:${holder.codex_slot}`);
   }
@@ -525,7 +564,10 @@ export async function reap() {
 
 /** Whether this machine has anything on Modal to look after, so a runner that never used it never calls Modal. */
 async function usesModal() {
-  const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(jobs).where(and(await mine(), holdsSandbox));
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(jobs)
+    .where(and(await mine(), holdsSandbox));
   return count > 0 || resolveExecution(await readSettings(db)) === "modal";
 }
 

@@ -2,12 +2,12 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { redact } from "@/lib/slack";
 
 // What every request from Slack shares, whichever route it reaches: the signature check, the
-// owner-only refusal, ephemeral replies and request ids derived from what Slack sends.
+// members-only refusal, ephemeral replies and request ids derived from what Slack sends.
 
 /** Slack signs each request; one older than this is a replay. */
 export const MAX_SKEW_SECONDS = 5 * 60;
 
-export const NOT_OWNER = "Only the factory owner can act from Slack.";
+export const NOT_MEMBER = "Sign in to Hive first.";
 export const NO_TOKEN = "The panel has no SLACK_BOT_TOKEN, so it can't act from Slack.";
 
 /** Checks `X-Slack-Signature`: v0, HMAC-SHA256 of `v0:<timestamp>:<raw body>` with the signing secret. */

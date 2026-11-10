@@ -23,7 +23,9 @@ const { evidenceLine, headEvidence, outputTail, parseSummary, planChecks } = awa
 const { writeRepoAutonomy } = await import("../lib/settings");
 const { trustedEdits } = await import("../lib/trusted-checks");
 const { decideMerges, requiredChecks } = await import("../runner/merge-decision");
-const { forgetVerifications, runnerVerification, startVerification, verificationsSettled, verifyAtHead, verifyingKeys, verifyRuntime } = await import("../runner/verify");
+const { forgetVerifications, runnerVerification, startVerification, verificationsSettled, verifyAtHead, verifyingKeys, verifyRuntime } = await import(
+  "../runner/verify"
+);
 const { DEFAULT_POLICY } = await import("../lib/merge-decision");
 const { ingestClient } = await import("../runner/ops");
 const { serve } = await import("./serve");
@@ -73,18 +75,42 @@ const evidence = (k: string, sha: string, at: number, over: Record<string, unkno
   });
 
 // --- what to run
-const recipe = { setup: ["bun install"], checks: { test: "bun test", build: "bun run build" }, env: [{ name: "STRIPE_KEY", purpose: "tests", required: true }] };
+const recipe = {
+  setup: ["bun install"],
+  checks: { test: "bun test", build: "bun run build" },
+  env: [{ name: "STRIPE_KEY", purpose: "tests", required: true }],
+};
 assert.deepEqual(
   planChecks({ recipe, packageJson: null, files: [] }),
-  { source: "recipe", setup: ["bun install"], checks: [{ name: "test", command: "bun test" }, { name: "build", command: "bun run build" }], envNames: ["STRIPE_KEY"] },
+  {
+    source: "recipe",
+    setup: ["bun install"],
+    checks: [
+      { name: "test", command: "bun test" },
+      { name: "build", command: "bun run build" },
+    ],
+    envNames: ["STRIPE_KEY"],
+  },
   "the recipe's checks, in check order",
 );
 assert.deepEqual(
   planChecks({ recipe: null, packageJson: JSON.stringify({ scripts: { lint: "eslint", test: "vitest", dev: "next dev" } }), files: ["bun.lock"] }),
-  { source: "package", setup: ["bun install --frozen-lockfile"], checks: [{ name: "test", command: "bun run test" }, { name: "lint", command: "bun run lint" }], envNames: [] },
+  {
+    source: "package",
+    setup: ["bun install --frozen-lockfile"],
+    checks: [
+      { name: "test", command: "bun run test" },
+      { name: "lint", command: "bun run lint" },
+    ],
+    envNames: [],
+  },
   "without a recipe, package.json scripts by the lockfile's package manager",
 );
-assert.equal(planChecks({ recipe: null, packageJson: JSON.stringify({ scripts: { test: "jest" } }), files: [] }).checks[0]!.command, "npm run test", "npm without a lockfile");
+assert.equal(
+  planChecks({ recipe: null, packageJson: JSON.stringify({ scripts: { test: "jest" } }), files: [] }).checks[0]!.command,
+  "npm run test",
+  "npm without a lockfile",
+);
 assert.deepEqual(planChecks({ recipe: null, packageJson: "{not json", files: [] }).source, "none", "a broken package.json defines nothing");
 assert.deepEqual(planChecks({ recipe: null, packageJson: null, files: [] }).checks, [], "no recipe, no package.json: no checks");
 
@@ -123,18 +149,48 @@ const ev = (sha: string, over: Partial<Parameters<typeof headEvidence>[0][number
 });
 assert.deepEqual(headEvidence([ev(SHA_A)], SHA_A, null), { state: "verified", sha: SHA_A, passed: 2, total: 2, producer: "agent" });
 assert.deepEqual(headEvidence([], SHA_A, null), { state: "missing" });
-assert.deepEqual(headEvidence([ev(SHA_B), ev("c".repeat(40), { recordedAt: at(5) })], SHA_A, null), { state: "stale", sha: "c".repeat(40) }, "stale names the newest commit with evidence");
+assert.deepEqual(
+  headEvidence([ev(SHA_B), ev("c".repeat(40), { recordedAt: at(5) })], SHA_A, null),
+  { state: "stale", sha: "c".repeat(40) },
+  "stale names the newest commit with evidence",
+);
 assert.deepEqual(headEvidence([ev(SHA_A, { clean: false })], SHA_A, null), { state: "dirty", sha: SHA_A });
-assert.deepEqual(headEvidence([ev(SHA_A, { checks: [check("test", true), check("lint", false)] })], SHA_A, null), { state: "failed", sha: SHA_A, failed: ["lint"], passed: 1, total: 2 });
-assert.deepEqual(headEvidence([ev(SHA_A)], SHA_A, planned("test", "lint", "build")), { state: "incomplete", sha: SHA_A, missing: ["build"] }, "the recipe's checks are required");
-assert.deepEqual(headEvidence([ev(SHA_A)], SHA_A, planned("test", "lint")), { state: "verified", sha: SHA_A, passed: 2, total: 2, producer: "agent" }, "matching commands verify");
+assert.deepEqual(headEvidence([ev(SHA_A, { checks: [check("test", true), check("lint", false)] })], SHA_A, null), {
+  state: "failed",
+  sha: SHA_A,
+  failed: ["lint"],
+  passed: 1,
+  total: 2,
+});
+assert.deepEqual(
+  headEvidence([ev(SHA_A)], SHA_A, planned("test", "lint", "build")),
+  { state: "incomplete", sha: SHA_A, missing: ["build"] },
+  "the recipe's checks are required",
+);
+assert.deepEqual(
+  headEvidence([ev(SHA_A)], SHA_A, planned("test", "lint")),
+  { state: "verified", sha: SHA_A, passed: 2, total: 2, producer: "agent" },
+  "matching commands verify",
+);
 assert.deepEqual(
   headEvidence([ev(SHA_A, { checks: [check("test", true, { command: "true" }), check("lint", true)] })], SHA_A, planned("test", "lint")),
   { state: "untrusted", sha: SHA_A, mismatched: ["test"] },
   "a check whose command was swapped to true is not verified",
 );
-assert.equal(headEvidence([ev(SHA_A, { checks: [check("test", true, { command: " bun run test " }), check("lint", true)] })], SHA_A, planned("test", "lint")).state, "verified", "whitespace around a command doesn't matter");
-assert.equal(headEvidence([ev(SHA_A, { checks: [check("custom", true, { command: "bun install" }), check("test", true), check("lint", true)] })], SHA_A, planned("test", "lint")).state, "verified", "the setup step isn't compared");
+assert.equal(
+  headEvidence([ev(SHA_A, { checks: [check("test", true, { command: " bun run test " }), check("lint", true)] })], SHA_A, planned("test", "lint")).state,
+  "verified",
+  "whitespace around a command doesn't matter",
+);
+assert.equal(
+  headEvidence(
+    [ev(SHA_A, { checks: [check("custom", true, { command: "bun install" }), check("test", true), check("lint", true)] })],
+    SHA_A,
+    planned("test", "lint"),
+  ).state,
+  "verified",
+  "the setup step isn't compared",
+);
 assert.deepEqual(headEvidence([ev(SHA_A)], SHA_A, []), { state: "no_checks" }, "a recipe with no checks");
 assert.deepEqual(headEvidence([ev(SHA_A, { source: "none", checks: [] })], SHA_A, null), { state: "no_checks" }, "evidence that found no checks");
 assert.deepEqual(
@@ -143,34 +199,78 @@ assert.deepEqual(
   "a failed setup is named setup",
 );
 const rows = [{ repo: REPO, onboarding_detail: { recipe } }] as unknown as Parameters<typeof requiredChecks>[0];
-assert.deepEqual(requiredChecks(rows, REPO).required, [{ name: "test", command: "bun test" }, { name: "build", command: "bun run build" }], "required comes from the recorded recipe, commands included");
+assert.deepEqual(
+  requiredChecks(rows, REPO).required,
+  [
+    { name: "test", command: "bun test" },
+    { name: "build", command: "bun run build" },
+  ],
+  "required comes from the recorded recipe, commands included",
+);
 assert.equal(requiredChecks(rows, "other/repo").required, null, "no recipe, no required list");
 
 // --- what a PR must not edit
 const scripts = (over: Record<string, string> = {}) => ({ test: "vitest", lint: "eslint .", dev: "next dev", ...over });
 const recipeChecks = [{ name: "test" as const, command: "bun run test" }];
-const edits = (files: string[], base: Record<string, string> | null = scripts(), head: Record<string, string> | null = scripts(), required: typeof recipeChecks | null = recipeChecks) => trustedEdits({ files, required, base, head });
+const edits = (
+  files: string[],
+  base: Record<string, string> | null = scripts(),
+  head: Record<string, string> | null = scripts(),
+  required: typeof recipeChecks | null = recipeChecks,
+) => trustedEdits({ files, required, base, head });
 assert.deepEqual(edits(["src/a.ts"]), [], "an ordinary change");
 assert.match(edits([".factory/setup.json"])[0]!, /edits the recipe the factory trusts: \.factory\/setup\.json/, "the recipe");
 assert.match(edits([".github/workflows/ci.yml"])[0]!, /edits CI workflows \(\.github\/workflows\/ci\.yml\)/, "a workflow");
-assert.deepEqual(edits(["package.json"], scripts(), scripts({ test: "true" })), ["The pull request edits the check scripts the factory trusts: package.json scripts.test."], "the script a check runs");
+assert.deepEqual(
+  edits(["package.json"], scripts(), scripts({ test: "true" })),
+  ["The pull request edits the check scripts the factory trusts: package.json scripts.test."],
+  "the script a check runs",
+);
 assert.deepEqual(edits(["package.json"], scripts(), scripts({ dev: "vite" })), [], "a script no check uses");
 assert.deepEqual(edits(["package.json"]), [], "a package.json change outside scripts, such as dependencies");
 const chained = { test: "bun run unit", unit: "vitest" };
 assert.match(edits(["package.json"], scripts(chained), scripts({ ...chained, unit: "true" }))[0]!, /scripts\.unit\./, "a script the used script calls counts");
-assert.match(edits(["package.json"], scripts(), scripts({ lint: "true" }), null)[0]!, /scripts\.lint\./, "without a recipe the scripts named like the checks count");
+assert.match(
+  edits(["package.json"], scripts(), scripts({ lint: "true" }), null)[0]!,
+  /scripts\.lint\./,
+  "without a recipe the scripts named like the checks count",
+);
 assert.match(edits(["package.json"], scripts(), null)[0]!, /couldn't be compared/, "an unreadable head is a handover, not a pass");
 const noBuild = { test: "vitest" };
-assert.match(edits(["package.json"], noBuild, { ...noBuild, build: "true" }, null)[0]!, /scripts\.build\./, "without a recipe, a check script the head adds counts");
-assert.match(edits(["package.json"], scripts(chained), scripts({ ...chained, test: "bun run unit && bun run extra", extra: "true" }))[0]!, /scripts\.extra, package\.json scripts\.test\./, "a script the head adds and a used script calls counts");
+assert.match(
+  edits(["package.json"], noBuild, { ...noBuild, build: "true" }, null)[0]!,
+  /scripts\.build\./,
+  "without a recipe, a check script the head adds counts",
+);
+assert.match(
+  edits(["package.json"], scripts(chained), scripts({ ...chained, test: "bun run unit && bun run extra", extra: "true" }))[0]!,
+  /scripts\.extra, package\.json scripts\.test\./,
+  "a script the head adds and a used script calls counts",
+);
 
-const summary = (over: Record<string, unknown> = {}) => parseSummary({ sha: SHA_A, attempt: 1, clean: true, producer: "agent", source: "package", at: at(0).toISOString(), checks: [{ name: "test", passed: true, exitCode: 0, durationMs: 1 }, { name: "lint", passed: true, exitCode: 0, durationMs: 1 }], ...over });
+const summary = (over: Record<string, unknown> = {}) =>
+  parseSummary({
+    sha: SHA_A,
+    attempt: 1,
+    clean: true,
+    producer: "agent",
+    source: "package",
+    at: at(0).toISOString(),
+    checks: [
+      { name: "test", passed: true, exitCode: 0, durationMs: 1 },
+      { name: "lint", passed: true, exitCode: 0, durationMs: 1 },
+    ],
+    ...over,
+  });
 assert.deepEqual(evidenceLine(summary(), SHA_A, { expected: true }), { text: "Verified at aaaaaaa · 2/2 checks", tone: "success" });
 assert.deepEqual(evidenceLine(summary(), SHA_B, { expected: true }), { text: "Not verified at head", tone: "warning" }, "evidence for another commit");
 assert.deepEqual(evidenceLine(null, null, { expected: true }), { text: "Not verified at head", tone: "warning" });
 assert.equal(evidenceLine(null, null, { expected: false }), null, "nothing to say before pr");
 assert.equal(evidenceLine(summary({ clean: false }), SHA_A, { expected: true })!.text, "Not verified at aaaaaaa · uncommitted changes");
-assert.equal(evidenceLine(summary({ checks: [{ name: "test", passed: false, exitCode: 1, durationMs: 1 }] }), null, { expected: true })!.text, "Checks failed at aaaaaaa · 0/1 check");
+assert.equal(
+  evidenceLine(summary({ checks: [{ name: "test", passed: false, exitCode: 1, durationMs: 1 }] }), null, { expected: true })!.text,
+  "Checks failed at aaaaaaa · 0/1 check",
+);
 
 // --- the CLI against a temp git repo, posting through the outbox to a stand-in ingest
 const SECRET = "evidence-ingest-secret";
@@ -186,7 +286,13 @@ const configPath = join(dir, "config.json");
 writeFileSync(configPath, JSON.stringify({ ingestUrl: `http://localhost:${server.port}/ingest`, secret: SECRET }));
 const verifyScript = join(import.meta.dirname, "../hooks/verify.ts");
 const childEnv = (over: Record<string, string> = {}) => {
-  const env: Record<string, string | undefined> = { ...process.env, HOME: dir, MARSHAL_FACTORY_CONFIG: configPath, FACTORY_STATE_DIR: join(dir, "state"), ...over };
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    HOME: dir,
+    MARSHAL_FACTORY_CONFIG: configPath,
+    FACTORY_STATE_DIR: join(dir, "state"),
+    ...over,
+  };
   for (const name of ["FACTORY_JOB_KEY", "FACTORY_ATTEMPT", "FACTORY_SESSION_ID", "GITHUB_TOKEN"]) if (!(name in over)) delete env[name];
   return env as NodeJS.ProcessEnv;
 };
@@ -200,7 +306,8 @@ const runVerify = (cwd: string, args: string[], env: Record<string, string> = {}
     child.on("error", reject);
     child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
   });
-const gitIn = (cwd: string, ...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", ...args], { encoding: "utf8" }).trim();
+const gitIn = (cwd: string, ...args: string[]) =>
+  execFileSync("git", ["-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", ...args], { encoding: "utf8" }).trim();
 
 function repoWith(branch: string, scripts: Record<string, string>, extra: Record<string, string> = {}) {
   const repo = mkdtempSync(join(dir, "repo-"));
@@ -226,7 +333,11 @@ try {
   await ingest(db, [evidence(INGEST, SHA_A, 2000, { checks: [check("test", false)] })]);
   let stored = await evidenceRows(INGEST);
   assert.equal(stored.length, 1, "one row per job and commit");
-  assert.deepEqual([stored[0]!.recorded_at.getTime(), stored[0]!.checks.map((c) => c.passed)], [3000, [true, true]], "the latest run wins; a late older one is ignored");
+  assert.deepEqual(
+    [stored[0]!.recorded_at.getTime(), stored[0]!.checks.map((c) => c.passed)],
+    [3000, [true, true]],
+    "the latest run wins; a late older one is ignored",
+  );
   await ingest(db, [evidence(INGEST, SHA_A, 4000, { clean: false, checks: [check("test", false)] })]);
   stored = await evidenceRows(INGEST);
   assert.deepEqual([stored[0]!.clean, stored[0]!.recorded_at.getTime()], [true, 3000], "a dirty run doesn't replace clean evidence for the same commit");
@@ -238,13 +349,28 @@ try {
     [SHA_B, false, 2, "verifying"],
     "the job's summary follows its newest evidence; the stage is the agent's and stays",
   );
-  assert.equal((await db.select().from(runs).where(eq(runs.session_id, `evidence:hive/${INGEST}`))).length, 0, "evidence opens no run");
-  const [event] = await db.select().from(events).where(eq(events.event_id, `evidence-regress-${INGEST}-${SHA_A}-1000`));
+  assert.equal(
+    (
+      await db
+        .select()
+        .from(runs)
+        .where(eq(runs.session_id, `evidence:hive/${INGEST}`))
+    ).length,
+    0,
+    "evidence opens no run",
+  );
+  const [event] = await db
+    .select()
+    .from(events)
+    .where(eq(events.event_id, `evidence-regress-${INGEST}-${SHA_A}-1000`));
   assert.equal(event!.job_key, INGEST, "the event is kept under the job");
   await ingest(db, [evidence(INGEST, "c".repeat(40), 6000, { attempt: 2 })]);
   assert.equal((await row(INGEST)).evidence?.sha, SHA_B, "another attempt's evidence leaves the job's summary");
   assert.ok(!eventSchema.safeParse({ ...evidence(INGEST, SHA_A, 1), sha: "abc" }).success, "a sha must be a full commit id");
-  assert.ok(!eventSchema.safeParse({ ...evidence(INGEST, SHA_A, 1), checks: [check("test", true, { outputTail: "x".repeat(4001) })] }).success, "an output tail over the cap is refused");
+  assert.ok(
+    !eventSchema.safeParse({ ...evidence(INGEST, SHA_A, 1), checks: [check("test", true, { outputTail: "x".repeat(4001) })] }).success,
+    "an output tail over the cap is refused",
+  );
 
   // The CLI: passing, failing and dirty runs, each at the exact HEAD, posted through the outbox.
   const CLI = await insert("CLI", { stage: "verifying" });
@@ -254,21 +380,53 @@ try {
   const posted = eventSchema.parse(JSON.parse(passed.stdout));
   assert.ok(posted.kind === "evidence");
   assert.deepEqual(
-    [posted.sha, posted.clean, posted.jobKey, posted.attempt, posted.repo, posted.source, posted.producer, posted.checks.map((c) => [c.name, c.exitCode, c.passed])],
-    [gitIn(passing, "rev-parse", "HEAD"), true, CLI, 1, "acme/demo", "package", "agent", [["test", 0, true], ["lint", 0, true]]],
+    [
+      posted.sha,
+      posted.clean,
+      posted.jobKey,
+      posted.attempt,
+      posted.repo,
+      posted.source,
+      posted.producer,
+      posted.checks.map((c) => [c.name, c.exitCode, c.passed]),
+    ],
+    [
+      gitIn(passing, "rev-parse", "HEAD"),
+      true,
+      CLI,
+      1,
+      "acme/demo",
+      "package",
+      "agent",
+      [
+        ["test", 0, true],
+        ["lint", 0, true],
+      ],
+    ],
   );
   assert.match(posted.checks[0]!.outputTail, /all good/);
   assert.match(passed.stderr, /verified at [0-9a-f]{7} · 2\/2 checks/);
   assert.match(passed.stderr, new RegExp(`reported for ${CLI}`));
   assert.equal(received.at(-1)![0]!.eventId, posted.eventId, "posted to ingest through the outbox");
-  assert.deepEqual((await evidenceRows(CLI)).map((r) => [r.sha, r.clean]), [[posted.sha, true]], "and stored for that commit");
+  assert.deepEqual(
+    (await evidenceRows(CLI)).map((r) => [r.sha, r.clean]),
+    [[posted.sha, true]],
+    "and stored for that commit",
+  );
 
   const failing = repoWith(`hive/${CLI}`, { test: `echo "token $GITHUB_TOKEN"; echo boom >&2; exit 3`, lint: "true" });
   const failed = await runVerify(failing, ["--json", "--no-post"], { GITHUB_TOKEN: SECRET_TOKEN });
   assert.equal(failed.code, 1, "a failing check exits 1");
   const failedEvent = eventSchema.parse(JSON.parse(failed.stdout));
   assert.ok(failedEvent.kind === "evidence");
-  assert.deepEqual(failedEvent.checks.map((c) => [c.name, c.exitCode, c.passed]), [["test", 3, false], ["lint", 0, true]], "every check runs, even after a failure");
+  assert.deepEqual(
+    failedEvent.checks.map((c) => [c.name, c.exitCode, c.passed]),
+    [
+      ["test", 3, false],
+      ["lint", 0, true],
+    ],
+    "every check runs, even after a failure",
+  );
   assert.match(failedEvent.checks[0]!.outputTail, /boom/, "stderr is in the tail");
   assert.ok(!failedEvent.checks[0]!.outputTail.includes(SECRET_TOKEN) && !failed.stderr.includes(SECRET_TOKEN), "a token in the output is redacted");
   assert.equal(received.flat().filter((e) => e.eventId === failedEvent.eventId).length, 0, "--no-post posts nothing");
@@ -280,10 +438,18 @@ try {
   assert.ok(dirtyEvent.kind === "evidence" && !dirtyEvent.clean && dirtyEvent.checks.every((c) => c.passed), "the checks pass, but the evidence is dirty");
   assert.match(dirty.stderr, /uncommitted changes/);
 
-  const recipeRepo = repoWith(`hive/${CLI}-a2`, { test: "exit 1" }, { ".factory/setup.json": JSON.stringify({ setup: [], checks: { test: "true", typecheck: "true" } }) });
+  const recipeRepo = repoWith(
+    `hive/${CLI}-a2`,
+    { test: "exit 1" },
+    { ".factory/setup.json": JSON.stringify({ setup: [], checks: { test: "true", typecheck: "true" } }) },
+  );
   const fromRecipe = eventSchema.parse(JSON.parse((await runVerify(recipeRepo, ["--json", "--no-post"])).stdout));
   assert.ok(fromRecipe.kind === "evidence");
-  assert.deepEqual([fromRecipe.source, fromRecipe.attempt, fromRecipe.checks.map((c) => c.name)], ["recipe", 2, ["test", "typecheck"]], "the recipe wins over package.json; the attempt comes from the branch");
+  assert.deepEqual(
+    [fromRecipe.source, fromRecipe.attempt, fromRecipe.checks.map((c) => c.name)],
+    ["recipe", 2, ["test", "typecheck"]],
+    "the recipe wins over package.json; the attempt comes from the branch",
+  );
 
   const offBranch = repoWith("main", { test: "true" });
   const off = await runVerify(offBranch, []);
@@ -303,7 +469,10 @@ try {
     gitIn(work, "checkout", "-q", "-B", branch, "main");
     writeFileSync(join(work, "package.json"), JSON.stringify({ name: "demo", scripts }));
     mkdirSync(join(work, ".factory"), { recursive: true });
-    writeFileSync(join(work, ".factory/setup.json"), JSON.stringify({ setup: ["echo set up"], checks: { test: scripts.test ?? "true", lint: scripts.lint ?? "true" } }));
+    writeFileSync(
+      join(work, ".factory/setup.json"),
+      JSON.stringify({ setup: ["echo set up"], checks: { test: scripts.test ?? "true", lint: scripts.lint ?? "true" } }),
+    );
     gitIn(work, "add", "-A");
     gitIn(work, "commit", "-q", "-m", branch);
     gitIn(work, "push", "-q", "-f", "origin", branch);
@@ -338,7 +507,10 @@ try {
   const pr = (k: string, over: Partial<typeof jobs.$inferInsert>) => {
     const url = over.pr_url ?? `https://github.com/${REPO}/pull/${keys.indexOf(k) + 1}`;
     byUrl.set(url, k);
-    return db.update(jobs).set({ stage: "pr", stage_event_id: `evidence-regress-pr-${k}`, merge_assessment: assessment, execution: "modal", ...over, pr_url: url }).where(eq(jobs.key, k));
+    return db
+      .update(jobs)
+      .set({ stage: "pr", stage_event_id: `evidence-regress-pr-${k}`, merge_assessment: assessment, execution: "modal", ...over, pr_url: url })
+      .where(eq(jobs.key, k));
   };
   await pr(RUNNER, { sandbox_id: "sb-evidence-runner" });
   await pr(ASLEEP, { sandbox_snapshot: "im-evidence-asleep" });
@@ -351,7 +523,16 @@ try {
   github.checkState = async () => ({ checks: "success", bugbot: { state: "reviewed" } });
   github.bugbotFindings = async () => [];
   github.upsertComment = async () => "created";
-  github.mergeCandidate = async () => ({ state: "open", headSha: "moved", baseRef: "main", title: "t", number: 1, commits: 1, mergeCommitSha: null, mergedByBot: false });
+  github.mergeCandidate = async () => ({
+    state: "open",
+    headSha: "moved",
+    baseRef: "main",
+    title: "t",
+    number: 1,
+    commits: 1,
+    mergeCommitSha: null,
+    mergedByBot: false,
+  });
   SOURCES.linear.labels = async () => ["hive"];
   SOURCES.linear.note = async () => undefined;
   ingestClient.post = async (e) => ingest(db, [eventSchema.parse(e)]);
@@ -365,7 +546,11 @@ try {
   const capJob = (k: string) => ({ key: k, sandbox_id: "sb-cap", sandbox_snapshot: null, attempt: 1, repo: REPO, execution: "modal" });
   const noPost = async () => undefined;
   assert.deepEqual(
-    [startVerification(capJob("CAP-1"), SHA_A, null, noPost), startVerification(capJob("CAP-2"), SHA_A, null, noPost), startVerification(capJob("CAP-3"), SHA_A, null, noPost)],
+    [
+      startVerification(capJob("CAP-1"), SHA_A, null, noPost),
+      startVerification(capJob("CAP-2"), SHA_A, null, noPost),
+      startVerification(capJob("CAP-3"), SHA_A, null, noPost),
+    ],
     [true, true, false],
     "a third run waits for a free slot",
   );
@@ -377,15 +562,21 @@ try {
   release();
   await verificationsSettled();
   assert.deepEqual([...verifyingKeys()], [], "the old run ended");
-  assert.deepEqual(runnerVerification(capJob("CAP-1"), SHA_B, autoPolicy, null, Date.now()), { kind: "available" }, "then the new head is the runner's to verify");
+  assert.deepEqual(
+    runnerVerification(capJob("CAP-1"), SHA_B, autoPolicy, null, Date.now()),
+    { kind: "available" },
+    "then the new head is the runner's to verify",
+  );
   forgetVerifications();
 
   // Two runs at the same commit each check out their own worktree; one ending leaves the other's alone.
   const slowRecipe = { setup: [], checks: { test: "sleep 1 && test -f package.json" } };
-  const overlapping = await Promise.all([0, 300].map(async (delay) => {
-    await new Promise((resolve) => setTimeout(resolve, delay));
-    return verifyAtHead(localHost, { key: RUNNER, attempt: 1, repo: REPO }, heads.get(RUNNER)!, slowRecipe);
-  }));
+  const overlapping = await Promise.all(
+    [0, 300].map(async (delay) => {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return verifyAtHead(localHost, { key: RUNNER, attempt: 1, repo: REPO }, heads.get(RUNNER)!, slowRecipe);
+    }),
+  );
   assert.deepEqual(
     overlapping.map((e) => (e.kind === "evidence" ? e.checks.map((c) => c.passed) : null)),
     [[true], [true]],
@@ -402,11 +593,19 @@ try {
   assert.ok(Array.isArray(first), JSON.stringify(first));
   for (const k of [RUNNER, ASLEEP, BROKEN, GONE]) {
     const d = await decisionOf(k);
-    assert.deepEqual([d.outcome, d.reasons, d.evidence], ["pending", [`Waiting for verification at ${heads.get(k)!.slice(0, 7)}.`], { state: "missing" }], `${k} waits for the runner`);
+    assert.deepEqual(
+      [d.outcome, d.reasons, d.evidence],
+      ["pending", [`Waiting for verification at ${heads.get(k)!.slice(0, 7)}.`], { state: "missing" }],
+      `${k} waits for the runner`,
+    );
     // Runs that finish fast free their slot within the pass; the rest start on a later one.
     if (d.verification) assert.deepEqual([d.verification.state, d.verification.sha], ["running", heads.get(k)]);
   }
-  assert.match((await decisionOf(LOCAL)).reasons.join(" "), /Not verified at fffffff: no checks were reported for it; the run isn't in a cloud sandbox/, "a local job can't be verified by the runner");
+  assert.match(
+    (await decisionOf(LOCAL)).reasons.join(" "),
+    /Not verified at fffffff: no checks were reported for it; the run isn't in a cloud sandbox/,
+    "a local job can't be verified by the runner",
+  );
   assert.match((await decisionOf(TRIAL)).reasons.join(" "), /only when the repo merges on its own/, "trial never runs the checks itself");
   assert.equal((await decisionOf(TRIAL)).verification, undefined);
 
@@ -420,7 +619,19 @@ try {
   const runnerRows = await evidenceRows(RUNNER);
   assert.deepEqual(
     runnerRows.map((r) => [r.sha, r.producer, r.clean, r.source, r.checks.map((c) => [c.name, c.passed])]),
-    [[heads.get(RUNNER), "runner", true, "recipe", [["custom", true], ["test", true], ["lint", true]]]],
+    [
+      [
+        heads.get(RUNNER),
+        "runner",
+        true,
+        "recipe",
+        [
+          ["custom", true],
+          ["test", true],
+          ["lint", true],
+        ],
+      ],
+    ],
     "the runner ran setup and the checks at exactly the head",
   );
   assert.match(runnerRows[0]!.checks[1]!.outputTail, /runner ran/);
@@ -428,9 +639,21 @@ try {
   const second = await decideMerges({ ...only, now: Date.now() });
   assert.ok(Array.isArray(second), JSON.stringify(second));
   const verified = await decisionOf(RUNNER);
-  assert.deepEqual([verified.outcome, verified.evidence], ["merge", { state: "verified", sha: heads.get(RUNNER), passed: 3, total: 3, producer: "runner" }], "with the runner's evidence it merges");
-  assert.deepEqual((await decisionOf(ASLEEP)).reasons, [`Checks failed at ${heads.get(ASLEEP)!.slice(0, 7)}: lint.`], "the runner's failing evidence hands over");
-  assert.match((await decisionOf(BROKEN)).reasons.join(" "), /couldn't run the checks itself: commit ddddddd isn't on hive\//, "a head the branch doesn't have");
+  assert.deepEqual(
+    [verified.outcome, verified.evidence],
+    ["merge", { state: "verified", sha: heads.get(RUNNER), passed: 3, total: 3, producer: "runner" }],
+    "with the runner's evidence it merges",
+  );
+  assert.deepEqual(
+    (await decisionOf(ASLEEP)).reasons,
+    [`Checks failed at ${heads.get(ASLEEP)!.slice(0, 7)}: lint.`],
+    "the runner's failing evidence hands over",
+  );
+  assert.match(
+    (await decisionOf(BROKEN)).reasons.join(" "),
+    /couldn't run the checks itself: commit ddddddd isn't on hive\//,
+    "a head the branch doesn't have",
+  );
   assert.match((await decisionOf(GONE)).reasons.join(" "), /couldn't run the checks itself/, "a sandbox that can't run anything");
   assert.equal((await decisionOf(BROKEN)).verification?.state, "failed", "the failure is kept, so it is not retried for this head");
   forgetVerifications();
@@ -442,7 +665,11 @@ try {
   // A new head moves the decision back to the runner, once.
   heads.set(RUNNER, pushBranch(`hive/${RUNNER}`, { test: "true", lint: "true" }));
   await decideMerges({ only: [RUNNER], now: Date.now() });
-  assert.deepEqual([(await decisionOf(RUNNER)).outcome, (await decisionOf(RUNNER)).evidence?.state], ["pending", "stale"], "evidence for the old head is stale");
+  assert.deepEqual(
+    [(await decisionOf(RUNNER)).outcome, (await decisionOf(RUNNER)).evidence?.state],
+    ["pending", "stale"],
+    "evidence for the old head is stale",
+  );
   await verificationsSettled();
   await decideMerges({ only: [RUNNER], now: Date.now() });
   assert.equal((await decisionOf(RUNNER)).outcome, "merge");
@@ -454,7 +681,12 @@ try {
   process.exitCode = 1;
 } finally {
   await server.close();
-  const ids = (await db.select({ id: jobs.id }).from(jobs).where(like(jobs.id, `${jobId("linear", "evidence-regress-")}%`))).map((j) => j.id);
+  const ids = (
+    await db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(like(jobs.id, `${jobId("linear", "evidence-regress-")}%`))
+  ).map((j) => j.id);
   if (ids.length > 0) await db.delete(auditLog).where(inArray(auditLog.job_id, ids));
   if (keys.length > 0) {
     await db.delete(events).where(inArray(events.job_key, keys));

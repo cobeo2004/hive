@@ -13,7 +13,13 @@ async function Panel() {
 
 export default function MachinesPage() {
   return (
-    <Suspense fallback={<PageSkeleton title="Machines"><RowsSkeleton rows={3} /></PageSkeleton>}>
+    <Suspense
+      fallback={
+        <PageSkeleton title="Machines">
+          <RowsSkeleton rows={3} />
+        </PageSkeleton>
+      }
+    >
       <Panel />
     </Suspense>
   );

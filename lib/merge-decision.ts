@@ -244,7 +244,13 @@ export const OFF_DECISION: Decision = { outcome: "handover", reasons: [] };
 export function decideMerge(input: DecisionInput): Decision {
   if (input.policy.autonomy === "off") return OFF_DECISION;
   if (!input.pr) throw new Error("decideMerge needs the PR's facts unless autonomy is off");
-  const reasons = [...agentReasons(input), ...hardLimits(input, input.pr), ...screenshotReasons(input, input.pr), ...input.trustEdits, ...evidenceReasons(input, input.pr)];
+  const reasons = [
+    ...agentReasons(input),
+    ...hardLimits(input, input.pr),
+    ...screenshotReasons(input, input.pr),
+    ...input.trustEdits,
+    ...evidenceReasons(input, input.pr),
+  ];
   if (reasons.length > 0) return { outcome: "handover", reasons };
   const waiting = waitingOn(input, input.pr);
   if (waiting.length > 0) {
@@ -268,7 +274,13 @@ export function reviewSummary(pr: Pick<PrFacts, "headSha" | "files" | "bugbot">)
     headSha: pr.headSha,
     files: pr.files.slice(0, REVIEW_FILE_LIMIT).map(({ path, additions, deletions }) => ({ path, additions, deletions })),
     fileCount: pr.files.length,
-    bugbot: { state: pr.bugbot.review.state, high: count("high"), medium: count("medium"), low: count("low"), resolved: pr.bugbot.findings.length - open.length },
+    bugbot: {
+      state: pr.bugbot.review.state,
+      high: count("high"),
+      medium: count("medium"),
+      low: count("low"),
+      resolved: pr.bugbot.findings.length - open.length,
+    },
   };
 }
 

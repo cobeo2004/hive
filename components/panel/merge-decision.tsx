@@ -71,9 +71,7 @@ export function Confidence({ assessment: { confidence } }: { assessment: MergeAs
 function Assessment({ job, assessment }: { job: JobRow; assessment: MergeAssessment }) {
   return (
     <div className="flex flex-col gap-2.5">
-      <p className="text-muted-foreground">
-        The agent recommends {assessment.recommendation === "merge" ? "merging" : "handing over"}.
-      </p>
+      <p className="text-muted-foreground">The agent recommends {assessment.recommendation === "merge" ? "merging" : "handing over"}.</p>
       <div className="flex flex-col gap-1">
         <h4 className="text-xs font-medium text-muted-foreground">Interpretation</h4>
         <p className="whitespace-pre-wrap">{assessment.interpretation}</p>
@@ -118,7 +116,11 @@ function Watch({ merged, watch }: { merged: FactoryMerge; watch: MergeWatch | un
       )}
       {watch?.state === "green" && <p>The checks on {merged.base} stayed green.</p>}
       {watch?.state === "expired" && <p>The checks on {merged.base} didn&apos;t finish in time, so the watch ended.</p>}
-      {watch && watch.failed.length > 0 && <p>Failed on {merged.base}: {watch.failed.join(", ")}</p>}
+      {watch && watch.failed.length > 0 && (
+        <p>
+          Failed on {merged.base}: {watch.failed.join(", ")}
+        </p>
+      )}
     </div>
   );
 }
