@@ -11,7 +11,7 @@ import type { DecisionInput } from "../lib/merge-decision";
 process.env.NEXT_PUBLIC_LIVE_UPDATES = "off";
 
 const { db } = await import("../db/client");
-const { events, jobs, jobScreenshots, runs } = await import("../db/schema");
+const { events, jobs, jobMedia, runs } = await import("../db/schema");
 const { linearJob } = await import("./fixtures");
 const { TEST_MACHINE_ID } = await import("../lib/config");
 const { attemptBranch } = await import("../lib/factory");
@@ -147,12 +147,16 @@ try {
   assert.deepEqual(first.refused, [], "the pr report applies");
   const again = await ingest(db, images);
   assert.equal(again.inserted, 0, "a redelivered image changes nothing");
-  const stored = await db.select().from(jobScreenshots).where(eq(jobScreenshots.job_key, KEY));
+  const stored = await db.select().from(jobMedia).where(eq(jobMedia.job_key, KEY));
   assert.deepEqual(stored.map((s) => [s.file, s.content_type, s.stage_event_id]).sort(), [
     ["empty.jpeg", "image/jpeg", stageEventId],
     ["list.png", "image/png", stageEventId],
   ]);
   assert.ok(Buffer.from(stored.find((s) => s.file === "list.png")!.bytes).equals(PNG), "the bytes round-trip");
+  assert.ok(
+    stored.every((s) => s.kind === "image"),
+    "media rows default to kind image",
+  );
   const logged = await db
     .select({ payload: events.payload })
     .from(events)
@@ -258,7 +262,7 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
-  await db.delete(jobScreenshots).where(eq(jobScreenshots.job_key, KEY));
+  await db.delete(jobMedia).where(eq(jobMedia.job_key, KEY));
   await db.delete(events).where(eq(events.job_key, KEY));
   await db.delete(runs).where(eq(runs.job_key, KEY));
   await db.delete(jobs).where(eq(jobs.key, KEY));
