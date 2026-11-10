@@ -21,20 +21,12 @@ const lines = (text: string) => text.split(/(?<=\n)/);
 const root = mkdtempSync(join(tmpdir(), "hive-workflow-"));
 const checkout = join(root, "sstack");
 const bare = join(root, "sstack.git");
-const git = (cwd: string, ...args: string[]) =>
-  execFileSync(
-    "git",
-    ["-c", "core.autocrlf=false", "-c", "user.name=regression", "-c", "user.email=regression@example.com", "-c", "commit.gpgsign=false", ...args],
-    {
-      cwd,
-      encoding: "utf8",
-    },
-  ).trim();
+const GIT = ["-c", "core.autocrlf=false", "-c", "user.name=regression", "-c", "user.email=regression@example.com", "-c", "commit.gpgsign=false"];
+const git = (cwd: string, ...args: string[]) => execFileSync("git", [...GIT, ...args], { cwd, encoding: "utf8" }).trim();
 const heads = () => git(root, "ls-remote", "--heads", bare, "hive/*");
 
 // A checkout with a real bare origin: the runner fetches main from it and pushes its branch to it.
-mkdirSync(checkout);
-mkdirSync(bare);
+for (const dir of [checkout, bare]) mkdirSync(dir);
 git(bare, "init", "-q", "--bare", "-b", "main");
 git(checkout, "init", "-q", "-b", "main");
 git(checkout, "remote", "add", "origin", bare);
@@ -53,22 +45,15 @@ let checkouts = 0;
 const realDoctor = workflowDeps.doctor;
 mkdirSync(join(root, "work"));
 Object.assign(workflowDeps, {
-  checkout: async (repo: string) => {
-    checkouts++;
-    return repo === REPO ? checkout : null;
-  },
+  checkout: async (repo: string) => (checkouts++, repo === REPO ? checkout : null),
   remote: () => bare,
   token: async () => "ghs_fake",
   dir: join(root, "work"),
-  doctor: async (cwd: string) => {
-    doctorCalls.push({ cwd, role: existsSync(join(cwd, ROLE)) ? readFileSync(join(cwd, ROLE), "utf8") : null });
-    return doctor;
-  },
+  doctor: async (cwd: string) => (doctorCalls.push({ cwd, role: existsSync(join(cwd, ROLE)) ? readFileSync(join(cwd, ROLE), "utf8") : null }), doctor),
   github: {
-    createPull: async (repo: string, pull: { title: string; head: string; base: string; body: string }) => {
-      pulls.push({ repo, ...pull });
-      return { url: `https://github.com/${repo}/pull/${pulls.length}` };
-    },
+    createPull: async (repo: string, pull: { title: string; head: string; base: string; body: string }) => (
+      pulls.push({ repo, ...pull }), { url: `https://github.com/${repo}/pull/${pulls.length}` }
+    ),
   },
   now: () => new Date("2026-11-11T01:20:00.123Z"),
 });
@@ -117,8 +102,7 @@ try {
   );
   assert.equal(patch("[a]", "a", "k", 1), "[a]\nk = 1\n", "a header with no EOL gets one before the key");
   assert.equal(patch('x = ["#"]  # c\n', "", "x", 2), "x = 2  # c\n", "a # inside a quoted value is not a comment");
-  assert.throws(() => patch('a = """\nx\n"""\n', "", "a", "b"), /multi-line/);
-  assert.throws(() => patch("a = [\n1,\n]\n", "", "a", "b"), /multi-line/);
+  for (const text of ['a = """\nx\n"""\n', "a = [\n1,\n]\n"]) assert.throws(() => patch(text, "", "a", "b"), /multi-line/);
   const swap = (text: string, section = "a") => patch(text, section, "k", 2);
   assert.equal(swap('# """\n[a]\nk = 1\n'), '# """\n[a]\nk = 2\n', "triple quotes in a comment open nothing");
   assert.equal(swap('s = "a \\"\\"\\" b"\n[a]\nk = 1\n'), 's = "a \\"\\"\\" b"\n[a]\nk = 2\n', "escaped quotes in a string");
@@ -128,6 +112,8 @@ try {
   assert.throws(() => swap('["a.b"]\nx = 1\n', "a.b"), /may already exist/);
   assert.throws(() => swap("a = { x = 1 }\n"), /may already exist/);
   assert.throws(() => swap("[[a]]\nk = 1\n"), /may already exist/);
+  assert.throws(() => patch('"\\u006b" = 1\n', "", "k", 9), /escape sequence/, "an escaped quoted key could be the key");
+  assert.throws(() => patch("a = { b = { k = 1 } }\n", "a.b", "k", 9), /may already exist: a\.b/, "an inline table defines its sections");
   assert.throws(() => patch("", "", "a.b", "b"), /bare/);
   assert.throws(() => patch("", "", "a", Number.NaN), /finite/);
 
