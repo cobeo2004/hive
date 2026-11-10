@@ -28,7 +28,8 @@ await assert.rejects(sourceFor("linear").ready(), /Linear API was called during 
 
 const id = `launch-regress-${Date.now()}`;
 const jid = jobId("linear", id);
-await db.insert(jobs).values(linearJob(id, id));
+// Claimed by the label, so removing it stops the job; an assignee-picked job has no label to lose.
+await db.insert(jobs).values(linearJob(id, id, { source_state: { state: null, labels: ["hive"], factoryCommentIds: [] } }));
 try {
   assert.equal(await claimLaunch(id, "pending:1", slot), true, "the first launch claims the job");
   assert.equal(await claimLaunch(id, "pending:2", slot), false, "a second launch, after a crash or timeout, does not");

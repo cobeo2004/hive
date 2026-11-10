@@ -118,18 +118,34 @@ export function linearClient(apiKey: string, { fetch: fetchImpl = realFetch, sle
       return { id: team.id, states: team.states.nodes };
     },
 
-    async readyIssues(teamKey: string, label: string) {
+    /** Todo issues in any of the teams that carry the label, are Hive's, or are assigned to one of `emails`. */
+    async readyIssues({
+      teamKeys,
+      label,
+      hiveUserId,
+      emails,
+    }: {
+      teamKeys: readonly string[];
+      label: string;
+      hiveUserId: string | null;
+      emails: readonly string[];
+    }) {
+      const filter = {
+        team: { key: { in: teamKeys } },
+        state: { type: { eq: "unstarted" } },
+        or: [
+          { labels: { some: { name: { eqIgnoreCase: label } } } },
+          ...(hiveUserId ? [{ assignee: { id: { eq: hiveUserId } } }] : []),
+          ...emails.map((email) => ({ assignee: { email: { eqIgnoreCase: email } } })),
+        ],
+      };
       const data = await gql(
-        `query($team: String!, $label: String!) {
-          issues(first: 50, filter: {
-            team: { key: { eq: $team } },
-            labels: { some: { name: { eqIgnoreCase: $label } } },
-            state: { type: { eq: "unstarted" } }
-          }) {
+        `query($filter: IssueFilter) {
+          issues(first: 50, filter: $filter) {
             nodes { id identifier title url description createdAt state { name type } labels { nodes { name parent { name } } } assignee { id email } creator { id email } }
           }
         }`,
-        { team: teamKey, label },
+        { filter },
         z.object({ issues: z.object({ nodes: z.array(issueSchema) }) }),
       );
       return data.issues.nodes.sort((a, b) => a.createdAt.localeCompare(b.createdAt));

@@ -1,6 +1,8 @@
 import { eq } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import { db } from "@/db/client";
+import type * as schema from "@/db/schema";
 import { linearOptIns, user } from "@/db/schema";
 import type { MembersDeps } from "@/lib/members";
 import { forbidInTest } from "@/lib/test-mode";
@@ -26,6 +28,16 @@ export async function readOptIns(deps: MembersDeps): Promise<OptIns> {
     .innerJoin(user, eq(user.id, linearOptIns.user_id))
     .where(eq(user.email, actor.email));
   return row ?? NO_OPT_INS;
+}
+
+/** Lowercased emails of everyone opted in to "assigned" (R7b); the poll matches a Linear assignee against them. */
+export async function assignedOptInEmails(on: NodePgDatabase<typeof schema> = db): Promise<Set<string>> {
+  const rows = await on
+    .select({ email: user.email })
+    .from(linearOptIns)
+    .innerJoin(user, eq(user.id, linearOptIns.user_id))
+    .where(eq(linearOptIns.assigned, true));
+  return new Set(rows.map((r) => r.email.toLowerCase()));
 }
 
 /** Saves the signed-in user's own opt-ins; the row is found by the session's email, never by input. */
