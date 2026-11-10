@@ -5,6 +5,8 @@ import { forbidInTest } from "./test-mode";
 const ENDPOINT = "https://api.linear.app/graphql";
 const TIMEOUT_MS = 15_000;
 
+const personSchema = z.object({ id: z.string(), email: z.string().nullish() });
+
 const issueSchema = z.object({
   id: z.string(),
   identifier: z.string(),
@@ -14,6 +16,8 @@ const issueSchema = z.object({
   createdAt: z.string(),
   state: z.object({ name: z.string(), type: z.string() }),
   labels: z.object({ nodes: z.array(z.object({ name: z.string(), parent: z.object({ name: z.string() }).nullish() })) }),
+  assignee: personSchema.nullish(),
+  creator: personSchema.nullish(),
 });
 export type LinearIssue = z.infer<typeof issueSchema>;
 
@@ -122,7 +126,7 @@ export function linearClient(apiKey: string, { fetch: fetchImpl = realFetch, sle
             labels: { some: { name: { eqIgnoreCase: $label } } },
             state: { type: { eq: "unstarted" } }
           }) {
-            nodes { id identifier title url description createdAt state { name type } labels { nodes { name parent { name } } } }
+            nodes { id identifier title url description createdAt state { name type } labels { nodes { name parent { name } } } assignee { id email } creator { id email } }
           }
         }`,
         { team: teamKey, label },

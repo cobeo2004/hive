@@ -20,6 +20,7 @@ import { readHarnesses } from "../lib/t3-state";
 import { readSettings, resolveExecution, resolveHarness, type HarnessChoice } from "../lib/settings";
 import type { Execution } from "../lib/execution";
 import type { TicketRecord } from "../lib/ticket-overrides";
+import { resolveOwner } from "../lib/job-owner";
 import { readRegistry, registerRepos, routeRepo, type Registry } from "../lib/repositories";
 import { ensureAwake, HostGoneError, hosts, isHibernated, WakeDeferredError, type JobHost } from "../lib/host";
 import { modalHost } from "../lib/modal-host";
@@ -555,6 +556,8 @@ async function claimDrafts(
           repo: target,
           writeback: draft.writeback,
           source_state: draft.sourceState,
+          // Only the first insert sets it: a reclaim's update leaves the owner alone (R8a).
+          owner_id: draft.owner ? await resolveOwner(tx, draft.owner) : null,
           // Unused, but NOT NULL without a default until migration 0034 has run.
           budget_usd: 5,
           claimed_at: now,

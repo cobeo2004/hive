@@ -53,7 +53,10 @@ const eslintConfig = defineConfig([
   { files: ["lib/sources/**/*.ts"], rules: boundary({ linear: [ANYWHERE, "^\\.\\./linear"] }) },
   // Regressions drive adapters directly with fake clients.
   { files: ["scripts/**/*.ts"], rules: boundary({ linear: [ANYWHERE] }) },
-  { files: ["lib/sources/linear.ts", "scripts/linear-regressions.ts"], rules: { "no-restricted-imports": "off", "no-restricted-syntax": "off" } },
+  {
+    files: ["lib/sources/linear.ts", "scripts/linear-regressions.ts", "scripts/job-owner-regressions.ts"],
+    rules: { "no-restricted-imports": "off", "no-restricted-syntax": "off" },
+  },
   {
     rules: {
       "no-restricted-properties": [
