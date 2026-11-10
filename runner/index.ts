@@ -323,8 +323,10 @@ setInterval(() => {
   });
   // Its own step, so a snapshot that takes minutes never pushes the tick past its timeout.
   void serial("onboarding", () => advanceOnboarding());
-  // Its own step too: a slow Anthropic API never delays the tick.
-  void serial("accountUsage", async () => accountUsage());
+  // Off the serial queue: it only writes account_usage, and a slow Anthropic API must not hold a tick or stop delivery.
+  void accountUsage()
+    .then((r) => typeof r === "object" && r !== null && "error" in r && log("accountUsage:error", { error: r.error }))
+    .catch((error) => log("accountUsage:error", { error: String(error) }));
   // After the tick's merge decisions and stop checks, so the inbox it reads is this tick's; its own step, so a slow Slack delays nothing.
   void serial("slack", () => notifySlack());
   // Intents a notification may not have delivered.
