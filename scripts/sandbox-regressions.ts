@@ -8,7 +8,8 @@ import type { ExecError } from "../lib/exec";
 import { fake, fakeModal, FakeSandbox, sandboxes, type Reply } from "./fake-modal";
 
 const { db } = await import("../db/client");
-const { jobs, settings } = await import("../db/schema");
+const { agentAccounts, jobs, runs, settings, user } = await import("../db/schema");
+const { newKeyPair, seal } = await import("../lib/creds");
 const { linearJob } = await import("./fixtures");
 const { jobId } = await import("../lib/sources/shapes");
 const { TEST_MACHINE_ID } = await import("../lib/config");
@@ -99,7 +100,7 @@ assert.match(sandboxName("weird key/ü", 1), /^[A-Za-z0-9._-]+$/);
 
 // The launch path.
 const stamp = Date.now();
-const keys = ["A", "B", "C", "D", "E", "F"].map((k) => `SBX${k}-${stamp % 100000}`);
+const keys = ["A", "B", "C", "D", "E", "F", "G", "H"].map((k) => `SBX${k}-${stamp % 100000}`);
 const slotA = `/tmp/slot-a-${stamp}`;
 const slot = { id: TEST_MACHINE_ID, repos: ["ski043/factory-demo"], maxInFlight: 1000 };
 const events: { event: string; detail: Record<string, unknown> }[] = [];
@@ -143,6 +144,7 @@ assert.match(
 );
 
 let claudeToken: string | undefined;
+const savedKey = process.env.HIVE_CREDS_PRIVATE_KEY;
 const slots = [slotA];
 Object.assign(sandboxRuntime, {
   image: () => image,
@@ -341,6 +343,59 @@ try {
   assert.deepEqual(sbB.spec!.secrets, { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-fake" });
   assert.equal(JSON.parse(sbB.files.get("/root/.t3/userdata/settings.json")!).providerInstances.claudeAgent.enabled, true);
 
+  // R9a: a job owned by A launches on A's sealed token, never the runner's or B's, even on a runner with no token of its own.
+  const pair = newKeyPair();
+  process.env.HIVE_CREDS_PRIVATE_KEY = pair.privateKey;
+  const sealedFor = (token: string) => seal(token, pair.publicKey);
+  // A killed earlier run left these behind (users cascade to their accounts).
+  await db.delete(agentAccounts).where(eq(agentAccounts.id, "sbx-acct-pool"));
+  await db.delete(user).where(inArray(user.id, ["sbx-owner-a", "sbx-owner-b", "sbx-owner-c"]));
+  await db
+    .insert(user)
+    .values(["sbx-owner-a", "sbx-owner-b", "sbx-owner-c"].map((id) => ({ id, name: id, email: `${id}@unibuz.com.au`, role: "engineer" as const })));
+  await db.insert(agentAccounts).values([
+    { id: "sbx-acct-a", owner_id: "sbx-owner-a", provider: "claude", kind: "subscription", label: "a", sealed: sealedFor("sk-ant-oat-of-a") },
+    { id: "sbx-acct-b", owner_id: "sbx-owner-b", provider: "claude", kind: "subscription", label: "b", sealed: sealedFor("sk-ant-oat-of-b") },
+  ]);
+  await db.update(jobs).set({ owner_id: "sbx-owner-a" }).where(eq(jobs.key, keys[6]!));
+  await db
+    .insert(runs)
+    .values({ session_id: `sbx-run-${stamp}`, job_key: keys[6]!, t3_thread_id: "thread-1", started_at: new Date(), last_event_at: new Date() });
+  claudeToken = undefined;
+  await launchInSandboxes([entry(keys[6]!)], slot);
+  claudeToken = "sk-ant-oat-fake";
+  const owned = await row(keys[6]!);
+  assert.equal(owned.provider, "claudeAgent", "an owner's own Claude account keeps the lead on Claude Code without a runner token");
+  assert.deepEqual(sandboxes.get(owned.sandbox_id!)!.spec!.secrets, { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-of-a" }, "the sandbox gets the owner's token");
+  assert.equal(
+    (
+      await db
+        .select()
+        .from(runs)
+        .where(eq(runs.session_id, `sbx-run-${stamp}`))
+    )[0]!.account_id,
+    "sbx-acct-a",
+    "and the run records the account",
+  );
+  assert.ok(![...sandboxes.values()].some((s) => JSON.stringify(s.spec?.secrets ?? {}).includes("of-b")), "B's token reaches no sandbox");
+
+  // A Codex job runs on its owner's sealed Codex account with no slot (the only one is held), and a Claude pool row nobody can open does not block it.
+  await db.update(jobs).set({ owner_id: "sbx-owner-c" }).where(eq(jobs.key, keys[7]!));
+  await db.insert(agentAccounts).values([
+    { id: "sbx-acct-c", owner_id: "sbx-owner-c", provider: "codex", kind: "subscription", label: "c", sealed: sealedFor('{"auth":"of-c"}') },
+    { id: "sbx-acct-pool", owner_id: null, provider: "claude", kind: "subscription", label: "pool", sealed: seal("x", newKeyPair().publicKey) },
+  ]);
+  await launchInSandboxes([entry(keys[7]!, { provider: "codex", model: "gpt-6-astra" })], slot);
+  const codexOwned = await row(keys[7]!);
+  assert.deepEqual(
+    [codexOwned.provider, codexOwned.codex_slot, Boolean(codexOwned.sandbox_id)],
+    ["codex", null, true],
+    "the account leases no slot and the Claude row does not block",
+  );
+  assert.equal(sandboxes.get(codexOwned.sandbox_id!)!.files.get("/root/.codex/auth.json"), '{"auth":"of-c"}', "the owner's Codex account is the login");
+  await db.update(jobs).set({ machine_id: null }).where(eq(jobs.key, keys[7]!)); // out of the maxParallel count below
+  await db.delete(agentAccounts).where(eq(agentAccounts.id, "sbx-acct-pool"));
+
   // maxParallel counts working jobs with a sandbox, slot or not.
   const maxParallel = config.factory.sandbox.maxParallel;
   config.factory.sandbox.maxParallel = 2;
@@ -446,6 +501,12 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
+  claudeToken = undefined;
+  if (savedKey === undefined) delete process.env.HIVE_CREDS_PRIVATE_KEY;
+  else process.env.HIVE_CREDS_PRIVATE_KEY = savedKey;
+  await db.delete(runs).where(eq(runs.session_id, `sbx-run-${stamp}`));
+  await db.delete(agentAccounts).where(eq(agentAccounts.id, "sbx-acct-pool"));
+  await db.delete(user).where(inArray(user.id, ["sbx-owner-a", "sbx-owner-b", "sbx-owner-c"]));
   await db.delete(jobs).where(
     inArray(
       jobs.id,

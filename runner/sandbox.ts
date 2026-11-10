@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFil
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { FactoryConfig, SandboxLimits } from "../lib/config";
+import { accountFor, runnerDefaultClaudeToken } from "../lib/creds";
 import type { ExecError } from "../lib/exec";
 import { sandboxTokens, type RepoName } from "../lib/github/app";
 import type { JobHost } from "../lib/host";
@@ -56,7 +57,10 @@ function writeAtomic(path: string, text: string) {
 /** What a launch reads from this machine; regressions replace any of it. */
 export const sandboxRuntime = {
   image: (): SandboxImage | null => readSandboxImage(),
-  claudeToken: (): string | undefined => process.env.CLAUDE_CODE_OAUTH_TOKEN || undefined,
+  /** This runner's own Claude token, the login a job gets when no account is its owner's or the pool's. */
+  claudeToken: (): string | undefined => runnerDefaultClaudeToken(),
+  /** The login a job's sandbox runs on (R9a). */
+  account: accountFor,
   modalToken: () => Boolean(process.env.MODAL_TOKEN_ID) || existsSync(join(homedir(), ".modal.toml")),
   githubToken: (repo: RepoName) => sandboxTokens.get(repo),
   /** The configured CODEX_HOME dirs that hold a login. */
@@ -241,7 +245,7 @@ export async function setupSandbox(host: JobHost, setup: SandboxSetup, codexMode
   let { choice, hasClaude } = setup;
   let fallback: string | undefined;
   if (choice.provider === CLAUDE && !(await loggedIn(host, "claude", ["auth", "status"]))) {
-    fallback = `claude in the sandbox is not logged in with this runner's CLAUDE_CODE_OAUTH_TOKEN; launching on ${CODEX} / ${codexModel}`;
+    fallback = `claude in the sandbox is not logged in with the job's Claude token; launching on ${CODEX} / ${codexModel}`;
     choice = { provider: CODEX, model: codexModel };
     hasClaude = false;
     if (!setup.codex) {
