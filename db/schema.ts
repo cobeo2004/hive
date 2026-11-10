@@ -245,21 +245,40 @@ export const jobEvidence = pgTable(
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
 
 /**
- * One screenshot a pr report's assessment attached (lib/screenshots.ts), keyed by that stage event
- * and the file it names, so the panel finds the current assessment's images from jobs.stage_event_id.
+ * One media item (image or video) a pr report's assessment attached (lib/screenshots.ts), keyed by that
+ * stage event and the file it names, so the panel finds the current assessment's media from jobs.stage_event_id.
  */
-export const jobScreenshots = pgTable(
-  "job_screenshots",
+export const jobMedia = pgTable(
+  "job_media",
   {
     stage_event_id: text("stage_event_id").notNull(),
     file: text("file").notNull(),
     job_key: text("job_key").notNull(),
+    kind: text("kind").$type<"image" | "video">().notNull().default("image"),
     content_type: text("content_type").$type<ScreenshotType>().notNull(),
     bytes: bytea("bytes").notNull(),
     event_id: text("event_id").notNull(),
     recorded_at: ts("recorded_at").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.stage_event_id, t.file] }), index("job_screenshots_job_idx").on(t.job_key)],
+  (t) => [primaryKey({ columns: [t.stage_event_id, t.file] }), index("job_media_job_idx").on(t.job_key)],
+);
+
+/** The latest frame of a running job's device (R26), stored only while someone is watching. */
+export const deviceFrames = pgTable("device_frames", {
+  job_key: text("job_key").primaryKey(),
+  png: bytea("png").notNull(),
+  taken_at: ts("taken_at").notNull(),
+});
+
+/** Who is watching a job's device: a heartbeat the runner polls (R26), so no live-notify trigger. */
+export const deviceViewers = pgTable(
+  "device_viewers",
+  {
+    job_key: text("job_key").notNull(),
+    user_id: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    seen_at: ts("seen_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.job_key, t.user_id] })],
 );
 
 /** Every webhook delivery, keyed by its id, so a redelivery is recognised and changes nothing. */
