@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { CONFIG_PATH, SANDBOX_IMAGE_PATH, type SandboxLimits } from "./config";
+import { runnerDefaultClaudeToken } from "./creds";
 import { imageDrift, imageVersionsSchema, rebuildText, type ImageComponent, type ImageVersions, type SandboxReadiness } from "./machine";
 import { SCREENSHOT_DIR } from "./screenshots";
 
@@ -210,7 +211,7 @@ export function sandboxReadiness(
   const { t3Version, claudeCodeVersion, codexVersion, playwrightMcpVersion, pstack } = limits;
   return {
     modal: Boolean(env.MODAL_TOKEN_ID) || existsSync(join(homedir(), ".modal.toml")),
-    claude: Boolean(env.CLAUDE_CODE_OAUTH_TOKEN),
+    claude: Boolean(runnerDefaultClaudeToken(env)),
     codexSlots: loggedIn.length - unusable,
     codexSlotsUnusable: unusable,
     image: image !== null,

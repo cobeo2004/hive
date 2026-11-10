@@ -2,7 +2,9 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import type { ExecError } from "../lib/exec";
 import type { RepoName } from "../lib/github/app";
+import { recordRunAccount, type Account } from "../lib/creds";
 import { HostGoneError, hosts, localHost, type JobHost } from "../lib/host";
+import { scrubbed } from "../lib/modal-secrets";
 import { terminateSandbox } from "../lib/modal-host";
 import { withPlaybook } from "../lib/playbook";
 import { builtVersions, imageProblem, REPO_DIR } from "../lib/sandbox";
@@ -435,11 +437,14 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
       ),
     ]),
   );
-  const claudeToken = runtime.claudeToken();
   const byKey = new Map(pending.map((entry) => [entry.key, entry]));
   let room = limits.maxParallel - (await sandboxesInFlight(slot.id));
-  const leases = new Map<string, { marker: string; slot: string | null; choice: HarnessChoice }>();
+  // claude and codex are the job's owner's or pool's accounts (R9a); null means the runner's own login.
+  const leases = new Map<string, { marker: string; slot: string | null; choice: HarnessChoice; claude: Account | null; codex: Account | null }>();
   const loginOf = (slot: string): CodexLogin => ({ slot, auth: runtime.slotAuth(slot) });
+  // Account errors carry an account id or fixed text, never a secret.
+  const accountError = (event: string, key: string, error: unknown) =>
+    runtime.log(event, { key, error: error instanceof Error ? error.message.split("\n")[0] : "unknown error" });
   return launchEntries(pending, {
     async claim(key, marker) {
       if (room <= 0) return false;
@@ -450,16 +455,34 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
         return false;
       }
       if (start.outdated) runtime.log("sandbox:warm-image-outdated", { key, repo: entry.repo, reason: start.outdated });
-      const { choice, fallback } = sandboxHarness(entry.harness, runtime.driverOf(entry.harness.provider), Boolean(claudeToken), limits.codexModel);
+      const driver = runtime.driverOf(entry.harness.provider);
+      let claude: Account | null = null;
+      try {
+        // Only a Claude Code job reads the Claude account, so an unopenable one never blocks another harness.
+        if (driver === "claudeAgent") claude = await runtime.account(key, "claude", runtime.claudeToken());
+      } catch (error) {
+        accountError("sandbox:no-account", key, error);
+        return false;
+      }
+      const { choice, fallback } = sandboxHarness(entry.harness, driver, Boolean(claude), limits.codexModel);
       if (!(await claimLaunch(key, marker, slot, choice, { execution: "modal", ticket: entry.ticket }))) return false;
-      const codexSlot = needsCodexSlot(choice.provider) ? await leaseCodexSlot(key, marker, usableSlots(limits)) : null;
+      let codex: Account | null = null;
+      try {
+        // With no default passed, only a real row comes back: it replaces a leased slot, which stays the runner's own login.
+        if (needsCodexSlot(choice.provider)) codex = await runtime.account(key, "codex", undefined);
+      } catch (error) {
+        await releaseLaunch(key, marker);
+        accountError("sandbox:no-account", key, error);
+        return false;
+      }
+      const codexSlot = needsCodexSlot(choice.provider) && !codex ? await leaseCodexSlot(key, marker, usableSlots(limits)) : null;
       if (codexSlot === undefined) {
         await releaseLaunch(key, marker);
         runtime.log("sandbox:no-slot", { key, slots: limits.codexSlots.length });
         return false;
       }
       room--;
-      leases.set(key, { marker, slot: codexSlot, choice });
+      leases.set(key, { marker, slot: codexSlot, choice, claude, codex });
       if (fallback) runtime.log("sandbox:harness-fallback", { key, reason: fallback });
       await claimed(entry);
       return true;
@@ -471,7 +494,7 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
       let host: JobHost;
       let ran: HarnessChoice;
       try {
-        const codex = lease.slot ? loginOf(lease.slot) : null;
+        const codex = lease.codex ? { slot: `account:${lease.codex.id}`, auth: lease.codex.secret } : lease.slot ? loginOf(lease.slot) : null;
         const githubToken = await runtime.githubToken(entry.repo as RepoName);
         const created = await createJobSandbox({
           key: entry.key,
@@ -480,7 +503,7 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
           machineId: slot.id,
           imageId: start.imageId,
           limits,
-          claudeToken,
+          claudeToken: lease.claude?.secret,
           namedSecrets: start.namedSecrets,
         });
         try {
@@ -493,7 +516,7 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
         const setup = {
           repo: entry.repo,
           choice: lease.choice,
-          hasClaude: Boolean(claudeToken),
+          hasClaude: Boolean(lease.claude),
           codex,
           leaseCodex: async () => {
             const leased = await leaseCodexSlot(entry.key, lease.marker, usableSlots(limits));
@@ -517,8 +540,10 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
           runtime.log("sandbox:harness-fallback", { key: entry.key, reason: outcome.fallback });
         }
       } catch (error) {
-        if (error instanceof CodexLoginError) await loginFailed(entry.key, error.slot);
-        throw new SandboxSetupError(`sandbox setup failed: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
+        // A login from an account is no slot: nothing to mark unusable.
+        if (error instanceof CodexLoginError && !error.slot.startsWith("account:")) await loginFailed(entry.key, error.slot);
+        const text = scrubbed(error, [lease.claude?.secret ?? "", lease.codex?.secret ?? ""]).message;
+        throw new SandboxSetupError(`sandbox setup failed: ${text.split("\n")[0]}`);
       }
       // Images stay on this machine for now; the thread gets the issue text with their links.
       const message = await withPlaybook(
@@ -530,7 +555,12 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
         host,
         REPO_DIR,
       );
-      return startThread(host, REPO_DIR, entry.branch, entry.threadTitle, message, ran);
+      const threadId = await startThread(host, REPO_DIR, entry.branch, entry.threadTitle, message, ran);
+      // The thread is running: a failure to note its account must not undo the launch.
+      await recordRunAccount(entry.key, threadId, (needsCodexSlot(ran.provider) ? lease.codex : lease.claude)?.id ?? null).catch((error: unknown) =>
+        accountError("sandbox:run-account-failed", entry.key, error),
+      );
+      return threadId;
     },
     bind: bindThread,
     release: async (key, marker) => {

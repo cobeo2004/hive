@@ -3,8 +3,10 @@ import { and, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "driz
 import { db } from "../db/client";
 import { auditLog, codexSlotLeases, jobs, repoSettings, type JobRow } from "../db/schema";
 import type { RepoName } from "../lib/github/app";
+import type { Account } from "../lib/creds";
 import { HostGoneError, hosts, isHibernated, WakeDeferredError, type HostedJob, type JobHost } from "../lib/host";
 import { deleteSnapshot, isModalGone, modal, modalHost, snapshotSandbox, terminateSandbox, tunnelUrl } from "../lib/modal-host";
+import { scrubbed } from "../lib/modal-secrets";
 import { modalSecretName, parseDetail } from "../lib/onboarding";
 import { CODEX_AUTH, T3_PORT } from "../lib/sandbox";
 import { readSettings, resolveExecution } from "../lib/settings";
@@ -416,11 +418,15 @@ export async function wakeJob(job: HostedJob): Promise<JobHost> {
 
 async function wakeInRoom(row: JobRow, snapshot: string, asleep: SQL | undefined): Promise<JobHost> {
   const limits = config.factory.sandbox;
-  const slot = needsCodexSlot(row.provider) ? await leaseSlot(asleep, usableSlots(limits)) : null;
+  // Like a launch: the owner's or pool's Codex account replaces a slot (errors carry an id or fixed text, never a secret).
+  const codex = needsCodexSlot(row.provider) ? await sandboxRuntime.account(row.key, "codex", undefined) : null;
+  const slot = needsCodexSlot(row.provider) && !codex ? await leaseSlot(asleep, usableSlots(limits)) : null;
   if (slot === undefined) throw new WakeDeferredError(`no free Codex login slot to wake ${row.key}`);
   let sandboxId: string | undefined;
+  let claude: Account | null = null;
   try {
-    const claudeToken = sandboxRuntime.claudeToken();
+    if (!needsCodexSlot(row.provider)) claude = await sandboxRuntime.account(row.key, "claude", sandboxRuntime.claudeToken());
+    const claudeToken = claude?.secret;
     const [repoRow] = await db.select().from(repoSettings).where(eq(repoSettings.repo, row.repo));
     const created = await createJobSandbox({
       namedSecrets: repoRow && (parseDetail(repoRow.onboarding_detail).secretsSet ?? []).length > 0 ? [modalSecretName(row.repo)] : [],
@@ -437,7 +443,8 @@ async function wakeInRoom(row: JobRow, snapshot: string, asleep: SQL | undefined
     sandboxId = created.sandboxId;
     const [recorded] = await db.update(jobs).set({ sandbox_id: sandboxId }).where(asleep).returning({ key: jobs.key });
     if (!recorded) throw new Error(`${row.key} changed while it was being woken`);
-    if (slot) await installCodexLogin(created.host, slot, sandboxRuntime.slotAuth(slot));
+    // An account's snapshot keeps its refreshed login; the sealed copy is stale, so it is not reinstalled.
+    if (!codex && slot) await installCodexLogin(created.host, slot, sandboxRuntime.slotAuth(slot));
     await writeGithubToken(created.host, await sandboxRuntime.githubToken(row.repo as RepoName));
     noteTokenWritten(sandboxId);
     await startT3(created.host);
@@ -447,16 +454,18 @@ async function wakeInRoom(row: JobRow, snapshot: string, asleep: SQL | undefined
       .set({ sandbox_snapshot: null })
       .where(and(eq(jobs.key, row.key), eq(jobs.sandbox_id, sandboxId)));
     wokenAt.set(row.key, Date.now());
-    log("sandbox:woken", { key: row.key, sandbox: sandboxId, slot });
+    log("sandbox:woken", { key: row.key, sandbox: sandboxId, slot: codex ? `account:${codex.id}` : slot });
     await deleteSnapshot(snapshot).catch((error: unknown) => log("sandbox:snapshot-delete-failed", { key: row.key, snapshot, error: message(error) }));
     return created.host;
   } catch (error) {
-    if (error instanceof CodexLoginError) await loginFailed(row.key, error.slot);
+    // An account's login is no slot: nothing to mark unusable.
+    if (error instanceof CodexLoginError && !error.slot.startsWith("account:")) await loginFailed(row.key, error.slot);
     if (sandboxId) await retireSandbox(row.key, sandboxId, slot);
     await db
       .update(jobs)
       .set({ sandbox_id: null, codex_slot: null })
       .where(and(eq(jobs.key, row.key), eq(jobs.sandbox_snapshot, snapshot)));
+    if (error instanceof Error && !(error instanceof HostGoneError)) error.message = scrubbed(error, [claude?.secret ?? "", codex?.secret ?? ""]).message;
     throw error;
   }
 }
