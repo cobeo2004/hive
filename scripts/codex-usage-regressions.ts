@@ -54,11 +54,23 @@ assert.deepEqual(
   "the last running total counts, past a bad line, a null count and prose naming the event types",
 );
 const sub = parseRollout(fixture(SUB))!;
-assert.deepEqual([sub.sessionId, sub.parentThreadId, sub.usage], [ROOT, ROOT, { input: 2000, output: 400, cacheRead: 3000, cacheWrite: 0, model: "gpt-6-luna" }], "a subagent shares its root's session; a missing field counts 0");
+assert.deepEqual(
+  [sub.sessionId, sub.parentThreadId, sub.usage],
+  [ROOT, ROOT, { input: 2000, output: 400, cacheRead: 3000, cacheWrite: 0, model: "gpt-6-luna" }],
+  "a subagent shares its root's session; a missing field counts 0",
+);
 assert.equal(parseRollout(fixture(DONE))!.settled, true, "a thread whose last turn completed is settled");
-assert.equal(parseRollout(`${fixture(DONE)}${JSON.stringify({ type: "event_msg", payload: { type: "task_started" } })}\n`)!.settled, false, "until another turn starts");
+assert.equal(
+  parseRollout(`${fixture(DONE)}${JSON.stringify({ type: "event_msg", payload: { type: "task_started" } })}\n`)!.settled,
+  false,
+  "until another turn starts",
+);
 const bare = parseRollout(fixture(BARE))!;
-assert.deepEqual([bare.cwd, bare.branch, bare.startedAt, bare.lastUsageAt, bare.usage], [null, null, null, null, { input: 100, output: 0, cacheRead: 0, cacheWrite: 0, model: "unknown" }], "missing metadata and model stay unknown");
+assert.deepEqual(
+  [bare.cwd, bare.branch, bare.startedAt, bare.lastUsageAt, bare.usage],
+  [null, null, null, null, { input: 100, output: 0, cacheRead: 0, cacheWrite: 0, model: "unknown" }],
+  "missing metadata and model stay unknown",
+);
 assert.equal(parseRollout(fixture(ROOT).split("\n").slice(1).join("\n")), undefined, "no session_meta, no rollout");
 const reordered = fixture(ROOT).split("\n").reverse().join("\n");
 assert.equal(parseRollout(reordered)!.usage.input, 8000, "the largest total wins whatever the line order");
@@ -66,29 +78,74 @@ assert.equal(parseRollout(reordered)!.usage.input, 8000, "the largest total wins
 // --- matching
 const all = [root, sub, parseRollout(fixture(OTHER))!, bare];
 const run = { cwd: WORKTREE, branch: "hive/FAC-61", startedAt: RUN_START };
-assert.deepEqual(matchRollouts(all, run).map((r) => r.threadId), [ROOT, SUB], "the worktree's root and its subagent");
-assert.deepEqual(matchRollouts(all, { ...run, cwd: null }).map((r) => r.threadId), [ROOT, SUB], "the attempt branch alone finds it");
-assert.deepEqual(matchRollouts([...all, parseRollout(fixture(DONE))!], run).map((r) => r.threadId), [ROOT, SUB, DONE], "every subagent of the root");
-assert.deepEqual(matchRollouts(all, { ...run, cwd: "/root/.t3/worktrees/factory-demo/factory-FAC-6", branch: null }).map((r) => r.threadId), [], "a worktree whose path only starts the same is another one");
+assert.deepEqual(
+  matchRollouts(all, run).map((r) => r.threadId),
+  [ROOT, SUB],
+  "the worktree's root and its subagent",
+);
+assert.deepEqual(
+  matchRollouts(all, { ...run, cwd: null }).map((r) => r.threadId),
+  [ROOT, SUB],
+  "the attempt branch alone finds it",
+);
+assert.deepEqual(
+  matchRollouts([...all, parseRollout(fixture(DONE))!], run).map((r) => r.threadId),
+  [ROOT, SUB, DONE],
+  "every subagent of the root",
+);
+assert.deepEqual(
+  matchRollouts(all, { ...run, cwd: "/root/.t3/worktrees/factory-demo/factory-FAC-6", branch: null }).map((r) => r.threadId),
+  [],
+  "a worktree whose path only starts the same is another one",
+);
 assert.deepEqual(matchRollouts([{ ...root, cwd: `${WORKTREE}/packages/app` }], { ...run, branch: null }).length, 1, "a directory inside the worktree is");
-assert.deepEqual(matchRollouts(all, { ...run, startedAt: root.startedAt! + ROLLOUT_SLACK_MS + 1 }), [], "a root that started well before the run is an earlier one's");
-assert.deepEqual(matchRollouts([root, { ...root, usage: { ...root.usage, input: 10 } }], run).map((r) => r.usage.input), [8000], "a thread read twice counts once, at its largest");
+assert.deepEqual(
+  matchRollouts(all, { ...run, startedAt: root.startedAt! + ROLLOUT_SLACK_MS + 1 }),
+  [],
+  "a root that started well before the run is an earlier one's",
+);
+assert.deepEqual(
+  matchRollouts([root, { ...root, usage: { ...root.usage, input: 10 } }], run).map((r) => r.usage.input),
+  [8000],
+  "a thread read twice counts once, at its largest",
+);
 const relaunched = { ...root, threadId: "r2", sessionId: "r2", startedAt: root.startedAt! + 60_000, usage: { ...root.usage, model: "gpt-6-astra" } };
 const both = codexUsage([root, sub, relaunched], run)!;
-assert.deepEqual([both.main.threadId, both.others.map((r) => r.threadId)], ["r2", [ROOT, SUB]], "the newest root is the run's; older roots and subagents count apart, each on its model");
+assert.deepEqual(
+  [both.main.threadId, both.others.map((r) => r.threadId)],
+  ["r2", [ROOT, SUB]],
+  "the newest root is the run's; older roots and subagents count apart, each on its model",
+);
 assert.equal(codexUsage(all, { ...run, cwd: "/elsewhere", branch: "hive/FAC-7" }), undefined);
 
 // --- pricing
-const tokens = (input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({ input_tokens: input, output_tokens: output, cache_read_tokens: cacheRead, cache_write_tokens: cacheWrite });
-assert.equal(knownCostUsd(tokens(1_000_000, 1_000_000, 1_000_000, 1_000_000), "gpt-6.1-sol"), 2 + 10 + 0.1 + 2.5, "cached input and cache writes are priced apart");
+const tokens = (input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({
+  input_tokens: input,
+  output_tokens: output,
+  cache_read_tokens: cacheRead,
+  cache_write_tokens: cacheWrite,
+});
+assert.equal(
+  knownCostUsd(tokens(1_000_000, 1_000_000, 1_000_000, 1_000_000), "gpt-6.1-sol"),
+  2 + 10 + 0.1 + 2.5,
+  "cached input and cache writes are priced apart",
+);
 assert.equal(knownCostUsd(tokens(1_000_000, 0), "gpt-6-astra-2026-09-01"), 10, "a dated snapshot takes its model's price");
 assert.equal(priceFor("gpt-6-sol-mini"), undefined, "a longer name is another model");
 assert.equal(priceFor("gpt-6.1-sol")?.cacheRead, 0.1, "gpt-6.1-sol is not gpt-6-sol");
 assert.equal(knownCostUsd(tokens(1_000, 0), "gpt-9-nova"), undefined, "an unknown model has an unknown cost");
 assert.equal(costUsd(tokens(1_000, 0), "gpt-9-nova"), 0, "and the panel counts it as 0");
 assert.equal(knownCostUsd(tokens(0, 0), "gpt-9-nova"), 0, "no tokens cost nothing, whatever the model");
-assert.equal(knownCostUsd(tokens(1_000_000, 0), "gpt-9-nova", { "gpt-9": { input: 3, output: 9, cacheRead: 0.3, cacheWrite: 3 } }), undefined, "an override prices only its own name");
-assert.equal(knownCostUsd(tokens(1_000_000, 0), "gpt-9-nova", { "gpt-9-nova": { input: 3, output: 9, cacheRead: 0.3, cacheWrite: 3 } }), 3, "an override prices a model with no default");
+assert.equal(
+  knownCostUsd(tokens(1_000_000, 0), "gpt-9-nova", { "gpt-9": { input: 3, output: 9, cacheRead: 0.3, cacheWrite: 3 } }),
+  undefined,
+  "an override prices only its own name",
+);
+assert.equal(
+  knownCostUsd(tokens(1_000_000, 0), "gpt-9-nova", { "gpt-9-nova": { input: 3, output: 9, cacheRead: 0.3, cacheWrite: 3 } }),
+  3,
+  "an override prices a model with no default",
+);
 assert.equal(knownCostUsd(tokens(1_000_000, 0), "gpt-6.1-sol", { "gpt-6.1-sol": null }), undefined, "null makes a priced model unknown");
 assert.equal(knownCostUsd(tokens(1_000_000, 0), "claude-opus-5-5"), 4, "Claude keeps its prices");
 const row = (model: string | null, t = tokens(1_000, 100)) => ({ ...t, model });
@@ -128,9 +185,20 @@ const agentRows = async () => db.select().from(agents).where(eq(agents.session_i
 
 try {
   sandboxes.set(SANDBOX, new FakeSandbox(SANDBOX));
-  await db.insert(jobs).values(linearJob(`codex-usage-${KEY}`, KEY, { machine_id: TEST_MACHINE_ID, provider: "codex", model: "gpt-6.1-sol", execution: "modal", stage: "pr", sandbox_id: SANDBOX }));
+  await db.insert(jobs).values(
+    linearJob(`codex-usage-${KEY}`, KEY, {
+      machine_id: TEST_MACHINE_ID,
+      provider: "codex",
+      model: "gpt-6.1-sol",
+      execution: "modal",
+      stage: "pr",
+      sandbox_id: SANDBOX,
+    }),
+  );
   // The MCP server's session_start: the run, its worktree and branch, no usage.
-  await ingest(db, [eventSchema.parse({ kind: "session_start", eventId: `mcp-start:${SESSION}`, sessionId: SESSION, at: RUN_START, cwd: WORKTREE, branch: `hive/${KEY}` })]);
+  await ingest(db, [
+    eventSchema.parse({ kind: "session_start", eventId: `mcp-start:${SESSION}`, sessionId: SESSION, at: RUN_START, cwd: WORKTREE, branch: `hive/${KEY}` }),
+  ]);
   await db.update(runs).set({ last_event_at: new Date() }).where(eq(runs.session_id, SESSION));
   const lastEventAt = (await runRow()).last_event_at.getTime();
 
@@ -138,7 +206,13 @@ try {
   const dayDir = join(home, "sessions/2026/10/27");
   const rootFile = join(dayDir, readdirSync(dayDir).find((f) => f.endsWith(`${ROOT}.jsonl`))!);
   const rootText = readFileSync(rootFile, "utf8");
-  writeFileSync(rootFile, rootText.split("\n").filter((l) => !l.includes('"type":"turn_context"')).join("\n"));
+  writeFileSync(
+    rootFile,
+    rootText
+      .split("\n")
+      .filter((l) => !l.includes('"type":"turn_context"'))
+      .join("\n"),
+  );
   assert.deepEqual(await reconcileUsage({ only: [KEY] }), [], "no model, no usage posted");
   assert.equal((await runRow()).model, null, "the run's model is never set to unknown");
   writeFileSync(rootFile, rootText);
@@ -152,7 +226,10 @@ try {
   );
   assert.equal(recorded.last_event_at.getTime(), lastEventAt, "a usage read is not activity");
   assert.equal(recorded.started_at.getTime(), RUN_START, "nor does its earlier token time move the run's start");
-  const agentState = async () => (await agentRows()).map((a) => [a.agent_id, a.model, a.status, a.input_tokens, a.cache_read_tokens]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  const agentState = async () =>
+    (await agentRows())
+      .map((a) => [a.agent_id, a.model, a.status, a.input_tokens, a.cache_read_tokens])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   assert.deepEqual(
     await agentState(),
     [
@@ -166,25 +243,58 @@ try {
 
   // A model recorded as unknown (by an older reader) is replaced even when the totals did not move.
   await db.update(runs).set({ model: "unknown" }).where(eq(runs.session_id, SESSION));
-  await db.update(agents).set({ model: "unknown" }).where(eq(agents.agent_id, `codex:${SUB}`));
+  await db
+    .update(agents)
+    .set({ model: "unknown" })
+    .where(eq(agents.agent_id, `codex:${SUB}`));
   assert.deepEqual(await reconcileUsage({ only: [KEY] }), [KEY], "a known model is news");
   assert.equal((await runRow()).model, "gpt-6.1-sol");
   assert.equal((await agentRows()).find((a) => a.agent_id === `codex:${SUB}`)!.model, "gpt-6-luna", "for a subagent too");
-  await ingest(db, [eventSchema.parse({ kind: "usage", eventId: `cxu-unknown-${stamp}`, sessionId: SESSION, at: RUN_START, usage: { input: 8000, output: 2500, cacheRead: 21000, cacheWrite: 1000, model: "unknown" }, agents: [{ agentId: `codex:${SUB}`, usage: { input: 2000, output: 400, cacheRead: 3000, cacheWrite: 0, model: "unknown" } }] })]);
-  assert.deepEqual([(await runRow()).model, (await agentRows()).find((a) => a.agent_id === `codex:${SUB}`)!.model], ["gpt-6.1-sol", "gpt-6-luna"], "ingest never lets unknown replace a model");
+  await ingest(db, [
+    eventSchema.parse({
+      kind: "usage",
+      eventId: `cxu-unknown-${stamp}`,
+      sessionId: SESSION,
+      at: RUN_START,
+      usage: { input: 8000, output: 2500, cacheRead: 21000, cacheWrite: 1000, model: "unknown" },
+      agents: [{ agentId: `codex:${SUB}`, usage: { input: 2000, output: 400, cacheRead: 3000, cacheWrite: 0, model: "unknown" } }],
+    }),
+  ]);
+  assert.deepEqual(
+    [(await runRow()).model, (await agentRows()).find((a) => a.agent_id === `codex:${SUB}`)!.model],
+    ["gpt-6.1-sol", "gpt-6-luna"],
+    "ingest never lets unknown replace a model",
+  );
   const cost = (await branchCosts(db, [`hive/${KEY}`]))[`hive/${KEY}`]!;
   assert.equal(cost.known, true);
-  assert.ok(Math.abs(cost.usd - (8000 * 2 + 2500 * 10 + 21000 * 0.1 + 1000 * 2.5 + 2000 * 0.1 + 400 * 0.5 + 3000 * 0.01 + 1000 * 0.1 + 100 * 0.5) / 1e6) < 1e-12, `the attempt's cost is priced per model: ${cost.usd}`);
+  assert.ok(
+    Math.abs(cost.usd - (8000 * 2 + 2500 * 10 + 21000 * 0.1 + 1000 * 2.5 + 2000 * 0.1 + 400 * 0.5 + 3000 * 0.01 + 1000 * 0.1 + 100 * 0.5) / 1e6) < 1e-12,
+    `the attempt's cost is priced per model: ${cost.usd}`,
+  );
 
   // More work lands after the last pass; the teardown reads it before the sandbox goes.
-  const total = { input_tokens: 50_000, cached_input_tokens: 30_000, cache_write_input_tokens: 1000, output_tokens: 4000, reasoning_output_tokens: 2000, total_tokens: 54_000 };
-  appendFileSync(rootFile, `${JSON.stringify({ timestamp: "2026-10-27T10:30:00.000Z", type: "event_msg", payload: { type: "token_count", info: { total_token_usage: total } } })}\n`);
+  const total = {
+    input_tokens: 50_000,
+    cached_input_tokens: 30_000,
+    cache_write_input_tokens: 1000,
+    output_tokens: 4000,
+    reasoning_output_tokens: 2000,
+    total_tokens: 54_000,
+  };
+  appendFileSync(
+    rootFile,
+    `${JSON.stringify({ timestamp: "2026-10-27T10:30:00.000Z", type: "event_msg", payload: { type: "token_count", info: { total_token_usage: total } } })}\n`,
+  );
   await db.update(jobs).set({ stage: "merged" }).where(eq(jobs.key, KEY));
   await teardownSandbox(await jobRow(KEY));
   const final = await runRow();
   assert.deepEqual([final.input_tokens, final.output_tokens, final.cache_read_tokens], [19_000, 4000, 30_000], "the last usage is recorded before teardown");
   assert.equal((await jobRow(KEY)).sandbox_id, null, "and the sandbox is gone");
-  assert.deepEqual((await agentRows()).map((a) => a.status), ["completed", "completed"], "no subagent of a torn-down thread is left running");
+  assert.deepEqual(
+    (await agentRows()).map((a) => a.status),
+    ["completed", "completed"],
+    "no subagent of a torn-down thread is left running",
+  );
   assert.ok(sandboxes.get(SANDBOX)!.terminated);
 
   // A sandbox that is gone has no rollouts left: the pass skips its run and goes on.
@@ -192,7 +302,8 @@ try {
   assert.deepEqual(await reconcileUsage({ only: [KEY] }), [], "a gone sandbox does not abort the pass");
 
   // Spend is measured, never capped: an expensive attempt keeps working and its cost is recorded.
-  for (const k of [OVER, UNPRICED]) await db.insert(jobs).values(linearJob(`codex-usage-${k}`, k, { machine_id: TEST_MACHINE_ID, provider: "codex", stage: "implementing" }));
+  for (const k of [OVER, UNPRICED])
+    await db.insert(jobs).values(linearJob(`codex-usage-${k}`, k, { machine_id: TEST_MACHINE_ID, provider: "codex", stage: "implementing" }));
   await db.insert(runs).values({ ...usageRun(OVER, "gpt-6-astra", { output: 1_000_000 }), session_id: `mcp:hive/${OVER}` });
   await db.insert(runs).values({ ...usageRun(UNPRICED, "gpt-9-nova", { output: 1_000_000 }), session_id: `mcp:hive/${UNPRICED}` });
   assert.ok(!("enforceBudget" in ops), "the runner has no budget pass");

@@ -29,7 +29,10 @@ const teamHandler: Handler = () => ({ data: { teams: { nodes: [{ id: "t1", key: 
   assert.deepEqual(await client.team("FAC"), { id: "t1", states: [] }, "two resets, then the read succeeds");
   assert.equal(requests.length, 3);
   assert.equal(sleeps.length, 2, "it backed off between attempts");
-  assert.ok(sleeps.every((ms) => ms > 0 && ms < 2_000), "and the backoff is short");
+  assert.ok(
+    sleeps.every((ms) => ms > 0 && ms < 2_000),
+    "and the backoff is short",
+  );
 }
 {
   const { client, requests } = fakeLinear(teamHandler, ["reset-before", "reset-before", "reset-before"]);
@@ -43,7 +46,11 @@ for (const status of [500, 429] as const) {
 }
 {
   const { client, requests } = fakeLinear(teamHandler, [500, 500, 500]);
-  await assert.rejects(client.team("FAC"), (error) => error instanceof LinearError && /answered 500/.test(error.message), "persistent 5xx surfaces as a LinearError");
+  await assert.rejects(
+    client.team("FAC"),
+    (error) => error instanceof LinearError && /answered 500/.test(error.message),
+    "persistent 5xx surfaces as a LinearError",
+  );
   assert.equal(requests.length, 3);
 }
 {
@@ -52,8 +59,15 @@ for (const status of [500, 429] as const) {
   assert.equal(requests.length, 1, "a Linear error answer is never retried");
 }
 {
-  const { client } = fakeLinear(() => ({ errors: [{ message: "Entity not found: Issue", extensions: { userPresentableMessage: "Could not find referenced Issue." } }] }), []);
-  await assert.rejects(client.team("FAC"), (error) => error instanceof LinearError && error.code === "not_found", "a deleted or invisible issue is a not_found error");
+  const { client } = fakeLinear(
+    () => ({ errors: [{ message: "Entity not found: Issue", extensions: { userPresentableMessage: "Could not find referenced Issue." } }] }),
+    [],
+  );
+  await assert.rejects(
+    client.team("FAC"),
+    (error) => error instanceof LinearError && error.code === "not_found",
+    "a deleted or invisible issue is a not_found error",
+  );
 }
 
 {

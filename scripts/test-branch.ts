@@ -58,7 +58,9 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 const failed: string[] = [];
 try {
   await maintenance(async (client) => {
-    const { rows } = await client.query<{ datname: string }>("select datname from pg_database where datname like 'hive\\_test\\_%' and pg_get_userbyid(datdba) = current_user");
+    const { rows } = await client.query<{ datname: string }>(
+      "select datname from pg_database where datname like 'hive\\_test\\_%' and pg_get_userbyid(datdba) = current_user",
+    );
     // Only this role's own: on a shared server another role's stale database can't be dropped, and is theirs to sweep.
     for (const { datname } of rows) {
       if (!NAME.test(datname) || !(Date.now() - createdAt(datname) > EXPIRES_AFTER_MS)) continue;

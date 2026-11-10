@@ -46,7 +46,12 @@ export function MergeButton({ jobId, jobKey }: { jobId: JobId; jobKey: string })
   const merging = busy !== null;
   const confirm = () => {
     if (!target) return;
-    void run("approve", () => approveFromRunDetail(jobId, crypto.randomUUID(), target.headSha), "Merged.", () => setOpen(false));
+    void run(
+      "approve",
+      () => approveFromRunDetail(jobId, crypto.randomUUID(), target.headSha),
+      "Merged.",
+      () => setOpen(false),
+    );
   };
 
   return (

@@ -13,7 +13,9 @@ export type RepoOption = { repo: string; name: string; jobs: number };
 export function repoOptions(registry: readonly Pick<RepoSettingsRow, "repo" | "display_name">[], jobs: readonly Pick<JobRow, "repo">[]): RepoOption[] {
   const count = (repo: string) => jobs.filter((j) => j.repo === repo).length;
   const registered = registry.map((r) => ({ repo: r.repo, name: displayName(r), jobs: count(r.repo) }));
-  const others = [...new Set(jobs.map((j) => j.repo))].filter((repo) => !registry.some((r) => r.repo === repo)).map((repo) => ({ repo, name: repoName(repo), jobs: count(repo) }));
+  const others = [...new Set(jobs.map((j) => j.repo))]
+    .filter((repo) => !registry.some((r) => r.repo === repo))
+    .map((repo) => ({ repo, name: repoName(repo), jobs: count(repo) }));
   return [...registered, ...others].sort((a, b) => a.name.localeCompare(b.name));
 }
 

@@ -51,7 +51,8 @@ export type ImageUploadDeps = {
 export async function uploadJobImage(deps: ImageUploadDeps, file: File | null): Promise<ImageUploadOutcome> {
   if (!isMember(await deps.user())) return { ok: false, status: 403, message: "Sign in to Hive to add images." };
   if (!file) return { ok: false, status: 400, message: "No image was sent." };
-  if (!(JOB_IMAGE_TYPES as readonly string[]).includes(file.type)) return { ok: false, status: 400, message: `${file.name} is not a PNG, JPEG, WebP or GIF image.` };
+  if (!(JOB_IMAGE_TYPES as readonly string[]).includes(file.type))
+    return { ok: false, status: 400, message: `${file.name} is not a PNG, JPEG, WebP or GIF image.` };
   if (file.size > MAX_JOB_IMAGE_BYTES) return { ok: false, status: 413, message: `${file.name} is larger than 4 MB.` };
   try {
     const markdown = await deps.upload({ filename: file.name, contentType: file.type, bytes: new Uint8Array(await file.arrayBuffer()) });

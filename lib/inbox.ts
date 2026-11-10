@@ -128,8 +128,7 @@ export const INBOX_ACTIONS = {
 } as const satisfies Record<InboxKind, readonly InboxAction[]>;
 export type InboxAction = "answer" | "approve" | "request_changes" | "follow_up" | "close" | "dismiss" | "retry_stop" | "retry";
 
-export const allows = (kind: InboxKind | null, action: InboxAction) =>
-  kind !== null && (INBOX_ACTIONS[kind] as readonly InboxAction[]).includes(action);
+export const allows = (kind: InboxKind | null, action: InboxAction) => kind !== null && (INBOX_ACTIONS[kind] as readonly InboxAction[]).includes(action);
 
 export const MAX_FEEDBACK_CHARS = 20_000;
 /** A follow-up's text goes into a new issue, whose description holds 10,000 characters with the failure's facts. */

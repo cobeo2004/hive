@@ -38,7 +38,12 @@ export function modalSecretStore(client = () => new ModalClient()): SecretStore 
         if (secretId) {
           await modal.cpClient.secretUpdate({ secretId, updates: Object.entries(entries).map(([key, value]) => ({ key, value })) });
         } else {
-          await modal.cpClient.secretGetOrCreate({ deploymentName: name, environmentName: modal.environmentName(), objectCreationType: CREATE_FAIL_IF_EXISTS, envDict: entries });
+          await modal.cpClient.secretGetOrCreate({
+            deploymentName: name,
+            environmentName: modal.environmentName(),
+            objectCreationType: CREATE_FAIL_IF_EXISTS,
+            envDict: entries,
+          });
         }
       } catch (error) {
         throw scrubbed(error, values);

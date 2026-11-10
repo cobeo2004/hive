@@ -52,8 +52,7 @@ if (existing?.installation_id) {
   process.exit(0);
 }
 
-const escapeHtml = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 const html = (body: string, status = 200) =>
   new Response(`<!doctype html><meta charset="utf-8"><title>marshal-factory GitHub App</title>${body}`, {
@@ -81,7 +80,9 @@ async function callback(url: URL) {
     signal: AbortSignal.timeout(20_000),
   });
   if (res.status !== 201) {
-    console.log(`manifest conversion failed with ${res.status}; GitHub may have created the app anyway: delete it under ${GITHUB}/settings/apps, then run this script again`);
+    console.log(
+      `manifest conversion failed with ${res.status}; GitHub may have created the app anyway: delete it under ${GITHUB}/settings/apps, then run this script again`,
+    );
     return new Response(`GitHub answered ${res.status} to the manifest conversion`, { status: 502 });
   }
   const parsed = conversionSchema.safeParse(await res.json());

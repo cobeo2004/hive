@@ -96,6 +96,9 @@ export async function finishSetup(deps: MembersDeps): Promise<{ ok: true } | Ref
   if (!actor) return { ok: false, status: 403, message: "Sign in to Hive first." };
   // Not isMember: that needs setup done, which is what this sets.
   if (actor.twoFactorEnabled !== true) return { ok: false, status: 400, message: "Turn on two-factor authentication first." };
-  await db.update(user).set({ setupDoneAt: new Date() }).where(and(eq(user.email, actor.email), eq(user.twoFactorEnabled, true)));
+  await db
+    .update(user)
+    .set({ setupDoneAt: new Date() })
+    .where(and(eq(user.email, actor.email), eq(user.twoFactorEnabled, true)));
   return { ok: true };
 }

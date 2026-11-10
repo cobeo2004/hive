@@ -4,16 +4,7 @@ import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
 import { useRef, useState } from "react";
 import { requestT3Pairing, takeT3Pairing } from "@/app/actions/open-t3";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import type { JobId } from "@/lib/sources/shapes";
@@ -22,10 +13,7 @@ const POLL_MS = 1_500;
 /** The runner works one step at a time, so a busy queue can hold the request for a few minutes. */
 const GIVE_UP_MS = 4 * 60_000;
 
-type View =
-  | { kind: "asking"; slow: boolean }
-  | { kind: "ready"; pairUrl: string }
-  | { kind: "failed"; message: string };
+type View = { kind: "asking"; slow: boolean } | { kind: "ready"; pairUrl: string } | { kind: "failed"; message: string };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

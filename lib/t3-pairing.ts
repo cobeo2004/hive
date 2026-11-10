@@ -38,10 +38,7 @@ export type PairingDeps = {
 
 export type PairingRequest = { ok: true; intentId: string } | { ok: false; message: string };
 
-export type PairingTake =
-  | { status: "pending" }
-  | { status: "ready"; pairUrl: string; expiresAt: string }
-  | { status: "failed"; message: string };
+export type PairingTake = { status: "pending" } | { status: "ready"; pairUrl: string; expiresAt: string } | { status: "failed"; message: string };
 
 const OWNER_ONLY = "Only an admin can open a sandbox in T3.";
 
@@ -84,7 +81,10 @@ export async function takePairing(deps: PairingDeps, intentId: string): Promise<
     if (!("pairUrl" in parsed.data)) return describeStored(parsed.data);
     const expired = now.getTime() - intent.handled_at.getTime() >= PAIRING_TTL_MINUTES * 60_000 || Date.parse(parsed.data.expiresAt) <= now.getTime();
     const cleared: PairingResult = { cleared: expired ? "expired" : "shown" };
-    await tx.update(intents).set({ result: JSON.stringify(cleared) }).where(eq(intents.id, intentId));
+    await tx
+      .update(intents)
+      .set({ result: JSON.stringify(cleared) })
+      .where(eq(intents.id, intentId));
     return expired ? describeStored(cleared) : describeStored(parsed.data);
   });
 }

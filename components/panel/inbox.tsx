@@ -125,7 +125,11 @@ function Why({ item }: { item: Item }) {
           <AlertTitle>Main went red after the factory merged this, and the revert failed</AlertTitle>
           <AlertDescription className="flex flex-col gap-1">
             {watch?.reason && <span>{watch.reason}</span>}
-            {watch && watch.failed.length > 0 && <span>Failed on {decision?.merged?.base ?? "main"}: {watch.failed.join(", ")}</span>}
+            {watch && watch.failed.length > 0 && (
+              <span>
+                Failed on {decision?.merged?.base ?? "main"}: {watch.failed.join(", ")}
+              </span>
+            )}
             {watch?.revertPr && (
               <a href={watch.revertPr} target="_blank" rel="noreferrer" className="underline underline-offset-2">
                 Revert PR
@@ -137,7 +141,8 @@ function Why({ item }: { item: Item }) {
     }
     case "handover": {
       if (!decision) return <p className="text-muted-foreground">The runner hasn&apos;t looked at this pull request yet.</p>;
-      if (decision.autonomy === "off") return <p className="text-muted-foreground">Merging is off for {job.repo}, so every pull request waits for your review.</p>;
+      if (decision.autonomy === "off")
+        return <p className="text-muted-foreground">Merging is off for {job.repo}, so every pull request waits for your review.</p>;
       if (decision.outcome === "merge") return <p className="text-muted-foreground">Trial would merge it; under trial the factory never merges on its own.</p>;
       return (
         <div className="flex flex-col gap-1">
@@ -215,11 +220,7 @@ function bugbotLine(bugbot: ReviewSummary["bugbot"]) {
     case "failed":
       return { text: "Bugbot didn't complete its review.", tone: "text-warning" };
     case "reviewed": {
-      const open = [
-        bugbot.high && `${bugbot.high} high`,
-        bugbot.medium && `${bugbot.medium} medium`,
-        bugbot.low && `${bugbot.low} low`,
-      ].filter(Boolean);
+      const open = [bugbot.high && `${bugbot.high} high`, bugbot.medium && `${bugbot.medium} medium`, bugbot.low && `${bugbot.low} low`].filter(Boolean);
       const resolved = bugbot.resolved ? ` · ${bugbot.resolved} resolved` : "";
       if (open.length === 0) return { text: `No open findings${resolved}`, tone: "text-success" };
       return { text: `${open.join(", ")} unresolved${resolved}`, tone: bugbot.high || bugbot.medium ? "text-destructive" : "text-muted-foreground" };
@@ -350,7 +351,13 @@ function Detail({ item, card, fullView }: { item: Item; card: BoardCard | undefi
       </ScrollArea>
       <div className="shrink-0 border-t">
         <div className={cn("px-4.5 py-3.5", fullView.full && "mx-auto w-full max-w-3xl")}>
-          <InboxActions job={job} kind={kind} decision={item.decision} headSha={review?.headSha ?? null} reviewReady={!wantsReview || loaded.kind !== "loading"} />
+          <InboxActions
+            job={job}
+            kind={kind}
+            decision={item.decision}
+            headSha={review?.headSha ?? null}
+            reviewReady={!wantsReview || loaded.kind !== "loading"}
+          />
         </div>
       </div>
     </aside>

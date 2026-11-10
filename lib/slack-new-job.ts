@@ -144,9 +144,17 @@ export function renderNewJobModal(prefill: Prefill, options: ModalOptions, meta:
         optional: true,
         label: plain("Description"),
         hint: plain("The agent reads this as the spec. Markdown works."),
-        element: { type: "plain_text_input", action_id: VALUE, multiline: true, max_length: SLACK_INPUT_MAX, ...(prefill.description && { initial_value: prefill.description }) },
+        element: {
+          type: "plain_text_input",
+          action_id: VALUE,
+          multiline: true,
+          max_length: SLACK_INPUT_MAX,
+          ...(prefill.description && { initial_value: prefill.description }),
+        },
       },
-      ...(repos.length > 0 ? [select(NEW_JOB_BLOCKS.repo, "Repository", repos, initialRepo, "Goes on the issue as its Repository label, the default one included.")] : []),
+      ...(repos.length > 0
+        ? [select(NEW_JOB_BLOCKS.repo, "Repository", repos, initialRepo, "Goes on the issue as its Repository label, the default one included.")]
+        : []),
       select(NEW_JOB_BLOCKS.harness, "Harness", [settingsDefault, ...options.harnesses.map((h) => option(h.id, h.name))], settingsDefault),
       select(NEW_JOB_BLOCKS.runsOn, "Runs on", [settingsDefault, ...EXECUTIONS.map((e) => option(e, RUNS_ON_LABELS[e]))], settingsDefault),
     ],
@@ -231,7 +239,10 @@ export async function sendToFactory(deps: InteractionDeps, payload: z.infer<type
   return ack();
 }
 
-const stateSchema = z.record(z.string(), z.record(z.string(), z.object({ value: z.string().nullish(), selected_option: z.object({ value: z.string() }).nullish() })));
+const stateSchema = z.record(
+  z.string(),
+  z.record(z.string(), z.object({ value: z.string().nullish(), selected_option: z.object({ value: z.string() }).nullish() })),
+);
 const submissionSchema = z.object({ view: z.object({ id: z.string(), private_metadata: z.string(), state: z.object({ values: stateSchema }) }) });
 
 /** The job a submission asks for, with a request id from the modal, so submitting it again files the same issue. */
@@ -303,7 +314,11 @@ async function fileJob(deps: InteractionDeps, input: NewJob, meta: Meta) {
   }
   if (!outcome.ok) return notify(deps, meta, outcome.message);
   const { identifier, url } = outcome;
-  await notify(deps, meta, `Filed *${escape(identifier)}* · ${escape(input.title)}\nThe factory picks it up within a few seconds. <${url}|Open the issue> · <${deps.panelUrl}/|Open the board>`);
+  await notify(
+    deps,
+    meta,
+    `Filed *${escape(identifier)}* · ${escape(input.title)}\nThe factory picks it up within a few seconds. <${url}|Open the issue> · <${deps.panelUrl}/|Open the board>`,
+  );
   if (!meta.channel || !meta.threadTs || !deps.slack) return;
   try {
     await deps.slack.postMessage(meta.channel, message(`Filed as <${url}|${escape(identifier)}>`), meta.threadTs);

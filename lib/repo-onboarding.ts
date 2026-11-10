@@ -22,7 +22,8 @@ type Db = NodePgDatabase<typeof schema>;
 
 const FORBIDDEN = { ok: false, status: 403, message: "Only an admin can change repositories." } as const;
 const invalid = (message: string) => ({ ok: false, status: 400, message }) as const;
-const failed = (what: string, error: unknown) => ({ ok: false, status: 502, message: `Could not ${what}: ${error instanceof Error ? error.message : String(error)}` }) as const;
+const failed = (what: string, error: unknown) =>
+  ({ ok: false, status: 502, message: `Could not ${what}: ${error instanceof Error ? error.message : String(error)}` }) as const;
 
 const repoInput = z.object({ repo: z.string().regex(REPO_NAME, "Name the repo as owner/name.") });
 
@@ -73,7 +74,8 @@ export async function addRepository(deps: AddRepositoryDeps, input: unknown): Pr
   } catch (error) {
     return failed("list the GitHub App's repositories", error);
   }
-  if (!installable.repos.some((r) => r.repo.toLowerCase() === repo.toLowerCase())) return invalid(`The GitHub App cannot reach ${repo}. Grant it access first.`);
+  if (!installable.repos.some((r) => r.repo.toLowerCase() === repo.toLowerCase()))
+    return invalid(`The GitHub App cannot reach ${repo}. Grant it access first.`);
   try {
     await deps.create(repo, user.email);
   } catch (error) {
@@ -143,7 +145,8 @@ export async function saveRepoSecrets(deps: SecretsDeps, input: unknown): Promis
   const known = new Set((recipe?.env ?? []).map((e) => e.name));
   const unknown = names.filter((n) => !known.has(n));
   if (unknown.length > 0) return invalid(`The recipe names no env var ${unknown.join(", ")}.`);
-  if (!deps.modalConfigured()) return invalid(`This panel has no cloud sandbox token. On the runner Mac, run ${secretCommand(repo, names[0]!)} for each secret.`);
+  if (!deps.modalConfigured())
+    return invalid(`This panel has no cloud sandbox token. On the runner Mac, run ${secretCommand(repo, names[0]!)} for each secret.`);
   const secret = modalSecretName(repo);
   try {
     await deps.upsert(secret, values);
@@ -170,7 +173,9 @@ export async function recordSecretNames(database: Db, repo: string, names: reado
     const secretsSet = [...new Set([...(detail.secretsSet ?? []), ...names])].sort();
     const missing = missingEnv(detail.recipe, secretsSet);
     const next: OnboardingState | null =
-      row.onboarding_state === "needs_input" && detail.recipe && missing.length === 0 ? afterRecipe(detail.recipe, { ...detail, secretsSet }).state : row.onboarding_state;
+      row.onboarding_state === "needs_input" && detail.recipe && missing.length === 0
+        ? afterRecipe(detail.recipe, { ...detail, secretsSet }).state
+        : row.onboarding_state;
     await tx
       .update(repoSettings)
       .set({

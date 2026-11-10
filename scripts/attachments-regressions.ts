@@ -31,10 +31,18 @@ try {
 
   {
     const host = fakeHost({ [upload("a")]: { type: "image/png" }, [upload("b")]: { type: "image/jpeg; charset=binary" } });
-    const text = [`Before: ![a.png](${upload("a")})`, `After: ![b.jpg](${upload("b")})`, `Again: ![a.png](${upload("a")})`, "Other: ![x](https://example.com/x.png)"].join("\n");
+    const text = [
+      `Before: ![a.png](${upload("a")})`,
+      `After: ![b.jpg](${upload("b")})`,
+      `Again: ![a.png](${upload("a")})`,
+      "Other: ![x](https://example.com/x.png)",
+    ].join("\n");
     const out = await localizeLinearImages(text, { apiKey: "linear-key", dir, fetch: host.fetch });
     assert.deepEqual(host.calls.map((c) => c.url).sort(), [upload("a"), upload("b")], "each upload is fetched once");
-    assert.ok(host.calls.every((c) => c.auth === "linear-key"), "with the Linear key");
+    assert.ok(
+      host.calls.every((c) => c.auth === "linear-key"),
+      "with the Linear key",
+    );
     const files = readdirSync(dir).sort();
     assert.equal(files.length, 2, "and saved");
     assert.deepEqual(files.map((f) => f.split(".")[1]).sort(), ["jpg", "png"], "with the extension of its content type");
@@ -42,7 +50,11 @@ try {
     assert.ok(!out.includes("uploads.linear.app"), "the private links are gone from the text");
     assert.match(out, new RegExp(`Before: \\[image: ${join(dir, "[0-9a-f]{16}\\.png").replaceAll("/", "\\/")}\\]`), "each link points at its file");
     assert.ok(out.includes("Other: ![x](https://example.com/x.png)"), "an image on another host is left alone");
-    assert.match(out, /## Images\n\nThis text refers to 2 images, saved on this machine\. Open each one with the Read tool before you start/, "and the agent is told to open them first");
+    assert.match(
+      out,
+      /## Images\n\nThis text refers to 2 images, saved on this machine\. Open each one with the Read tool before you start/,
+      "and the agent is told to open them first",
+    );
     assert.equal(out.match(/^- \//gm)?.length, 2, "listing each file once");
 
     const again = fakeHost({});
@@ -55,7 +67,11 @@ try {
     const host = fakeHost({ [upload("gone")]: { status: 404 }, [upload("doc")]: { type: "application/pdf" }, [upload("big")]: { body: big } });
     const text = [upload("gone"), upload("doc"), upload("big")].map((u, i) => `![${i}](${u})`).join("\n");
     const out = await localizeLinearImages(text, { apiKey: "k", dir: join(dir, "failures"), fetch: host.fetch });
-    assert.match(out, /!\[0\]\(https:\/\/uploads\.linear\.app\/org\/gone\) \(the factory could not download this image: Linear answered 404\)/, "a missing upload keeps its link with the reason");
+    assert.match(
+      out,
+      /!\[0\]\(https:\/\/uploads\.linear\.app\/org\/gone\) \(the factory could not download this image: Linear answered 404\)/,
+      "a missing upload keeps its link with the reason",
+    );
     assert.match(out, /could not download this image: not a PNG, JPEG, WebP or GIF image/, "so does a file that is not an image");
     assert.match(out, /could not download this image: larger than 10 MB/, "and one over the size cap");
     assert.ok(!out.includes("## Images"), "with nothing saved, there is no image list");

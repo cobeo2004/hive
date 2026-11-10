@@ -215,5 +215,8 @@ export async function retryJob(id: JobId, { actor, attempt, note }: RetryDetail,
   await claimReady();
   const after = await readJob(id);
   if (after && after.attempt > job.attempt) return { started: after.attempt };
-  return { refused: "The factory can't start another attempt yet, for example while the failed one is still stopping. The factory label is back on the issue, so the next attempt starts as soon as it can." };
+  return {
+    refused:
+      "The factory can't start another attempt yet, for example while the failed one is still stopping. The factory label is back on the issue, so the next attempt starts as soon as it can.",
+  };
 }

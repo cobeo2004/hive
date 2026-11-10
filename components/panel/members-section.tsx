@@ -96,7 +96,12 @@ export function MembersSection({ members: initial }: { members: Member[] }) {
                     <Badge variant={member.setupDone ? "outline" : "warning"}>{member.setupDone ? "Set up" : "Setup pending"}</Badge>
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
-                    <Select disabled={savingRole === member.id} items={ROLES} onValueChange={(role) => void changeRole(member, role as Role)} value={member.role}>
+                    <Select
+                      disabled={savingRole === member.id}
+                      items={ROLES}
+                      onValueChange={(role) => void changeRole(member, role as Role)}
+                      value={member.role}
+                    >
                       <SelectTrigger aria-label={`Role for ${member.name}`} className="w-32">
                         <SelectValue />
                       </SelectTrigger>

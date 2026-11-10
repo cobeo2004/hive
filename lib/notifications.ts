@@ -129,7 +129,8 @@ export async function requestSlackTest(deps: NotificationDeps, requestId: string
   const user = await deps.user();
   if (!user || !isAdmin(user)) return { ok: false, message: OWNER_ONLY };
   if (!requestIdSchema.safeParse(requestId).success) return { ok: false, message: "The request is not valid." };
-  if (!(await deps.slackConfigured())) return { ok: false, message: "No online runner has a Slack token. Add SLACK_BOT_TOKEN to the runner's .env.local and restart it." };
+  if (!(await deps.slackConfigured()))
+    return { ok: false, message: "No online runner has a Slack token. Add SLACK_BOT_TOKEN to the runner's .env.local and restart it." };
   const id = `panel:slack_test:${requestId}`;
   await deps.db
     .insert(intents)
@@ -144,7 +145,10 @@ export type SlackTestOutcome = { status: "pending" } | { status: "done"; message
 
 export async function slackTestOutcome(deps: Pick<NotificationDeps, "db" | "user">, intentId: string): Promise<SlackTestOutcome> {
   if (!isAdmin(await deps.user())) return { status: "failed", message: OWNER_ONLY };
-  const [intent] = await deps.db.select().from(intents).where(and(eq(intents.id, intentId), eq(intents.kind, "slack_test")));
+  const [intent] = await deps.db
+    .select()
+    .from(intents)
+    .where(and(eq(intents.id, intentId), eq(intents.kind, "slack_test")));
   if (!intent) return { status: "failed", message: "No such request." };
   // A failed try stays open for the retry, so its error is final only once the intent is closed.
   if (!intent.handled_at) return { status: "pending" };

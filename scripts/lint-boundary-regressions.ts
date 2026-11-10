@@ -21,7 +21,11 @@ const cases: { file: string; code: string; want: string[] }[] = [
   { file: "runner/x.ts", code: 'import { sourceFor } from "../lib/sources";\nexport const s = sourceFor("linear");\n', want: SYNTAX },
   { file: "app/x.ts", code: 'import { sourceFor } from "@/lib/sources";\nexport const s = sourceFor(`linear`);\n', want: SYNTAX },
   // What the boundary allows.
-  { file: "runner/x.ts", code: 'import { sourceFor } from "../lib/sources";\nimport type { Job } from "../lib/sources/types";\nexport const s = (job: Job) => sourceFor(job.source);\n', want: [] },
+  {
+    file: "runner/x.ts",
+    code: 'import { sourceFor } from "../lib/sources";\nimport type { Job } from "../lib/sources/types";\nexport const s = (job: Job) => sourceFor(job.source);\n',
+    want: [],
+  },
   { file: "app/x.ts", code: 'import { sourceLink } from "@/lib/sources/shapes";\nvoid sourceLink;\n', want: [] },
   { file: "lib/sources/index.ts", code: 'import { linear } from "./linear";\nexport const s = linear;\n', want: [] },
   { file: "lib/sources/x.ts", code: 'import { sourceFor } from "./index";\nexport const s = sourceFor("linear");\n', want: [] },

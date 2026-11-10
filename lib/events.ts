@@ -12,35 +12,16 @@ export const usageSchema = z.object({
 });
 export type Usage = z.infer<typeof usageSchema>;
 
-export const STAGES = [
-  "queued",
-  "triage",
-  "investigating",
-  "implementing",
-  "verifying",
-  "pr",
-  "waiting",
-  "merged",
-  "failed",
-] as const;
+export const STAGES = ["queued", "triage", "investigating", "implementing", "verifying", "pr", "waiting", "merged", "failed"] as const;
 export const stageSchema = z.enum(STAGES);
 export type Stage = z.infer<typeof stageSchema>;
 
 /** What a factory thread passes to `report_stage`; the hook re-parses the same shape from tool_input. */
 export const stageReportShape = {
   stage: stageSchema.describe("The stage the run just entered."),
-  summary: z
-    .string()
-    .min(1)
-    .max(500)
-    .describe("One or two sentences on what happened. For failed, the reason."),
+  summary: z.string().min(1).max(500).describe("One or two sentences on what happened. For failed, the reason."),
   prUrl: z.url().optional().describe("Required for stage pr: the pull request URL."),
-  question: z
-    .string()
-    .min(1)
-    .max(2000)
-    .optional()
-    .describe("Required for stage waiting: the concrete question the human must answer."),
+  question: z.string().min(1).max(2000).optional().describe("Required for stage waiting: the concrete question the human must answer."),
   assessment: assessmentInputSchema.optional().describe("Stage pr only: your merge assessment, as the factory playbook describes."),
 };
 export const stageReportSchema = z
@@ -119,9 +100,7 @@ export const eventSchema = z.discriminatedUnion("kind", [
     kind: z.literal("usage"),
     usage: usageSchema,
     /** Subagents of the session with their usage so far, so running ones count before SubagentStop. */
-    agents: z
-      .array(z.object({ agentId: z.string().min(1), toolUseId: z.string().optional(), usage: usageSchema }))
-      .optional(),
+    agents: z.array(z.object({ agentId: z.string().min(1), toolUseId: z.string().optional(), usage: usageSchema })).optional(),
   }),
   z.object({
     ...base,
@@ -146,6 +125,4 @@ export type EventKind = FactoryEvent["kind"];
 
 export const MAX_BATCH = 100;
 
-export const ingestBodySchema = z
-  .union([eventSchema, z.array(eventSchema).min(1).max(MAX_BATCH)])
-  .transform((body) => (Array.isArray(body) ? body : [body]));
+export const ingestBodySchema = z.union([eventSchema, z.array(eventSchema).min(1).max(MAX_BATCH)]).transform((body) => (Array.isArray(body) ? body : [body]));

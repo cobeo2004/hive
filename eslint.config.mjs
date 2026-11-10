@@ -58,7 +58,10 @@ const eslintConfig = defineConfig([
     rules: {
       "no-restricted-properties": [
         "error",
-        { property: "mergePull", message: "Only the runner's merge service (runner/merge-service.ts) merges a pull request. Record an approve_merge intent instead." },
+        {
+          property: "mergePull",
+          message: "Only the runner's merge service (runner/merge-service.ts) merges a pull request. Record an approve_merge intent instead.",
+        },
       ],
     },
   },

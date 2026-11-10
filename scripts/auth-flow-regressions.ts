@@ -35,7 +35,8 @@ function browser() {
   const headers = () => ({ cookie: cookie(), origin: PANEL, "content-type": "application/json" });
   return {
     jar,
-    post: async (path: string, body: object) => keep(await POST(new Request(`${PANEL}/api/auth${path}`, { method: "POST", headers: headers(), body: JSON.stringify(body) }))),
+    post: async (path: string, body: object) =>
+      keep(await POST(new Request(`${PANEL}/api/auth${path}`, { method: "POST", headers: headers(), body: JSON.stringify(body) }))),
     get: async (path: string) => keep(await GET(new Request(`${PANEL}/api/auth${path}`, { headers: headers() }))),
     /** The user the server actions see for this browser's cookies. */
     user: async () => sessionUser(await session.read(new Headers({ cookie: cookie() }))),
@@ -104,7 +105,8 @@ try {
   assert.equal((await memberByEmail(ADMIN))?.email, ADMIN);
 
   // --- TOTP is mandatory: nothing over HTTP turns it off, swaps the secret, or mints a new factor.
-  const enrolledAs = async () => (await db.execute<{ enabled: boolean }>(sql`select two_factor_enabled as enabled from "user" where email = ${ADMIN}`)).rows[0]!.enabled;
+  const enrolledAs = async () =>
+    (await db.execute<{ enabled: boolean }>(sql`select two_factor_enabled as enabled from "user" where email = ${ADMIN}`)).rows[0]!.enabled;
   for (const [path, body] of [
     ["/two-factor/disable", { password: PASSWORD }],
     ["/two-factor/enable", { password: PASSWORD }],

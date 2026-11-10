@@ -36,7 +36,12 @@ export const revertDeps: {
 
 const TOKEN_ENV = "FACTORY_GIT_TOKEN";
 /** git asks this helper for the password, so the token lives in the environment and never in argv or a URL. */
-const CREDENTIALS = ["-c", "credential.helper=", "-c", `credential.helper=!f() { test "$1" = get && printf 'username=x-access-token\\npassword=%s\\n' "$${TOKEN_ENV}"; }; f`];
+const CREDENTIALS = [
+  "-c",
+  "credential.helper=",
+  "-c",
+  `credential.helper=!f() { test "$1" = get && printf 'username=x-access-token\\npassword=%s\\n' "$${TOKEN_ENV}"; }; f`,
+];
 const IDENTITY = ["-c", "user.name=marshal-factory", "-c", "user.email=marshal-factory@users.noreply.github.com"];
 const KEEP_MS = 2 * 86_400_000;
 
@@ -70,7 +75,12 @@ export async function revertMerge(prUrl: string, merged: FactoryMerge, failed: r
     await git(["fetch", "origin", merged.base], checkout);
     await git(["worktree", "add", "-B", branch, dir, `origin/${merged.base}`], checkout);
     const parents = (await git(["rev-list", "--parents", "-n", "1", merged.sha])).split(" ").length - 1;
-    const target = merged.method === "rebase" && merged.commits > 1 ? [`${merged.sha}~${merged.commits}..${merged.sha}`] : parents > 1 ? ["-m", "1", merged.sha] : [merged.sha];
+    const target =
+      merged.method === "rebase" && merged.commits > 1
+        ? [`${merged.sha}~${merged.commits}..${merged.sha}`]
+        : parents > 1
+          ? ["-m", "1", merged.sha]
+          : [merged.sha];
     try {
       await git([...IDENTITY, "revert", "--no-edit", ...target]);
     } catch (error) {
@@ -79,7 +89,10 @@ export async function revertMerge(prUrl: string, merged: FactoryMerge, failed: r
     }
     const head = await git(["rev-parse", "HEAD"]);
     const token = await revertDeps.token(repo);
-    await git([...CREDENTIALS, "push", "--force", `https://github.com/${repo}.git`, `HEAD:refs/heads/${branch}`], dir, { [TOKEN_ENV]: token, GIT_TERMINAL_PROMPT: "0" });
+    await git([...CREDENTIALS, "push", "--force", `https://github.com/${repo}.git`, `HEAD:refs/heads/${branch}`], dir, {
+      [TOKEN_ENV]: token,
+      GIT_TERMINAL_PROMPT: "0",
+    });
     const title = `Revert "${merged.title}" (#${number})`;
     url ??= (
       await github.createPull(repo, {
@@ -128,13 +141,31 @@ async function watchOne(job: Job, decision: MergeDecision & { merged: FactoryMer
     case "pending":
     case "none":
       if (now < Date.parse(watch.until)) return null;
-      return endWatch(job, decision, { ...watch, state: "expired" }, `Main's checks didn't finish within ${config.factory.postMergeWatchMinutes} minutes of the merge; stopped watching`, now);
+      return endWatch(
+        job,
+        decision,
+        { ...watch, state: "expired" },
+        `Main's checks didn't finish within ${config.factory.postMergeWatchMinutes} minutes of the merge; stopped watching`,
+        now,
+      );
     case "failure": {
       const reverted = await revertMerge(job.pr_url!, merged, failed);
       const names = failed.join(", ") || "a check failed";
       return reverted.ok
-        ? endWatch(job, decision, { ...watch, state: "reverted", failed, revertPr: reverted.url }, `Reverted after main went red · ${names} · ${reverted.url}`, now)
-        : endWatch(job, decision, { ...watch, state: "revert_failed", failed, revertPr: reverted.url, reason: reverted.reason }, `Revert failed after main went red · ${names} · ${reverted.reason}`, now);
+        ? endWatch(
+            job,
+            decision,
+            { ...watch, state: "reverted", failed, revertPr: reverted.url },
+            `Reverted after main went red · ${names} · ${reverted.url}`,
+            now,
+          )
+        : endWatch(
+            job,
+            decision,
+            { ...watch, state: "revert_failed", failed, revertPr: reverted.url, reason: reverted.reason },
+            `Revert failed after main went red · ${names} · ${reverted.reason}`,
+            now,
+          );
     }
     default: {
       const never: never = checks;

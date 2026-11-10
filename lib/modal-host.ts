@@ -129,8 +129,7 @@ const isGone = (error: unknown) =>
   (error instanceof ConflictError && /already finished/.test(error.message)) ||
   (error instanceof Error && error.name === "ClientError" && (error as { code?: unknown }).code === GRPC_NOT_FOUND);
 
-const gone = (sandboxId: string, error: unknown) =>
-  isGone(error) ? new HostGoneError(`sandbox ${sandboxId} is gone: ${(error as Error).message}`) : error;
+const gone = (sandboxId: string, error: unknown) => (isGone(error) ? new HostGoneError(`sandbox ${sandboxId} is gone: ${(error as Error).message}`) : error);
 
 const handles = new Map<string, Promise<SandboxHandle>>();
 

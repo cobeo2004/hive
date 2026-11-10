@@ -19,11 +19,12 @@ export type BranchCost = { usd: number; known: boolean };
 export async function branchCosts(db: Reader, branches: readonly string[], overrides?: PricingOverrides) {
   const costs: Record<string, BranchCost> = {};
   if (branches.length === 0) return costs;
-  const branchRuns = await db.select().from(runs).where(inArray(runs.branch, [...branches]));
+  const branchRuns = await db
+    .select()
+    .from(runs)
+    .where(inArray(runs.branch, [...branches]));
   const sessions = branchRuns.map((r) => r.session_id);
-  const branchAgents = sessions.length
-    ? await db.select().from(agents).where(inArray(agents.session_id, sessions))
-    : [];
+  const branchAgents = sessions.length ? await db.select().from(agents).where(inArray(agents.session_id, sessions)) : [];
   const branchOf = new Map(branchRuns.map((r) => [r.session_id, r.branch!]));
   const recorded = new Set<string>();
   const add = (branch: string, row: Parameters<typeof knownCostUsd>[0] & { model: string | null }) => {

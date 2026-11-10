@@ -39,7 +39,11 @@ function ViewSwitch({ current, onChange }: ViewSwitchProps) {
           )}
         >
           {view === current && (
-            <motion.span layoutId="panel-view-marker" transition={{ type: "spring", stiffness: 500, damping: 40 }} className="absolute inset-0 rounded-[5px] bg-accent" />
+            <motion.span
+              layoutId="panel-view-marker"
+              transition={{ type: "spring", stiffness: 500, damping: 40 }}
+              className="absolute inset-0 rounded-[5px] bg-accent"
+            />
           )}
           <span className="relative">{label}</span>
         </button>

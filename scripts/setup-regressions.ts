@@ -17,7 +17,11 @@ await db.delete(user).where(inArray(user.email, [ME, OTHER]));
 await db.insert(user).values([row(ME, false), row(OTHER, true)]);
 try {
   assert.deepEqual(await finishSetup({ user: async () => null }), { ok: false, status: 403, message: "Sign in to Hive first." });
-  assert.deepEqual(await finishSetup(as(ME, false)), { ok: false, status: 400, message: "Turn on two-factor authentication first." }, "refused until TOTP is on");
+  assert.deepEqual(
+    await finishSetup(as(ME, false)),
+    { ok: false, status: 400, message: "Turn on two-factor authentication first." },
+    "refused until TOTP is on",
+  );
   assert.equal(await doneAt(ME), null);
 
   // A session claiming TOTP while the row says otherwise changes nothing.

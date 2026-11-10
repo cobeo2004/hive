@@ -33,7 +33,8 @@ async function showThread(threadId: string | null, host: JobHost): Promise<{ rea
   const gone: { read: ThreadRead; activity: ThreadActivity } = { read: GONE, activity: { state: "gone", activeRunId: null, projectId: null } };
   if (!threadId) return gone;
   // A launch in progress; the runner records the real id or clears the marker.
-  if (bindingOf(threadId) === "pending") return { read: { state: "running", status: null, lastMessage: null }, activity: { state: "running", activeRunId: null, projectId: null } };
+  if (bindingOf(threadId) === "pending")
+    return { read: { state: "running", status: null, lastMessage: null }, activity: { state: "running", activeRunId: null, projectId: null } };
   let raw: unknown;
   try {
     raw = await showCli(host, threadId);
@@ -50,10 +51,13 @@ async function showThread(threadId: string | null, host: JobHost): Promise<{ rea
   const activity: ThreadActivity = { state, activeRunId: thread.activeRunId, projectId: thread.projectId ?? null };
   if (thread.archived || (thread.worktreePath !== null && !(await host.exists(thread.worktreePath)))) return { read: GONE, activity };
   const assistant = z.object({ role: z.literal("assistant"), text: z.string() });
-  const lastMessage = (messages ?? []).flatMap((m) => {
-    const parsed = assistant.safeParse(m);
-    return parsed.success ? [parsed.data.text] : [];
-  }).at(-1) ?? null;
+  const lastMessage =
+    (messages ?? [])
+      .flatMap((m) => {
+        const parsed = assistant.safeParse(m);
+        return parsed.success ? [parsed.data.text] : [];
+      })
+      .at(-1) ?? null;
   return { read: { state, status: thread.status ?? null, lastMessage }, activity };
 }
 

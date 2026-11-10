@@ -47,8 +47,17 @@ for (const [from, to, cause] of allowed) {
 
 const forbidden: [Stage, Stage, Cause][] = [
   ...STAGES.flatMap((to) => CAUSES.map((cause): [Stage, Stage, Cause] => ["merged", to, cause])),
-  ...STAGES.flatMap((to) => CAUSES.filter((c) => !(c === "reclaim" && to === "queued") && !(c === "merged" && to === "merged")).map((cause): [Stage, Stage, Cause] => ["failed", to, cause])),
-  ...STAGES.flatMap((from): [Stage, Stage, Cause][] => [[from, "queued", "report"], [from, "merged", "report"]]),
+  ...STAGES.flatMap((to) =>
+    CAUSES.filter((c) => !(c === "reclaim" && to === "queued") && !(c === "merged" && to === "merged")).map((cause): [Stage, Stage, Cause] => [
+      "failed",
+      to,
+      cause,
+    ]),
+  ),
+  ...STAGES.flatMap((from): [Stage, Stage, Cause][] => [
+    [from, "queued", "report"],
+    [from, "merged", "report"],
+  ]),
   ...STAGES.filter((s) => s !== "failed").map((from): [Stage, Stage, Cause] => [from, "queued", "reclaim"]),
   ...STAGES.filter((s) => s !== "waiting").map((from): [Stage, Stage, Cause] => [from, "queued", "resume"]),
   ...STAGES.filter((s) => s !== "pr").map((from): [Stage, Stage, Cause] => [from, "implementing", "conflict"]),
@@ -83,7 +92,11 @@ assert.deepEqual(move({ at: new Date(1_000) }), { outcome: "apply", cause: "repo
 assert.deepEqual(move({ eventId: "e-1" }), { outcome: "skip", cause: "report", reason: "already applied" }, "the runner's own write is not applied twice");
 assert.deepEqual(move({ at: new Date(500) }), { outcome: "skip", cause: "report", reason: "stale" });
 assert.deepEqual(move({ branch: "hive/FAC-7" }), { outcome: "skip", cause: "report", reason: "earlier attempt" });
-assert.deepEqual(move({ stage: "merged" }), { outcome: "refuse", cause: "report", reason: "implementing -> merged (report) is not in STAGE_TRANSITIONS" }, "only the runner marks a job merged");
+assert.deepEqual(
+  move({ stage: "merged" }),
+  { outcome: "refuse", cause: "report", reason: "implementing -> merged (report) is not in STAGE_TRANSITIONS" },
+  "only the runner marks a job merged",
+);
 assert.deepEqual(
   decideStage({ ...row, stage: "failed" }, { stage: "pr", at: new Date(2_000), eventId: "e-3", branch: "hive/FAC-7-a2" }),
   { outcome: "refuse", cause: "report", reason: "failed -> pr (report) is not in STAGE_TRANSITIONS" },

@@ -13,7 +13,8 @@ import { inTestMode } from "./test-mode";
 // stores each eventId once, so delivering an event twice changes nothing.
 
 /** `$FACTORY_STATE_DIR`, else ~/.local/state/marshal-factory; in a sandbox that is under /root, which snapshots keep. */
-export const stateDir = (home = homedir(), env: Readonly<Record<string, string | undefined>> = process.env) => env.FACTORY_STATE_DIR || join(home, ".local/state/marshal-factory");
+export const stateDir = (home = homedir(), env: Readonly<Record<string, string | undefined>> = process.env) =>
+  env.FACTORY_STATE_DIR || join(home, ".local/state/marshal-factory");
 export const outboxDir = (state: string) => join(state, "outbox");
 /** Events ingest refused as invalid; a retry would be refused again, so they wait here for a human. */
 export const rejectedDir = (state: string) => join(state, "outbox-rejected");
@@ -37,7 +38,11 @@ export type OutboxFs = {
 
 /** This machine's files; a JobHost is an OutboxFs too, so the runner flushes a sandbox's outbox the same way. */
 export const localFs: OutboxFs = {
-  exists: async (path) => stat(path).then(() => true, () => false),
+  exists: async (path) =>
+    stat(path).then(
+      () => true,
+      () => false,
+    ),
   list: (dir) => readdir(dir),
   readFile: (path) => readFile(path, "utf8").catch((error: NodeJS.ErrnoException) => (error.code === "ENOENT" ? null : Promise.reject(error))),
   writeFile: async (path, text) => {
@@ -48,7 +53,10 @@ export const localFs: OutboxFs = {
 };
 
 let appended = 0;
-const pending = (dir: string) => readdirSync(dir).filter((name) => name.endsWith(".json")).sort();
+const pending = (dir: string) =>
+  readdirSync(dir)
+    .filter((name) => name.endsWith(".json"))
+    .sort();
 
 export type AppendResult = { file: string; pending: number; dropped: string[] };
 
@@ -59,7 +67,11 @@ export type AppendResult = { file: string; pending: number; dropped: string[] };
 export function appendEvent(
   state: string,
   event: FactoryEvent,
-  { warn = (m) => process.stderr.write(`${m}\n`), highWater = HIGH_WATER, hardCap = HARD_CAP }: { warn?: (message: string) => void; highWater?: number; hardCap?: number } = {},
+  {
+    warn = (m) => process.stderr.write(`${m}\n`),
+    highWater = HIGH_WATER,
+    hardCap = HARD_CAP,
+  }: { warn?: (message: string) => void; highWater?: number; hardCap?: number } = {},
 ): AppendResult {
   const dir = outboxDir(state);
   mkdirSync(dir, { recursive: true });
@@ -135,7 +147,12 @@ type Queued = { name: string; event: FactoryEvent };
  * runs out. A failure stops the flush so nothing overtakes an earlier event. A refused batch is
  * retried one event at a time, and only the events ingest refuses on their own are set aside.
  */
-export async function flushOutbox(fs: OutboxFs, state: string, send: Send, { budgetMs, batchSize = 50, maxChars = MAX_BATCH_CHARS }: { budgetMs: number; batchSize?: number; maxChars?: number }): Promise<FlushResult> {
+export async function flushOutbox(
+  fs: OutboxFs,
+  state: string,
+  send: Send,
+  { budgetMs, batchSize = 50, maxChars = MAX_BATCH_CHARS }: { budgetMs: number; batchSize?: number; maxChars?: number },
+): Promise<FlushResult> {
   const deadline = Date.now() + budgetMs;
   const dir = outboxDir(state);
   const result: FlushResult = { delivered: 0, rejected: [], left: 0, stuck: [], spend: {} };
@@ -180,7 +197,10 @@ export async function flushOutbox(fs: OutboxFs, state: string, send: Send, { bud
       batch.push({ name, event: JSON.parse(text) as FactoryEvent });
     }
     if (batch.length === 0) continue;
-    const delivery = await send(batch.map((q) => q.event), deadline - Date.now());
+    const delivery = await send(
+      batch.map((q) => q.event),
+      deadline - Date.now(),
+    );
     switch (delivery.kind) {
       case "delivered":
         await settle(batch, delivery);

@@ -69,11 +69,7 @@ export async function expirePairings() {
     .update(intents)
     .set({ result: JSON.stringify({ cleared: "expired" } satisfies PairingResult) })
     .where(
-      and(
-        eq(intents.kind, "open_t3"),
-        like(intents.result, '%"pairUrl"%'),
-        lt(intents.handled_at, sql`now() - make_interval(mins => ${PAIRING_TTL_MINUTES})`),
-      ),
+      and(eq(intents.kind, "open_t3"), like(intents.result, '%"pairUrl"%'), lt(intents.handled_at, sql`now() - make_interval(mins => ${PAIRING_TTL_MINUTES})`)),
     )
     .returning({ id: intents.id });
   return cleared.length;
@@ -113,13 +109,7 @@ export async function leaseIntent(id: string, machineId: string) {
   const leased = await db
     .update(intents)
     .set({ leased_by: machineId, lease_until: sql`now() + make_interval(mins => ${LEASE_MINUTES})` })
-    .where(
-      and(
-        eq(intents.id, id),
-        isNull(intents.handled_at),
-        or(isNull(intents.leased_by), lt(intents.lease_until, sql`now()`)),
-      ),
-    )
+    .where(and(eq(intents.id, id), isNull(intents.handled_at), or(isNull(intents.leased_by), lt(intents.lease_until, sql`now()`))))
     .returning({ id: intents.id });
   return leased.length > 0;
 }

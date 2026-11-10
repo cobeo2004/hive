@@ -38,7 +38,15 @@ export type SlackClient = ReturnType<typeof slackClient>;
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-export function slackClient({ token, baseUrl = SLACK_API_URL, minGapMs = 1_000, maxWaitMs = 10_000, retries = 2, sleep = wait, now = Date.now }: SlackClientOptions) {
+export function slackClient({
+  token,
+  baseUrl = SLACK_API_URL,
+  minGapMs = 1_000,
+  maxWaitMs = 10_000,
+  retries = 2,
+  sleep = wait,
+  now = Date.now,
+}: SlackClientOptions) {
   let chain: Promise<unknown> = Promise.resolve();
   let lastCallAt = 0;
   let pausedUntil = 0;

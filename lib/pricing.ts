@@ -80,5 +80,4 @@ export function knownCostUsd(tokens: TokenCounts, model: string | null | undefin
 }
 
 /** Spend in USD. Unknown models count as 0 so a new model never breaks the panel. */
-export const costUsd = (tokens: TokenCounts, model: string | null | undefined, overrides?: PricingOverrides) =>
-  knownCostUsd(tokens, model, overrides) ?? 0;
+export const costUsd = (tokens: TokenCounts, model: string | null | undefined, overrides?: PricingOverrides) => knownCostUsd(tokens, model, overrides) ?? 0;

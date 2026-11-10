@@ -4,8 +4,27 @@ import { db } from "../db/client";
 import { jobs, slackMessages, type JobRow } from "../db/schema";
 import { loadConfig } from "../lib/config";
 import { attemptBranch } from "../lib/factory";
-import { inQuietHours, parseNotificationConfig, readNotifications, slackTestDetailSchema, type NotificationConfig, type SlackTarget } from "../lib/notifications";
-import { NOTIFY_WINDOW_MS, notifyEvents, panelUrl, renderMessage, renderTest, resolution, secretValues, TOGGLE_OF, URGENT, type MessageFacts, type SlackMessage } from "../lib/slack";
+import {
+  inQuietHours,
+  parseNotificationConfig,
+  readNotifications,
+  slackTestDetailSchema,
+  type NotificationConfig,
+  type SlackTarget,
+} from "../lib/notifications";
+import {
+  NOTIFY_WINDOW_MS,
+  notifyEvents,
+  panelUrl,
+  renderMessage,
+  renderTest,
+  resolution,
+  secretValues,
+  TOGGLE_OF,
+  URGENT,
+  type MessageFacts,
+  type SlackMessage,
+} from "../lib/slack";
 import { SlackApiError, slackClient, SlackRateLimited, type SlackClient } from "../lib/slack-api";
 import { branchCosts } from "../lib/spend";
 
@@ -30,7 +49,9 @@ export function slackFromEnv(env: Record<string, string | undefined> = process.e
   const token = env.SLACK_BOT_TOKEN?.trim();
   if (!token) return null;
   const baseUrl = env.SLACK_API_URL?.trim() || undefined;
-  const key = createHash("sha256").update(`${token}\n${baseUrl ?? ""}`).digest("hex");
+  const key = createHash("sha256")
+    .update(`${token}\n${baseUrl ?? ""}`)
+    .digest("hex");
   if (cached?.key !== key) cached = { key, client: slackClient({ token, baseUrl }) };
   return { client: cached.client, owner: env.SLACK_OWNER_USER_ID?.trim() || null, secrets: secretValues(env) };
 }
@@ -76,7 +97,10 @@ export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now
   // Recent jobs for new events, and every job with an open message, however old, to see if it resolved.
   const cutoff = new Date(now.getTime() - 2 * NOTIFY_WINDOW_MS);
   const openJobs = db.select({ id: slackMessages.job_id }).from(slackMessages).where(eq(slackMessages.state, "open"));
-  const loaded = await db.select().from(jobs).where(or(gt(jobs.updated_at, cutoff), gt(jobs.stage_at, cutoff), inArray(jobs.id, openJobs)));
+  const loaded = await db
+    .select()
+    .from(jobs)
+    .where(or(gt(jobs.updated_at, cutoff), gt(jobs.stage_at, cutoff), inArray(jobs.id, openJobs)));
   const events = notifyEvents(loaded);
   const eventOf = new Map(events.map((e) => [e.id, e]));
   const rows = await db
@@ -87,7 +111,11 @@ export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now
   const jobOf = new Map(loaded.map((j) => [j.id, j]));
 
   const branchOf = (job: Pick<JobRow, "key" | "attempt">) => attemptBranch(job.key, job.attempt);
-  const costs = await branchCosts(db, [...new Set([...events.map((e) => branchOf(e.job)), ...rows.flatMap((r) => (jobOf.has(r.job_id) ? [branchOf(jobOf.get(r.job_id)!)] : []))])], loadConfig().factory.pricing);
+  const costs = await branchCosts(
+    db,
+    [...new Set([...events.map((e) => branchOf(e.job)), ...rows.flatMap((r) => (jobOf.has(r.job_id) ? [branchOf(jobOf.get(r.job_id)!)] : []))])],
+    loadConfig().factory.pricing,
+  );
   const facts = (job: JobRow): MessageFacts => ({ panelUrl: panelUrl(), spend: costs[branchOf(job)] ?? null, secrets: slack.secrets });
 
   const result = { posted: 0, updated: 0, resolved: 0, held: 0 };

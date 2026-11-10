@@ -201,7 +201,9 @@ const sameLeasing = (a: OnboardingRun | undefined, b: OnboardingRun) =>
 const leftBehind = (repo: string, run: OnboardingRun, machine: string) => !hasSandbox(run) && run.machine === machine && !starting.has(repo);
 
 const clearLeasing = (repo: string, run: OnboardingRun, state?: OnboardingState, reason?: string) =>
-  update(repo, (_r, d) => (sameLeasing(d.run, run) ? { ...(state && { state }), detail: { ...d, run: undefined, ...(reason && { failure: failure(reason) }) } } : null));
+  update(repo, (_r, d) =>
+    sameLeasing(d.run, run) ? { ...(state && { state }), detail: { ...d, run: undefined, ...(reason && { failure: failure(reason) }) } } : null,
+  );
 
 /** The recipe is known: record it with what came along, then secrets, then the image. */
 async function applyRecipe(repo: string, recipe: Recipe, extra: Partial<OnboardingDetail>) {
@@ -338,7 +340,12 @@ async function advanceAgent(row: RepoSettingsRow, run: StartedRun) {
     return fail(row.repo, `The onboarding agent's result is not JSON.`, said);
   }
   const result = resultSchema.safeParse(json);
-  if (!result.success) return fail(row.repo, `The onboarding agent's result has no valid recipe: ${result.error.issues[0]?.path.join(".")} ${result.error.issues[0]?.message}`, said);
+  if (!result.success)
+    return fail(
+      row.repo,
+      `The onboarding agent's result has no valid recipe: ${result.error.issues[0]?.path.join(".")} ${result.error.issues[0]?.message}`,
+      said,
+    );
   if ("failed" in result.data) return fail(row.repo, `The onboarding agent could not write a recipe: ${redact(result.data.failed, envNames, 5)}`, said);
   const { recipe, prUrl, checks, summary } = result.data;
   const state = await applyRecipe(row.repo, recipe, {
@@ -351,7 +358,10 @@ async function advanceAgent(row: RepoSettingsRow, run: StartedRun) {
 }
 
 /** In the sandbox: the token, the clone at origin/main, and the build script started in the background. */
-export async function startImageBuild(host: JobHost, { repo, recipe, githubToken, checks }: { repo: string; recipe: Recipe; githubToken: string; checks: boolean }) {
+export async function startImageBuild(
+  host: JobHost,
+  { repo, recipe, githubToken, checks }: { repo: string; recipe: Recipe; githubToken: string; checks: boolean },
+) {
   await host.run("mkdir", ["-p", BUILD_DIR], { timeoutMs: 30_000 });
   await writeGithubToken(host, githubToken);
   await host.run("git", ["clone", "--quiet", `https://github.com/${repo}.git`, REPO_DIR], { timeoutMs: 300_000 });
@@ -468,7 +478,8 @@ async function advanceBuild(row: RepoSettingsRow, run: StartedRun) {
     await deleteSnapshot(finished.imageId);
     return { repo: row.repo, discarded: finished.imageId };
   }
-  if (previous && previous !== finished.imageId) await deleteSnapshot(previous).catch((error: unknown) => log("onboarding:image-delete-failed", { repo: row.repo, image: previous, error: message(error) }));
+  if (previous && previous !== finished.imageId)
+    await deleteSnapshot(previous).catch((error: unknown) => log("onboarding:image-delete-failed", { repo: row.repo, image: previous, error: message(error) }));
   log("onboarding:image-built", { repo: row.repo, image: finished.imageId, commit: finished.commit.slice(0, 7) });
   return { repo: row.repo, image: finished.imageId, state: recorded.onboarding_state };
 }
@@ -479,7 +490,10 @@ export async function requestRebuild(repo: string, reason: string) {
     if (!detail.recipe) return null;
     const { state, missingSecrets } = afterRecipe(detail.recipe, detail);
     // A build in flight finishes first; the wanted rebuild then starts from the row's recipe.
-    return { state: detail.run?.kind === "agent" ? row.onboarding_state : state, detail: { ...detail, missingSecrets, rebuild: { reason, at: onboardingRuntime.now().toISOString() } } };
+    return {
+      state: detail.run?.kind === "agent" ? row.onboarding_state : state,
+      detail: { ...detail, missingSecrets, rebuild: { reason, at: onboardingRuntime.now().toISOString() } },
+    };
   });
   if (!updated) return { repo, skipped: "no recipe" };
   return { repo, state: updated.onboarding_state, builds: await startBuilds() };
@@ -495,7 +509,8 @@ export async function repoPushed(push: RepoPushDetail) {
   const detail = parseDetail(row.onboarding_detail);
   if (detail.run?.kind === "agent") return { repo: row.repo, skipped: "the onboarding agent is still running" };
   const recipeChanged = push.truncated || push.files.includes(RECIPE_PATH);
-  if (!recipeChanged && !(detail.recipe && warmKeyTouched(detail.recipe, push.files))) return { repo: row.repo, skipped: "nothing the warm image depends on changed" };
+  if (!recipeChanged && !(detail.recipe && warmKeyTouched(detail.recipe, push.files)))
+    return { repo: row.repo, skipped: "nothing the warm image depends on changed" };
   if (recipeChanged) {
     const text = await onboardingRuntime.committedRecipe(row.repo);
     const parsed = text === null ? null : parseRecipe(text);
@@ -510,7 +525,10 @@ export async function repoPushed(push: RepoPushDetail) {
     }
   }
   if (!detail.recipe) return { repo: row.repo, skipped: "no recipe yet" };
-  return requestRebuild(row.repo, push.truncated ? "a push to main changed more than the factory can list" : recipeChanged ? "the recipe changed on main" : "dependencies changed on main");
+  return requestRebuild(
+    row.repo,
+    push.truncated ? "a push to main changed more than the factory can list" : recipeChanged ? "the recipe changed on main" : "dependencies changed on main",
+  );
 }
 
 /**
@@ -520,7 +538,8 @@ export async function repoPushed(push: RepoPushDetail) {
 export async function startBuilds({ only }: { only?: readonly string[] } = {}) {
   const machine = await thisMachine();
   const rows = await db.select().from(repoSettings).where(onlyRepos(only)).orderBy(asc(repoSettings.onboarding_at));
-  if (rows.some((r) => parseDetail(r.onboarding_detail).run?.kind === "build" && parseDetail(r.onboarding_detail).run?.machine === machine.id)) return undefined;
+  if (rows.some((r) => parseDetail(r.onboarding_detail).run?.kind === "build" && parseDetail(r.onboarding_detail).run?.machine === machine.id))
+    return undefined;
   const base = launchable();
   if ("problem" in base) return undefined;
   const ready = (r: RepoSettingsRow) => {
@@ -535,7 +554,9 @@ export async function startBuilds({ only }: { only?: readonly string[] } = {}) {
     });
     if (stale) {
       const reason = imageOutdated(parseDetail(stale.onboarding_detail).image!, baseOf(base.image))!;
-      next = (await update(stale.repo, (_r, d) => ({ state: "rebuilding", detail: { ...d, rebuild: { reason, at: onboardingRuntime.now().toISOString() } } }))) ?? undefined;
+      next =
+        (await update(stale.repo, (_r, d) => ({ state: "rebuilding", detail: { ...d, rebuild: { reason, at: onboardingRuntime.now().toISOString() } } }))) ??
+        undefined;
     }
   }
   return next ? startBuild(next, base.image) : undefined;
@@ -575,7 +596,10 @@ async function probeBugbot(rows: readonly RepoSettingsRow[]) {
         const [current] = await tx.select().from(repoSettings).where(eq(repoSettings.repo, row.repo)).for("update");
         const detail = parseDetail(current?.onboarding_detail);
         if (detail.bugbotProbe?.pr !== probe.pr || detail.bugbotProbe.since !== probe.since) return false;
-        await tx.update(repoSettings).set({ require_bugbot: verdict, onboarding_detail: { ...detail, bugbotProbe: undefined } }).where(eq(repoSettings.repo, row.repo));
+        await tx
+          .update(repoSettings)
+          .set({ require_bugbot: verdict, onboarding_detail: { ...detail, bugbotProbe: undefined } })
+          .where(eq(repoSettings.repo, row.repo));
         return true;
       });
       if (!set) continue;

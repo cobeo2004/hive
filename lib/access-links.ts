@@ -58,7 +58,11 @@ export async function peekLink(kind: LinkKind, token: string) {
 /** Marks the link used, once: the row lock makes a concurrent second consume see it used. */
 export async function consumeLink(kind: LinkKind, token: string) {
   return db.transaction(async (tx) => {
-    const [link] = await tx.select().from(accessLinks).where(eq(accessLinks.token_hash, hash(token))).for("update");
+    const [link] = await tx
+      .select()
+      .from(accessLinks)
+      .where(eq(accessLinks.token_hash, hash(token)))
+      .for("update");
     if (!link || link.kind !== kind || link.used_at || link.expires_at <= new Date()) throw new Error(INVALID_LINK);
     if (kind === "setup" && (await adminExists(tx))) throw new Error(ADMIN_EXISTS);
     await tx.update(accessLinks).set({ used_at: new Date() }).where(eq(accessLinks.id, link.id));
@@ -135,7 +139,10 @@ export async function acceptReset(token: string, input: { password: string }) {
 
 /** A reset link for an existing user (scripts/setup-token.ts --reset, Settings → Members). */
 export async function createResetLink(email: string, createdBy: string | null = null) {
-  const [found] = await db.select({ id: user.id }).from(user).where(eq(user.email, normal(email)));
+  const [found] = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, normal(email)));
   if (!found) throw new Error(`No Hive user has the email ${normal(email)}.`);
   return createLink("reset", email, RESET_TTL_MS, createdBy);
 }

@@ -16,7 +16,11 @@ const draft = { title: "Show the item count", description: "On the weight sort b
 {
   const filed: FileDraft[] = [];
   const file = async (d: FileDraft) => (filed.push(d), { key: "FAC-99", url: "https://linear.app/x/issue/FAC-99" });
-  for (const user of [null, { email: "someone@example.com", role: "engineer", twoFactorEnabled: false }, { email: OWNER, role: "admin", twoFactorEnabled: false }]) {
+  for (const user of [
+    null,
+    { email: "someone@example.com", role: "engineer", twoFactorEnabled: false },
+    { email: OWNER, role: "admin", twoFactorEnabled: false },
+  ]) {
     const outcome = await createJob({ user: async () => user, file, harnesses, registry }, draft);
     assert.deepEqual([outcome.ok, !outcome.ok && outcome.status], [false, 403], `a non-owner (${user?.email ?? "signed out"}) cannot start a job`);
   }
@@ -45,7 +49,22 @@ const draft = { title: "Show the item count", description: "On the weight sort b
     sent.push({ query, variables });
     if (query.includes("teams(")) {
       return Response.json({
-        data: { teams: { nodes: [{ id: "team-1", key: "FAC", states: { nodes: [{ id: "s-backlog", name: "Backlog", type: "backlog" }, { id: "s-todo", name: "Todo", type: "unstarted" }] } }] } },
+        data: {
+          teams: {
+            nodes: [
+              {
+                id: "team-1",
+                key: "FAC",
+                states: {
+                  nodes: [
+                    { id: "s-backlog", name: "Backlog", type: "backlog" },
+                    { id: "s-todo", name: "Todo", type: "unstarted" },
+                  ],
+                },
+              },
+            ],
+          },
+        },
       });
     }
     if (query.includes("issueLabels(")) return Response.json({ data: { issueLabels: { nodes: [{ id: "label-factory", team: { id: "team-1" } }] } } });
@@ -84,7 +103,10 @@ const draft = { title: "Show the item count", description: "On the weight sort b
   const upload = async (image: { filename: string }) => (uploaded.push(image.filename), `![${image.filename}](https://uploads.linear.app/x/${image.filename})`);
   const png = (name: string, size = 10, type = "image/png") => new File([new Uint8Array(size)], name, { type });
 
-  const stranger = await uploadJobImage({ user: async () => ({ email: "someone@example.com", role: "engineer", twoFactorEnabled: false }), upload }, png("a.png"));
+  const stranger = await uploadJobImage(
+    { user: async () => ({ email: "someone@example.com", role: "engineer", twoFactorEnabled: false }), upload },
+    png("a.png"),
+  );
   assert.equal(!stranger.ok && stranger.status, 403, "a non-owner cannot upload images");
   const pdf = await uploadJobImage({ user: async () => owner, upload }, png("spec.pdf", 10, "application/pdf"));
   assert.equal(!pdf.ok && pdf.status, 400, "a file that is not an image is refused");
@@ -106,7 +128,15 @@ const draft = { title: "Show the item count", description: "On the weight sort b
   const gqlFake = (async (_url: string, init: RequestInit) => {
     asked.push((JSON.parse(String(init.body)) as { variables: Record<string, unknown> }).variables);
     return Response.json({
-      data: { fileUpload: { uploadFile: { uploadUrl: "https://storage.example/put?sig=1", assetUrl: "https://uploads.linear.app/org/abc/screen.png", headers: [{ key: "x-goog-meta", value: "m" }] } } },
+      data: {
+        fileUpload: {
+          uploadFile: {
+            uploadUrl: "https://storage.example/put?sig=1",
+            assetUrl: "https://uploads.linear.app/org/abc/screen.png",
+            headers: [{ key: "x-goog-meta", value: "m" }],
+          },
+        },
+      },
     });
   }) as unknown as typeof fetch;
   let storageStatus = 200;
@@ -117,7 +147,11 @@ const draft = { title: "Show the item count", description: "On the weight sort b
   const upload = linearUploader("key", { fetch: gqlFake, sleep: async () => {}, put: putFake });
   const bytes = new Uint8Array([1, 2, 3, 4]);
 
-  assert.equal(await upload({ filename: "screen [1].png", contentType: "image/png", bytes }), "![screen  1 .png](https://uploads.linear.app/org/abc/screen.png)", "the markdown points at Linear's copy");
+  assert.equal(
+    await upload({ filename: "screen [1].png", contentType: "image/png", bytes }),
+    "![screen  1 .png](https://uploads.linear.app/org/abc/screen.png)",
+    "the markdown points at Linear's copy",
+  );
   assert.deepEqual(asked[0], { contentType: "image/png", filename: "screen [1].png", size: 4 }, "Linear is asked for an upload of that type, name and size");
   assert.equal(puts[0]!.url, "https://storage.example/put?sig=1", "the bytes go to the signed URL");
   assert.equal(puts[0]!.size, 4);

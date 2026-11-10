@@ -22,7 +22,9 @@ let started = false;
 function eventsFor(identity: McpIdentity, report: StageReport, at: number, opening: boolean): FactoryEvent[] {
   const { jobKey, branch, sessionId, repo } = identity;
   const stage: FactoryEvent = {
-    eventId: createHash("sha256").update(`mcp\n${sessionId}\n${at}\n${JSON.stringify(report)}`).digest("hex"),
+    eventId: createHash("sha256")
+      .update(`mcp\n${sessionId}\n${at}\n${JSON.stringify(report)}`)
+      .digest("hex"),
     sessionId,
     at,
     kind: "stage",
@@ -44,7 +46,9 @@ async function post(report: StageReport) {
   const flushed = await reportEvents(eventsFor(identity, report, Date.now(), !started), FLUSH_BUDGET_MS);
   if (!flushed) return `Stage ${report.stage} is valid, but this machine has no factory ingest config, so nothing was reported.`;
   started = true;
-  return flushed.error ? `Recorded stage ${report.stage}; ingest did not answer, so it is queued and will be delivered later.` : `Recorded stage ${report.stage}.`;
+  return flushed.error
+    ? `Recorded stage ${report.stage}; ingest did not answer, so it is queued and will be delivered later.`
+    : `Recorded stage ${report.stage}.`;
 }
 
 server.registerTool(
@@ -72,7 +76,9 @@ server.registerTool(
     const missing = unreadable(parsed.data.assessment?.screenshots ?? []);
     if (missing.length > 0) return { isError: true, content: [{ type: "text", text: `Can't attach the screenshots: ${missing.join("; ")}.` }] };
     // A reporting failure must never fail the call; the outbox keeps whatever was queued.
-    const text = await post(parsed.data).catch((error: unknown) => `Stage ${parsed.data.stage} is valid, but reporting it failed: ${error instanceof Error ? error.message : String(error)}`);
+    const text = await post(parsed.data).catch(
+      (error: unknown) => `Stage ${parsed.data.stage} is valid, but reporting it failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return { content: [{ type: "text", text: VERIFY_STAGES.has(parsed.data.stage) ? `${text} ${VERIFY_HINT}` : text }] };
   },
 );

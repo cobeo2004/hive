@@ -14,11 +14,7 @@ export type WatchInput = {
   now: Date;
 };
 
-export type WatchAction =
-  | { kind: "ok" }
-  | { kind: "reset" }
-  | { kind: "nudge"; idleMinutes: number }
-  | { kind: "fail"; reason: string };
+export type WatchAction = { kind: "ok" } | { kind: "reset" } | { kind: "nudge"; idleMinutes: number } | { kind: "fail"; reason: string };
 
 const minutes = (ms: number) => ms / 60_000;
 
@@ -36,15 +32,11 @@ export function watch(input: WatchInput, limits: FactoryLimits): WatchAction {
     return { kind: "fail", reason: `its T3 thread is gone (stage ${input.stage})` };
   }
   if (!input.tracked) return input.nudgedAt ? { kind: "reset" } : { kind: "ok" };
-  const stuck =
-    idle >= limits.stuckAfterMinutes ||
-    (input.thread === "stopped" && idle >= limits.stoppedGraceMinutes);
+  const stuck = idle >= limits.stuckAfterMinutes || (input.thread === "stopped" && idle >= limits.stoppedGraceMinutes);
   if (!stuck) return input.nudgedAt && !nudged ? { kind: "reset" } : { kind: "ok" };
   if (!nudged) return { kind: "nudge", idleMinutes: Math.round(idle) };
 
-  const sinceNudge = minutes(
-    input.now.getTime() - Math.max(input.nudgedAt!.getTime(), input.lastEventAt.getTime()),
-  );
+  const sinceNudge = minutes(input.now.getTime() - Math.max(input.nudgedAt!.getTime(), input.lastEventAt.getTime()));
   if (sinceNudge < limits.failAfterNudgeMinutes) return { kind: "ok" };
   return {
     kind: "fail",
