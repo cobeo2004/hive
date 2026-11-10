@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { stageReportSchema, type FactoryEvent, type Usage } from "../lib/events";
+import { stageEventFields, stageReportSchema, type FactoryEvent, type Usage } from "../lib/events";
 import { parseBranch, REPORT_STAGE_TOOL } from "../lib/factory";
 import { localHost } from "../lib/host";
 import { readIngestTarget, reportEvents } from "../lib/outbox";
@@ -177,7 +177,7 @@ async function toEvent(
         if (!report.success || unreadable(report.data.assessment?.screenshots ?? []).length > 0) return undefined;
         const git = await gitContext(str(input.cwd) ?? process.cwd());
         const jobKey = parseBranch(git.branch)?.key;
-        const stage: FactoryEvent = { ...base, kind: "stage", ...report.data, jobKey, branch: git.branch };
+        const stage: FactoryEvent = { ...base, kind: "stage", ...stageEventFields(report.data), jobKey, branch: git.branch };
         const refs = report.data.assessment?.screenshots ?? [];
         // The images go first, so the panel never shows an assessment whose screenshots haven't arrived.
         return jobKey && refs.length > 0

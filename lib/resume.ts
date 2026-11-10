@@ -2,15 +2,38 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "../db/schema";
 import { jobs } from "../db/schema";
+import { isPlanApproval, PLAN_APPROVED } from "./plan-approval";
 import type { JobId } from "./sources/shapes";
 
+const quote = (text: string) => text.trim().replace(/^/gm, "> ");
+
 export function qaBlock(question: string, answer: string) {
-  const quote = (text: string) => text.trim().replace(/^/gm, "> ");
   return ["## Your question", "", quote(question), "", "## Answer", "", quote(answer)].join("\n");
 }
 
 /** The turn a resumed thread receives. */
 export function resumeMessage(subject: string, question: string, answer: string, playbook: string) {
+  if (isPlanApproval(question)) {
+    const notes = answer
+      .split(/\n\s*\n/)
+      .map((part) => part.trim())
+      .filter((part) => part && part !== PLAN_APPROVED);
+    return notes.length === 0
+      ? [
+          `The owner approved your plan on ${subject}.`,
+          "",
+          `Continue the factory playbook (${playbook}) at Phase 2 (implement), on this same branch, following plan.md and answer-key.md as written. Report every stage with the report_stage tool.`,
+        ].join("\n")
+      : [
+          `The owner requested changes to your plan on ${subject}.`,
+          "",
+          `Resume the factory playbook (${playbook}) at Phase 1 (plan), on this same branch: revise plan.md and answer-key.md for the note below, then report waiting with kind plan_approval again.`,
+          "",
+          "## Requested changes",
+          "",
+          quote(notes.join("\n\n")),
+        ].join("\n");
+  }
   return [
     `The reporter answered your question on ${subject}.`,
     "",

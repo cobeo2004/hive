@@ -309,7 +309,17 @@ export function InboxActions({
 
   const buttons = (
     <div className="flex flex-wrap items-center gap-2">
-      {has("approve") && (
+      {has("approve") && kind === "plan_approval" && (
+        <Button
+          size="sm"
+          disabled={disabled}
+          loading={loading("approve")}
+          onClick={() => void run("approve", () => approveMerge(job.id, requestId(), null), "Plan approved.")}
+        >
+          Approve plan
+        </Button>
+      )}
+      {has("approve") && kind !== "plan_approval" && (
         <ApproveButton
           job={job}
           headSha={headSha}
@@ -370,7 +380,9 @@ export function InboxActions({
       {has("request_changes") && (
         <Compose
           label="Request changes"
-          description="Sent to the agent, which updates the same branch and PR."
+          description={
+            kind === "plan_approval" ? "Sent to the agent, which revises its plan and asks again." : "Sent to the agent, which updates the same branch and PR."
+          }
           placeholder="What should change"
           submit="Request changes"
           icon={<MessageSquareReplyIcon data-icon="inline-start" />}
