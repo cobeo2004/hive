@@ -181,11 +181,14 @@ export const jobs = pgTable(
     /** When the owner archived the finished job off the panel; a stage newer than this shows it again. See lib/archive.ts. */
     archived_at: ts("archived_at"),
     archived_by: text("archived_by"),
+    /** The job's owner (R35): the assignee if they are a Hive user, else the creator if they are, else null. Null for jobs from before M2. */
+    owner_id: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     claimed_at: ts("claimed_at").notNull(),
     updated_at: ts("updated_at").notNull(),
   },
   (t) => [
     index("jobs_claimed_at_idx").on(t.claimed_at),
+    index("jobs_owner_idx").on(t.owner_id),
     uniqueIndex("jobs_codex_slot_idx").on(t.codex_slot).where(sql`${t.codex_slot} is not null`),
     check("jobs_id_check", sql`${t.id} = ${t.source}::text || ':' || ${t.external_id}`),
   ],
@@ -579,4 +582,30 @@ export const accessLinks = pgTable("access_links", {
   expires_at: ts("expires_at").notNull(),
   used_at: ts("used_at"),
   created_by: text("created_by").references(() => user.id, { onDelete: "cascade" }),
+});
+
+/** Which Linear triggers a user opted in to (R35); one row per user who opted in. The label trigger stays global. */
+export const linearOptIns = pgTable("linear_opt_ins", {
+  /** The user who opted in (R35). */
+  user_id: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  /** Pick up issues assigned to this user (R35). */
+  assigned: boolean("assigned").notNull().default(false),
+  /** Stop this user's jobs at the plan gate for approval (R35). */
+  plan_approval: boolean("plan_approval").notNull().default(false),
+  /** When the user last changed their opt-ins (R35). */
+  updated_at: ts("updated_at").notNull(),
+});
+
+/** Linear teams, pickup label and Hive's Linear user, edited in Settings (R35); the one row has id "factory". */
+export const linearSettings = pgTable("linear_settings", {
+  /** Always "factory" (R35). */
+  id: text("id").primaryKey(),
+  /** The team keys Hive watches, the pickup label and Hive's Linear user id (R35). */
+  config: jsonb("config").$type<{ teamKeys: string[]; label: string; hiveUserId: string | null }>().notNull(),
+  /** When an admin last saved the settings (R35). */
+  updated_at: ts("updated_at").notNull(),
+  /** The admin's email (R35). */
+  updated_by: text("updated_by").notNull(),
 });

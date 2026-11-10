@@ -69,6 +69,7 @@ export function inboxKind(job: InboxJob, decision = parseDecision(job.merge_deci
     case "queued":
     case "triage":
     case "investigating":
+    case "planning":
     case "implementing":
     case "verifying":
       return null;

@@ -4,6 +4,7 @@ export const STAGE_META: Record<Stage, { label: string; dot: string }> = {
   queued: { label: "Queued", dot: "bg-faint" },
   triage: { label: "Triage", dot: "bg-info" },
   investigating: { label: "Investigating", dot: "bg-violet" },
+  planning: { label: "Planning", dot: "bg-violet" },
   implementing: { label: "Implementing", dot: "bg-primary" },
   verifying: { label: "Verifying", dot: "bg-warning" },
   pr: { label: "PR · CI", dot: "bg-primary" },

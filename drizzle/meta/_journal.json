@@ -295,6 +295,13 @@
       "when": 1794235365120,
       "tag": "0041_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794325091920,
+      "tag": "0042_pink_silvermane",
+      "breakpoints": true
     }
   ]
 }
