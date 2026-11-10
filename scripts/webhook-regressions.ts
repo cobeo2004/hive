@@ -52,6 +52,27 @@ assert.equal(
   "swapping factory for another label in one edit stops too",
 );
 assert.equal((await linearIntent(issue({ state: { type: "canceled", name: "Canceled" } }, { stateId: "x" }), opts))?.kind, "stop", "canceling stops");
+assert.deepEqual(
+  await linearIntent(issue({ labels: [], labelIds: [], assignee: { id: "u1", name: "N" } }), opts),
+  { kind: "claim", jobId: "linear:i1" },
+  "assigned in Todo wakes a claim",
+);
+assert.equal(await linearIntent(issue({ labels: [], labelIds: [] }), opts), null, "no label, no assignee: nothing");
+assert.equal(
+  await linearIntent(issue({ labels: [{ id: "l9", name: "factory-failed" }], labelIds: ["l9"], assignee: { id: "u1" } }), opts),
+  null,
+  "a failed issue is not woken by its assignee",
+);
+assert.equal(
+  await linearIntent(issue({ identifier: "ALE-3", team: { key: "ALE" }, labels: [], labelIds: [], assignee: { id: "u1" } }), opts),
+  null,
+  "an assigned issue in another team is ignored",
+);
+assert.equal(
+  await linearIntent(issue({ state: { type: "started", name: "In Progress" }, assignee: null }, { assigneeId: "lin-hive" }), opts),
+  null,
+  "unassigning sends no stop",
+);
 assert.deepEqual(await linearIntent({ action: "create", type: "Comment", data: { id: "c1", issueId: "i1", body: "1: (b)" } }, opts), {
   kind: "answer",
   jobId: "linear:i1",
