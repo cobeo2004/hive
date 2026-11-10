@@ -28,7 +28,7 @@ export function useFeed<Row>(feed: Feed<Row>) {
   return { rows: feed.initialData, status: useLiveStatus() };
 }
 
-/** Follows /api/live and re-renders the page when a table changes, a burst of changes at once. */
+/** Follows /api/live and re-renders the page when a table changes, at most once per REFRESH_DEBOUNCE_MS. */
 export function LiveRefresh() {
   const router = useRouter();
   useEffect(() => {
@@ -38,9 +38,13 @@ export function LiveRefresh() {
     source.onopen = () => setStatus("live");
     // EventSource reconnects on its own; until then the page shows what it has.
     source.onerror = () => setStatus("connecting");
+    // The first message of a burst starts the timer and later ones ride along, so a steady stream still
+    // refreshes every REFRESH_DEBOUNCE_MS instead of postponing the refresh forever.
     source.onmessage = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => router.refresh(), REFRESH_DEBOUNCE_MS);
+      timer ??= setTimeout(() => {
+        timer = undefined;
+        router.refresh();
+      }, REFRESH_DEBOUNCE_MS);
     };
     return () => {
       clearTimeout(timer);
