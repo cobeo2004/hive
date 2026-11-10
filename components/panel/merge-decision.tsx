@@ -87,9 +87,9 @@ function Assessment({ job, assessment }: { job: JobRow; assessment: MergeAssessm
         </div>
       )}
       <Confidence assessment={assessment} />
-      {assessment.screenshots?.length ? (
+      {assessment.media?.length ? (
         <div className="flex flex-col gap-1">
-          <h4 className="text-xs font-medium text-muted-foreground">Screenshots</h4>
+          <h4 className="text-xs font-medium text-muted-foreground">Media</h4>
           <Media job={job} assessment={assessment} />
         </div>
       ) : null}

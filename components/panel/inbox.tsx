@@ -170,8 +170,8 @@ function Assessment({ job }: { job: JobRow }) {
       <Section title="Confidence">
         <Confidence assessment={assessment} />
       </Section>
-      {assessment.screenshots?.length ? (
-        <Section title="Screenshots">
+      {assessment.media?.length ? (
+        <Section title="Media">
           <Media job={job} assessment={assessment} />
         </Section>
       ) : null}
