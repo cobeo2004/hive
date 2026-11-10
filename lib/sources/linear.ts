@@ -58,7 +58,7 @@ const linearPayloadSchema = z.object({
  * What a Linear delivery means for the factory. A label or state change can arrive as one
  * delivery, so the current labels and state decide, with updatedFrom telling a removal apart.
  */
-function linearIntent(body: unknown, opts: { teamKey: string; label: string }): IntentDraft | null {
+function linearIntent(body: unknown, opts: { teamKeys: readonly string[]; label: string }): IntentDraft | null {
   const payload = linearPayloadSchema.parse(body);
   if (payload.type === "Comment" && payload.action === "create") {
     const issueId = z.string().optional().parse(payload.data.issueId);
@@ -66,8 +66,8 @@ function linearIntent(body: unknown, opts: { teamKey: string; label: string }): 
   }
   if (payload.type !== "Issue") return null;
   const issue = linearIssueSchema.parse(payload.data);
-  if (issue.team && issue.team.key !== opts.teamKey) return null;
-  if (!issue.identifier.startsWith(`${opts.teamKey}-`)) return null;
+  const teamKey = issue.team?.key ?? issue.identifier.split("-")[0];
+  if (!opts.teamKeys.includes(teamKey!) || !issue.identifier.startsWith(`${teamKey}-`)) return null;
   const base = { jobId: jobId("linear", issue.id) };
   const factoryLabel = issue.labels.find((l) => l.name.toLowerCase() === opts.label.toLowerCase());
 
@@ -90,7 +90,11 @@ const webhook: SourceWebhook = {
   deliveryHeader: "Linear-Delivery",
   eventHeader: "Linear-Event",
   verify: (raw, headers, secret, now) => verifyLinear(raw, headers.get("linear-signature"), secret, now),
-  intent: (body, env) => linearIntent(body, { teamKey: env.FACTORY_TEAM_KEY ?? "FAC", label: env.FACTORY_LABEL ?? "hive" }),
+  // The saved Settings → Linear row decides the teams and label; db loads lazily so this module stays importable without one.
+  intent: async (body, env) => {
+    const [{ db }, { linearSettings }] = await Promise.all([import("../../db/client"), import("../linear-settings")]);
+    return linearIntent(body, await linearSettings(db, env));
+  },
 };
 
 /** Linear state types that end an issue; a waiting run on one of them never resumes. */

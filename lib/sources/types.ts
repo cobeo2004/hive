@@ -43,8 +43,8 @@ export interface SourceWebhook {
   deliveryHeader: string;
   eventHeader: string;
   verify(raw: string, headers: Headers, secret: string, now?: number): Verdict;
-  /** What a delivery means; `env` is the ingest function's, where the source reads its own scope (Linear: team key and label). */
-  intent(body: unknown, env: Readonly<Record<string, string | undefined>>): IntentDraft | null;
+  /** What a delivery means; `env` is the ingest function's, holding the source's defaults (Linear: team key and label, until Settings saves its own). */
+  intent(body: unknown, env: Readonly<Record<string, string | undefined>>): IntentDraft | null | Promise<IntentDraft | null>;
 }
 
 export interface SourceAdapter<S extends JobSource> {
