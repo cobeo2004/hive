@@ -1,0 +1,1 @@
+The Linear step ("Hand work to Hive") is a new screen, so it has no before. The Done step's content is unchanged by this PR; its screenshot shows the third chip ("3 Done") after the new step, where before it was "2 Done" straight after Account.
