@@ -1,8 +1,15 @@
 import type { AgentRow, RunRow } from "@/db/schema";
-import { costUsd } from "@/lib/pricing";
+import { costUsd, hasTokens } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 import { formatTokens, formatUsd, groupBy, totalTokens } from "./format";
 import { ModelChip } from "./model-chip";
+
+// A lineage child's wall time; null while it still runs.
+function duration(agent: AgentRow) {
+  if (!agent.ended_at) return null;
+  const s = (agent.ended_at.getTime() - agent.started_at.getTime()) / 1000;
+  return s < 90 ? `${Math.round(s)}s` : `${Math.round(s / 60)}m`;
+}
 
 const STATUS_DOT: Record<AgentRow["status"], string> = {
   running: "bg-primary",
@@ -22,7 +29,7 @@ function Node({
   status: string;
   model: string | null;
   tokens: number;
-  cost: number;
+  cost: number | null;
   depth: number;
 }) {
   return (
@@ -33,7 +40,7 @@ function Node({
       </div>
       <ModelChip model={model} />
       <span className="font-mono text-xs text-faint tabular-nums">
-        {formatTokens(tokens)} · {formatUsd(cost)}
+        {formatTokens(tokens)} · {cost === null ? "—" : formatUsd(cost)}
       </span>
     </div>
   );
@@ -50,11 +57,15 @@ export function AgentTree({ run, agents }: { run: RunRow; agents: readonly Agent
       return (
         <div key={agent.tool_use_id}>
           <Node
-            label={[agent.subagent_type, agent.description].filter(Boolean).join(" · ") || "agent"}
+            label={
+              agent.role
+                ? [agent.role, agent.harness, duration(agent)].filter(Boolean).join(" · ")
+                : [agent.subagent_type, agent.description].filter(Boolean).join(" · ") || "agent"
+            }
             status={STATUS_DOT[agent.status]}
             model={agent.model}
             tokens={totalTokens(agent)}
-            cost={costUsd(agent, agent.model)}
+            cost={agent.role && !hasTokens(agent) ? null : costUsd(agent, agent.model)}
             depth={depth}
           />
           {nested}
