@@ -10,6 +10,7 @@ export type LinkKind = "setup" | "invite" | "reset";
 
 export const INVITE_DOMAIN = "@unibuz.com.au";
 export const INVALID_LINK = "This link is invalid or used.";
+export const SETUP_BUSY = "Another setup is in progress. Try again in a moment.";
 export const ADMIN_EXISTS = "An admin already exists, so setup links are closed.";
 export const SETUP_TTL_MS = 60 * 60 * 1000;
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -90,16 +91,22 @@ async function accept(kind: LinkKind, token: string, make: (email: string | null
   }
 }
 
-/** The first admin (R32). Every setup acceptance holds one advisory lock, so only one admin is ever made this way. */
+/**
+ * The first admin (R32). One advisory lock admits one setup acceptance at a time, so only one admin is ever made
+ * this way. It is tried, never waited for: a waiter would hold a pooled connection the lock holder may need.
+ */
 export async function acceptSetup(token: string, input: { name: string; email: string; password: string }) {
   checkPassword(input.password);
+  if (!(await peekLink("setup", token))) throw new Error(INVALID_LINK);
   const client = await db.$client.connect();
+  let locked = false;
   try {
-    await client.query("select pg_advisory_lock($1)", [SETUP_LOCK]);
+    locked = (await client.query<{ locked: boolean }>("select pg_try_advisory_lock($1) as locked", [SETUP_LOCK])).rows[0]!.locked;
+    if (!locked) throw new Error(SETUP_BUSY);
     if (await adminExists()) throw new Error(ADMIN_EXISTS);
     return await accept("setup", token, () => createUser({ ...input, email: normal(input.email) }, "admin"));
   } finally {
-    await client.query("select pg_advisory_unlock($1)", [SETUP_LOCK]).catch(() => {});
+    if (locked) await client.query("select pg_advisory_unlock($1)", [SETUP_LOCK]).catch(() => {});
     client.release();
   }
 }
