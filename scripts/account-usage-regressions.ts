@@ -11,7 +11,7 @@ const { accountUsage, agentAccounts, user } = await import("../db/schema");
 const { newKeyPair, seal } = await import("../lib/creds");
 const { parseRollout, readRollouts } = await import("../lib/codex-usage");
 const { localHost } = await import("../lib/host");
-const { claudeLimits, pollClaudeUsage, recordCodexLimits } = await import("../runner/account-usage");
+const { claudeLimits, newestLimits, pollClaudeUsage, recordCodexLimits } = await import("../runner/account-usage");
 
 const pair = newKeyPair();
 const env = { HIVE_CREDS_PRIVATE_KEY: pair.privateKey };
@@ -168,6 +168,30 @@ try {
   assert.equal((await rows(ids.codex))[0]!.used_pct, 96, "an older reading is ignored");
   await recordCodexLimits(ids.codex, { "5h": { usedPct: 12, resetsAt: 1794387600 } }, at("07:00"));
   assert.equal((await rows(ids.codex))[0]!.used_pct, 12, "a newer one replaces it");
+
+  // The newest reading across the root and its subagents is the one recorded.
+  const tokenCount = (ts: string, usedPct: number) =>
+    JSON.stringify({
+      type: "event_msg",
+      timestamp: ts,
+      payload: { type: "token_count", info: null, rate_limits: { primary: { used_percent: usedPct, window_minutes: 300, resets_at: 1794387600 } } },
+    });
+  const meta = (id: string) => JSON.stringify({ type: "session_meta", payload: { id, timestamp: "2026-11-11T05:00:00.000Z" } });
+  const thread = (id: string, ts?: string, usedPct = 0) => parseRollout([meta(id), ...(ts ? [tokenCount(ts, usedPct)] : [])].join("\n"))!;
+  const root = thread("root", "2026-11-11T05:01:00.000Z", 20);
+  const sub = thread("sub", "2026-11-11T05:02:00.000Z", 96);
+  assert.deepEqual(
+    newestLimits([root, sub]),
+    { limits: { "5h": { usedPct: 96, resetsAt: 1794387600 } }, at: Date.parse("2026-11-11T05:02:00.000Z") },
+    "a newer subagent reading beats the root's",
+  );
+  assert.equal(newestLimits([sub, root])?.limits["5h"]?.usedPct, 96, "whatever the order");
+  assert.equal(newestLimits([thread("root2", "2026-11-11T05:03:00.000Z", 30), sub])?.limits["5h"]?.usedPct, 30, "the root wins when it is newest");
+  assert.equal(newestLimits([thread("a"), thread("b")]), undefined, "no limits anywhere, nothing to record");
+  await db.delete(accountUsage).where(eq(accountUsage.account_id, ids.codex));
+  const newest = newestLimits([root, sub])!;
+  await recordCodexLimits(ids.codex, newest.limits, newest.at);
+  assert.equal((await rows(ids.codex))[0]!.used_pct, 96, "the row ends at the subagent's 96");
 } finally {
   console.log = realLog;
   await db.delete(agentAccounts).where(inArray(agentAccounts.id, Object.values(ids)));

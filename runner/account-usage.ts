@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "../db/client";
 import { accountUsage, agentAccounts } from "../db/schema";
 import { unseal } from "../lib/creds";
-import type { Limits } from "../lib/codex-usage";
+import type { Limits, Rollout } from "../lib/codex-usage";
 import { forbidInTest } from "../lib/test-mode";
 
 // The 5h and 7d meters of each subscription account (R11a): Claude's are polled from Anthropic's
@@ -86,6 +86,16 @@ export async function pollClaudeUsage({ fetch: get = realFetch, env = process.en
       log("account-usage:failed", { account: id, reason: error instanceof Error ? error.name : "error" });
     }
   }
+}
+
+/** The newest limits reading among a run's rollouts (root and subagents), with when it was written. */
+export function newestLimits(rollouts: readonly Pick<Rollout, "rateLimits" | "rateLimitsAt">[]) {
+  let best: { limits: Limits; at: number } | undefined;
+  for (const r of rollouts) {
+    const at = r.rateLimitsAt;
+    if (r.rateLimits && at !== undefined && Number.isFinite(at) && (!best || at > best.at)) best = { limits: r.rateLimits, at };
+  }
+  return best;
 }
 
 /**
