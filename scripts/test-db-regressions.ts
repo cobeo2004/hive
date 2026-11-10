@@ -9,7 +9,9 @@ import { identityOf, TEST_DB_ENV, TEST_IDENTITY_ENV } from "../lib/test-mode";
 
 const NEON = "postgresql://u:p@ep-odd-field-b95xpf9v-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require";
 
-assert.equal(identityOf(NEON), "ep-odd-field-b95xpf9v", "a Neon host keeps its endpoint identity");
+assert.equal(identityOf(NEON), "ep-odd-field-b95xpf9v/neondb", "a Neon host is its endpoint and database");
+assert.equal(identityOf(NEON), identityOf(NEON.replace("-pooler", "")), "the pooled and direct hosts are one database");
+assert.notEqual(identityOf(NEON), identityOf(NEON.replace("/neondb", "/hive_test_x")), "databases on one Neon endpoint differ");
 assert.notEqual(identityOf("postgres://db.example.com/a"), identityOf("postgres://db.example.com/b"), "databases on one server differ");
 assert.equal(identityOf("postgres://localhost/x"), identityOf("postgres://127.0.0.1:5432/x"), "localhost and 127.0.0.1:5432 are one database");
 assert.equal(identityOf("postgres://localhost/x"), identityOf("postgres://[::1]/x"), "::1 is loopback too");
