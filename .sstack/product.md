@@ -32,8 +32,9 @@ merges on its own only where a repository allows it.
 
 ## Surfaces and how they connect
 
-- **Panel** (`app/`, Next.js): Jobs, Inbox, Repositories, Machines, Settings, Workflow. Served on the
-  Unibuz tailnet only (replacing Vercel + Neon Auth).
+- **Panel** (`app/`, Next.js): Jobs, Inbox, Repositories, Machines, Settings, Workflow. Deployed on Vercel
+  (`vercel.json`); Better Auth sign-in with a setup-token admin and TOTP (`lib/auth/`, `proxy.ts`).
+  The Unibuz tailnet is an optional, opt-in layer in front of it.
 - **Database and live updates**: any Postgres via Drizzle (`db/schema.ts`). Triggers notify
   `hive_changes` (`drizzle/0040_live_notify.sql`); the panel follows it over SSE (`app/api/live`,
   `components/panel/live-refresh.tsx`) and the runner with `runner/realtime.ts`.

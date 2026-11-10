@@ -1,0 +1,24 @@
+# .sstack/config.toml — repo layer, merged key by key over ~/.sstack/config.toml.
+# sstack-gate --merge reads this from main, so a branch can't loosen the policy it merges under.
+
+[overnight]
+merge = "policy"
+method = "merge"                 # never squash: stacked m1/* branches share history (lesson L18)
+merge_min_score = 8
+max_diff_lines = 400
+# Migrations run on deploy (vercel.json buildCommand); auth/session contract; CI and deps.
+never_merge = [
+  "drizzle/**",
+  "db/schema.ts",
+  "scripts/migrate-guard.ts",
+  "lib/auth/**",
+  "proxy.ts",
+  "vercel.json",
+  ".github/**",
+  "package.json",
+  "bun.lock",
+]
+merge_with_assumptions = false
+on_question = "decide"
+on_stuck = "draft"
+stop_at = "07:00"
