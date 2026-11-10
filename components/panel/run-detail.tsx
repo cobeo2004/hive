@@ -19,6 +19,7 @@ import { RUNS_ON_LABELS, ticketRecordSchema } from "@/lib/ticket-overrides";
 import { runsOn } from "./cards";
 import { AgentTree } from "./agent-tree";
 import { useArchiveAction, type ArchiveAction } from "./archive-action";
+import { DeviceView, WATCHABLE_STAGES } from "./device-view";
 import { EventFeed } from "./event-feed";
 import { FullViewToggle, type FullView } from "./full-view";
 import { EvidenceSection } from "./evidence";
@@ -178,6 +179,7 @@ export function RunDetail({
   stages,
   audit,
   evidence,
+  frame,
   job,
   machine,
   harnesses,
@@ -308,6 +310,9 @@ export function RunDetail({
           <div className="text-xs font-semibold text-warning">Question for you</div>
           <p className="mt-1 whitespace-pre-wrap">{run.question}</p>
         </div>
+      )}
+      {job && job.t3_thread_id && !sandboxed && WATCHABLE_STAGES.includes(job.stage) && (
+        <DeviceView jobKey={job.key} takenAt={frame?.initialData[0]?.taken_at} recording={eventRows.some((e) => e.kind === "recording")} />
       )}
       {job && <MergeDecisionSection job={job} />}
       {job && evidence && <EvidenceSection feed={evidence} job={job} />}
