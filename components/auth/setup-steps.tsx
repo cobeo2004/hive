@@ -6,7 +6,7 @@ import QRCode from "react-qr-code";
 import { useState, type ReactNode } from "react";
 import { startTotp, verifyTotp } from "@/app/actions/access";
 import { finishSetup } from "@/app/actions/members";
-import { saveName } from "@/app/actions/setup";
+import { saveLinearOptIns, saveName } from "@/app/actions/setup";
 import { CopyButton } from "@/components/copy-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,17 +14,29 @@ import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import type { OptIns, SETUP_STEPS } from "@/lib/opt-ins";
 import { cn } from "@/lib/utils";
 
 export type SetupUser = { name: string; email: string; role: "admin" | "engineer"; twoFactorEnabled: boolean; slackMatched: boolean };
+type LinearCard = { matched: boolean; note: string };
+const STEP_KEYS = ["account", "linear", "done"] as const;
+type Step = (typeof STEP_KEYS)[number];
 
-/** /setup (R5, R33): the Account step saves the name and enrols TOTP, the Done step stamps setup_done_at and opens Jobs. */
-export function SetupSteps({ user }: { user: SetupUser }) {
-  const [step, setStep] = useState<"account" | "done">("account");
+/**
+ * /setup (R5, R33, R28): Account saves the name and enrols TOTP, Linear saves the pickup opt-ins,
+ * Done stamps setup_done_at and opens Jobs.
+ */
+export function SetupSteps({ user, steps, linear, optIns: savedOptIns }: { user: SetupUser; steps: typeof SETUP_STEPS; linear: LinearCard; optIns: OptIns }) {
+  const [step, setStep] = useState<Step>("account");
   const [name, setName] = useState(user.name);
   const [enrolled, setEnrolled] = useState(user.twoFactorEnabled);
   // Already enrolled means there are no new backup codes to save.
   const [saved, setSaved] = useState(user.twoFactorEnabled);
+  const [optIns, setOptIns] = useState(savedOptIns);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const at = STEP_KEYS.indexOf(step);
 
   return (
     <Card className="w-full max-w-3xl">
@@ -35,14 +47,17 @@ export function SetupSteps({ user }: { user: SetupUser }) {
           <span className="text-muted-foreground">setup</span>
         </div>
         <nav aria-label="Setup steps" className="ms-auto flex flex-wrap gap-1">
-          <StepChip name="Account" n={1} state={step === "done" ? "done" : "current"} />
-          <StepChip name="Done" n={2} state={step === "done" ? "current" : "todo"} />
+          {steps.map((label, i) => (
+            <StepChip key={label} name={label} n={i + 1} state={i < at ? "done" : i === at ? "current" : "todo"} />
+          ))}
         </nav>
       </header>
 
       <div className="flex min-h-[26rem] flex-col gap-[18px] px-6 pt-7 pb-2">
         {step === "account" ? (
           <Account enrolled={enrolled} name={name} onEnrolled={() => setEnrolled(true)} saved={saved} setSaved={setSaved} setName={setName} user={user} />
+        ) : step === "linear" ? (
+          <Linear linear={linear} optIns={optIns} pending={pending} setOptIns={setOptIns} />
         ) : (
           <Done name={name} user={user} />
         )}
@@ -52,8 +67,34 @@ export function SetupSteps({ user }: { user: SetupUser }) {
         {step === "account" ? (
           <>
             <span className="flex-1" />
-            <Button disabled={!enrolled || !saved} onClick={() => setStep("done")}>
+            <Button disabled={!enrolled || !saved} onClick={() => setStep("linear")}>
               Continue
+            </Button>
+          </>
+        ) : step === "linear" ? (
+          <>
+            <Button disabled={pending} onClick={() => setStep("account")} variant="ghost">
+              Back
+            </Button>
+            <span className="flex-1" />
+            <Failure message={error} />
+            <Button
+              disabled={pending}
+              onClick={async () => {
+                setPending(true);
+                setError(null);
+                try {
+                  const result = await saveLinearOptIns(optIns);
+                  if (!result.ok) return setError(result.message);
+                  setStep("done");
+                } catch {
+                  setError("Couldn't save your choices. Try again.");
+                } finally {
+                  setPending(false);
+                }
+              }}
+            >
+              {pending ? "Saving" : "Continue"}
             </Button>
           </>
         ) : (
@@ -370,6 +411,74 @@ function BackupCodes({ codes, saved, setSaved }: { codes: string[]; saved: boole
         </label>
       </div>
     </div>
+  );
+}
+
+const hiveLabel = <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">hive</code>;
+
+/** The Linear step (R28): an email-matched Linear card and the user's two pickup opt-ins; the label trigger is global. */
+function Linear({ linear, optIns, pending, setOptIns }: { linear: LinearCard; optIns: OptIns; pending: boolean; setOptIns: (optIns: OptIns) => void }) {
+  return (
+    <>
+      <h1 className="text-2xl font-semibold tracking-[-0.015em]">Hand work to Hive</h1>
+      <p className="text-sm text-muted-foreground">Link Linear so Hive can pick up issues for you. Nothing runs until you assign or label one.</p>
+      <div className="flex flex-col rounded-xl border">
+        <Row
+          aside={
+            linear.matched && (
+              <span className="flex items-center gap-1.5 text-sm text-success">
+                <CheckIcon className="size-4 shrink-0" />
+                Linked
+              </span>
+            )
+          }
+          mark="LN"
+          note={linear.note}
+          title="Linear"
+        />
+      </div>
+      <div className="flex flex-col">
+        <OptIn
+          checked={optIns.assigned}
+          disabled={pending}
+          note="Assign an issue to yourself and Hive starts on it, billed to your agents."
+          onChange={(assigned) => setOptIns({ ...optIns, assigned })}
+          title="Pick up issues assigned to me"
+        />
+        <OptIn
+          checked={optIns.plan_approval}
+          disabled={pending}
+          note="Plans land in your Inbox. Off means Hive approves plans that cover every requirement."
+          onChange={(plan_approval) => setOptIns({ ...optIns, plan_approval })}
+          title="Approve plans before code is written"
+        />
+      </div>
+      <p className="text-sm text-muted-foreground">Labelling an issue {hiveLabel} works for anyone, whoever it is assigned to.</p>
+    </>
+  );
+}
+
+function OptIn({
+  title,
+  note,
+  checked,
+  disabled,
+  onChange,
+}: {
+  title: string;
+  note: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-4 border-t py-3 first:border-t-0">
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="font-medium">{title}</span>
+        <span className="text-xs text-muted-foreground">{note}</span>
+      </span>
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} />
+    </label>
   );
 }
 
