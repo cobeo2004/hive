@@ -117,6 +117,8 @@ export const factorySchema = z
         giveUpAfterMinutes: z.number().positive().default(5),
       })
       .prefault({}),
+    /** R10a: when every pool account is at or above threshold and pauseInstead is on, jobs wait instead of draining it. */
+    pool: z.object({ threshold: z.number().min(0).max(100).default(90), pauseInstead: z.boolean().default(false) }).prefault({}),
     sandbox: sandboxSchema,
   })
   .prefault({});
