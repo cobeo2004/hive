@@ -620,6 +620,26 @@ try {
     await db.delete(jobs).where(eq(jobs.id, o3b as JobRow["id"]));
   }
 
+  // 3c. Slack-less, and no online runner reports Slack (one has no slack entry, the one that does is stale): this one comments
+  const o3c = await waiting("O3c", bob);
+  const m3c = [`${prefix}-m3c1`, `${prefix}-m3c2`];
+  const gone = Date.now() - 7_200_000;
+  await db.insert(machines).values([
+    { id: m3c[0]!, name: m3c[0]!, last_seen_at: new Date(), heartbeat: {}, inventory: machine(undefined).inventory },
+    { id: m3c[1]!, name: m3c[1]!, last_seen_at: new Date(gone), heartbeat: {}, inventory: machine({ configured: true, owner: true }, gone).inventory },
+  ]);
+  try {
+    mark = calls.length;
+    const commentsBefore = commentCalls.length;
+    assert.equal((await pass(null)).posted, 1, "a machine that has not reported Slack does not hold the event back");
+    assert.equal(calls.length, mark, "nothing reached Slack");
+    assert.equal(commentCalls.length, commentsBefore + 1);
+    assert.equal(commentCalls.at(-1)!.issueId, key("O3c"));
+    assert.equal((await rowsFor(o3c)).length, 1);
+  } finally {
+    await db.delete(machines).where(inArray(machines.id, m3c));
+  }
+
   // 4. no owner and SLACK_OWNER_USER_ID set: the DM goes there as before
   await waiting("O4", null);
   mark = calls.length;
@@ -650,6 +670,37 @@ try {
   assert.equal(commentCalls.at(-1)!.id, id2, "the lost row is claimed again and comments with the same id");
   assert.equal(commentCalls.length, totals[1]! + 1);
   assert.equal(comments.length, totals[0], "Linear refused the repeat: still one comment");
+
+  // 7. a DM Slack refuses for one owner does not stop the next owner's
+  // (bob's miss from case 2 is cached for the life of the process, so the second owner is new)
+  const carol = { id: `${prefix}-carol`, name: "carol", email: `${prefix.toLowerCase()}-carol@example.com` };
+  await db.insert(userTable).values(carol);
+  slackIds[carol.email] = "U0CAROL";
+  try {
+    const first = await track("O7A", { stage: "waiting", stage_at: new Date(), question: "Refused?", owner_id: alice.id });
+    const second = await track("O7B", { stage: "waiting", stage_at: new Date(Date.now() - 60_000), question: "Still sent?", owner_id: carol.id });
+    forced.push({ method: "chat.postMessage", status: 200, body: { ok: false, error: "cannot_dm_bot" } });
+    mark = calls.length;
+    result = await pass();
+    assert.deepEqual(
+      since(mark, "chat.postMessage").map((c) => c.params.channel),
+      ["DU0ALICE", "DU0CAROL"],
+      "alice's post is tried first and refused; carol's still goes out",
+    );
+    assert.match(result.errors!.join("\n"), /cannot_dm_bot/);
+    assert.equal((await rowsFor(first)).length, 0, "the refused post leaves no row behind");
+    assert.equal((await rowsFor(second))[0]!.channel, "DU0CAROL");
+    mark = calls.length;
+    await pass();
+    assert.deepEqual(
+      since(mark, "chat.postMessage").map((c) => c.params.channel),
+      ["DU0ALICE"],
+      "a later pass posts alice's",
+    );
+    assert.equal((await rowsFor(first))[0]!.state, "open");
+  } finally {
+    delete slackIds[carol.email];
+  }
 
   // --- secrets never reach Slack
   await track("L", {

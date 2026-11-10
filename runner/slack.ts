@@ -111,6 +111,8 @@ export type NotifyLinear = Pick<LinearClient, "userByEmail" | "comment">;
 /** Without a Slack connection, or with the target on owner, each event goes to its job's owner (R34). */
 export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now = new Date(), linear?: NotifyLinear): Promise<NotifyResult> {
   // Slack-less here but configured on another online runner: that runner owns the notifications, so this one never claims an event.
+  // A machine that has not reported its Slack inventory (no `slack` key, or unknown) or is offline does not count as having Slack:
+  // reportedSlack returns null for it and this runner posts the Linear fallback.
   if (
     !slack &&
     reportedSlack(await db.select({ last_seen_at: machines.last_seen_at, inventory: machines.inventory }).from(machines), now.getTime())?.configured
@@ -278,8 +280,9 @@ export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now
         await db.delete(slackMessages).where(and(eq(slackMessages.id, event.id), eq(slackMessages.state, "posting")));
         if (error instanceof SlackRateLimited) throw error;
         errors.push(`post ${event.id}: ${errorText(error)}`);
-        // A bad channel or a revoked token fails every post the same way; try again next pass.
-        if (error instanceof SlackApiError) break;
+        // One shared destination (a bad channel, a revoked token) fails every post the same way, so stop and try again next pass.
+        // Routed, each owner has their own DM, so one owner's refusal (cannot_dm_bot) leaves the others' alone.
+        if (!routed && error instanceof SlackApiError) break;
         continue;
       }
       result.posted++;
