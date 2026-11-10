@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type * as schema from "../../db/schema";
@@ -291,8 +291,21 @@ export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>
       const [settings, { assignedOptInEmails }] = await Promise.all([settingsOf(d), import("../opt-ins")]);
       const emails = await assignedOptInEmails(d.db);
       const nodes = await d.client.readyIssues({ teamKeys: settings.teamKeys, label: settings.label, hiveUserId: settings.hiveUserId, emails: [...emails] });
-      return nodes
-        .filter((n) => pickedUp({ labels: n.labels.nodes, assignee: n.assignee }, settings, emails))
+      const picked = nodes.filter((n) => pickedUp({ labels: n.labels.nodes, assignee: n.assignee }, settings, emails));
+      // A failed job (stopped by label removal, say) retries only when the pickup label is put back, never by its assignee alone.
+      const byAssignee = picked.filter((n) => !n.labels.nodes.some((l) => same(l.name, settings.label))).map((n) => jobId("linear", n.id));
+      const failed = byAssignee.length
+        ? new Set(
+            (
+              await d.db
+                .select({ id: jobs.id })
+                .from(jobs)
+                .where(and(inArray(jobs.id, byAssignee), eq(jobs.stage, "failed")))
+            ).map((r) => r.id),
+          )
+        : new Set<string>();
+      return picked
+        .filter((n) => !failed.has(jobId("linear", n.id)))
         .map((n) => ({
           externalId: n.id,
           key: n.identifier,

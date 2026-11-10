@@ -380,6 +380,19 @@ try {
   assert.deepEqual(await claimed1([failedPick(["foo", "factory-failed"])]), ["FAC-31"], "re-adding the pickup label retries it");
   assert.equal(await attemptOf31(), 2, "as attempt 2");
 
+  // Label removal stop is not undone by the assignee trigger.
+  await db.delete(jobs);
+  const p99 = (labels: string[]) => pick("p99", "FAC-99", { labels, assignee: { id: "lin-hive" } });
+  const row99 = async () => (await db.select().from(jobs).where(eq(jobs.key, "FAC-99")))[0]!;
+  assert.deepEqual(await claimed1([p99(["foo"])]), ["FAC-99"]);
+  thread = { state: { name: "In Progress", type: "started" }, labels: [] };
+  ops.ingestClient.post = async () => ({ refused: [] });
+  assert.equal(await ops.stopJob(jobId("linear", "p99"), "the foo label was removed in Linear"), "stopped");
+  assert.deepEqual(await claimed1([p99([])]), [], "label removal stop is not undone by the assignee trigger");
+  assert.deepEqual([(await row99()).stage, (await row99()).attempt], ["failed", 1]);
+  assert.deepEqual(await claimed1([p99(["foo"])]), ["FAC-99"], "re-adding the label retries it");
+  assert.equal((await row99()).attempt, 2);
+
   // The label stops only a job the label picked; unassigning never stops.
   await db.delete(jobs);
   const picked = (labels: string[]) => ({ source_state: { state: null, labels, factoryCommentIds: [] } });
