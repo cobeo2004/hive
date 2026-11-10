@@ -57,6 +57,7 @@ server.registerTool(
     title: "Report factory stage",
     description:
       "Report that this factory run entered a stage. Call it at every stage transition. " +
+      "Working stages run in this order: triage, investigating, planning, implementing, verifying, then pr. " +
       "Stage pr needs prUrl and should carry your merge assessment: recommend merge when you are confident you built what the issue asked for and that it works, " +
       "and handover only when you are not, with confidence.reason saying why. " +
       "When the change shows on a page, attach assessment.screenshots: the files the playwright server saved, each with a caption. " +

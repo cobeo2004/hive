@@ -1,11 +1,11 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { STAGES, type Stage } from "../lib/events";
+import { STAGES, stageReportSchema, type Stage } from "../lib/events";
 import { canTransition, causeOf, decideStage, RUNNER_CAUSES, runnerEventId, type Cause } from "../lib/stages";
 import { isStopped } from "../runner/binding";
 
 const CAUSES: Cause[] = ["report", ...RUNNER_CAUSES];
-const WORKING: Stage[] = ["queued", "triage", "investigating", "implementing", "verifying"];
+const WORKING: Stage[] = ["queued", "triage", "investigating", "planning", "implementing", "verifying"];
 
 const allowed: [Stage, Stage, Cause][] = [
   ["queued", "triage", "report"],
@@ -17,6 +17,10 @@ const allowed: [Stage, Stage, Cause][] = [
   ["implementing", "implementing", "report"],
   ["investigating", "implementing", "report"],
   ["investigating", "waiting", "report"],
+  ["investigating", "planning", "report"],
+  ["planning", "implementing", "report"],
+  ["planning", "waiting", "report"],
+  ["planning", "failed", "report"],
   ["implementing", "verifying", "report"],
   ["verifying", "implementing", "report"],
   ["verifying", "pr", "report"],
@@ -97,6 +101,12 @@ assert.deepEqual(
   { outcome: "refuse", cause: "report", reason: "implementing -> merged (report) is not in STAGE_TRANSITIONS" },
   "only the runner marks a job merged",
 );
+assert.deepEqual(
+  decideStage({ ...row, stage: "planning" }, { stage: "merged", at: new Date(2_000), eventId: "e-4" }),
+  { outcome: "refuse", cause: "report", reason: "planning -> merged (report) is not in STAGE_TRANSITIONS" },
+  "only the runner marks a planning job merged",
+);
+assert.equal(stageReportSchema.safeParse({ stage: "planning", summary: "plan drafted" }).success, true, "a thread may report planning");
 assert.deepEqual(
   decideStage({ ...row, stage: "failed" }, { stage: "pr", at: new Date(2_000), eventId: "e-3", branch: "hive/FAC-7-a2" }),
   { outcome: "refuse", cause: "report", reason: "failed -> pr (report) is not in STAGE_TRANSITIONS" },

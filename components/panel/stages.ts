@@ -13,4 +13,4 @@ export const STAGE_META: Record<Stage, { label: string; dot: string }> = {
   failed: { label: "Failed", dot: "bg-destructive" },
 };
 
-export const MAIN_PATH: readonly Stage[] = ["queued", "triage", "investigating", "implementing", "verifying", "pr", "merged"];
+export const MAIN_PATH: readonly Stage[] = ["queued", "triage", "investigating", "planning", "implementing", "verifying", "pr", "merged"];

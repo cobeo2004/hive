@@ -48,7 +48,7 @@ hosts.sandbox = modalHost;
 const mine = async () => eq(jobs.machine_id, (await thisMachine()).id);
 
 /** Stages where a thread is working; waiting, pr, merged and failed free the slot. */
-export const IN_FLIGHT: Stage[] = ["queued", "triage", "investigating", "implementing", "verifying"];
+export const IN_FLIGHT: Stage[] = ["queued", "triage", "investigating", "planning", "implementing", "verifying"];
 const STOPPABLE = STAGES.filter((stage) => canTransition(stage, "failed", "stop"));
 
 /**
