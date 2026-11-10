@@ -300,6 +300,16 @@ const listener = keepListening({
 });
 await listener.start();
 
+const { captureFrames } = await import("./device-frames");
+let framing: Promise<unknown> | undefined;
+// Off the serial queue: frames only write device_frames, and a minutes-long tick must not hold a viewer's 3 s frames.
+setInterval(() => {
+  framing ??= captureFrames(machine.id)
+    .then((r) => r.failed.length > 0 && log("deviceFrames", r))
+    .catch((error) => log("deviceFrames:error", { error: String(error) }))
+    .finally(() => (framing = undefined));
+}, 3_000);
+
 const hourlyCleanup = everyAtMost(3_600_000, () => ops.cleanup());
 const accountUsage = everyAtMost(300_000, () => pollClaudeUsage());
 const labelSync = ops.config.factory.syncLinearLabels ? everyAtMost(86_400_000, () => syncOverrideLabels()) : undefined;
