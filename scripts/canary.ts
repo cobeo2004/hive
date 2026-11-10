@@ -57,7 +57,11 @@ const registry = await readRegistry(db);
 const target = registry.find((r) => r.repo === repo);
 if (!target?.enabled) await finish(false, `${repo} is not an enabled repository`);
 
-const filed = await linearFiler(config.linearApiKey, config.factory.teamKey, config.factory.label)({
+const filed = await linearFiler(
+  config.linearApiKey,
+  config.factory.teamKey,
+  config.factory.label,
+)({
   requestId: randomUUID(),
   title: `Canary ${new Date().toISOString().slice(0, 16).replace("T", " ")}: unit converter demo page`,
   description,
@@ -73,19 +77,36 @@ type Check = { name: string; ok: boolean; detail: string };
 
 /** What the job has proven so far; every check must hold once it reached its PR. */
 async function checks(job: JobRow): Promise<Check[]> {
-  const shots = job.stage_event_id ? await db.select({ file: jobScreenshots.file }).from(jobScreenshots).where(eq(jobScreenshots.stage_event_id, job.stage_event_id)) : [];
+  const shots = job.stage_event_id
+    ? await db.select({ file: jobScreenshots.file }).from(jobScreenshots).where(eq(jobScreenshots.stage_event_id, job.stage_event_id))
+    : [];
   const head = job.pr_url ? prHead(job.pr_url) : null;
-  const [evidence] = head ? await db.select().from(jobEvidence).where(and(eq(jobEvidence.job_key, job.key), eq(jobEvidence.sha, head.sha))) : [];
+  const [evidence] = head
+    ? await db
+        .select()
+        .from(jobEvidence)
+        .where(and(eq(jobEvidence.job_key, job.key), eq(jobEvidence.sha, head.sha)))
+    : [];
   const failedChecks = evidence?.checks.filter((c) => c.exitCode !== 0).map((c) => c.name) ?? [];
   const decision = job.merge_decision;
   return [
-    { name: "launched in a sandbox", ok: job.execution === "modal" && Boolean(job.sandbox_id ?? job.sandbox_snapshot), detail: `execution ${job.execution ?? "none"}` },
+    {
+      name: "launched in a sandbox",
+      ok: job.execution === "modal" && Boolean(job.sandbox_id ?? job.sandbox_snapshot),
+      detail: `execution ${job.execution ?? "none"}`,
+    },
     { name: "opened a PR", ok: head?.state === "OPEN", detail: job.pr_url ? `${job.pr_url} is ${head?.state ?? "unreadable"}` : "no PR yet" },
-    { name: "screenshot from the browser attached", ok: shots.length > 0, detail: shots.length > 0 ? shots.map((s) => s.file).join(", ") : "none on the pr report" },
+    {
+      name: "screenshot from the browser attached",
+      ok: shots.length > 0,
+      detail: shots.length > 0 ? shots.map((s) => s.file).join(", ") : "none on the pr report",
+    },
     {
       name: "factory-verify passed at the head",
       ok: Boolean(evidence?.clean && evidence.producer === "agent" && evidence.checks.length > 0 && failedChecks.length === 0),
-      detail: evidence ? `${evidence.producer}, ${evidence.clean ? "clean" : "dirty"}, ${evidence.checks.map((c) => `${c.name} ${c.exitCode}`).join(", ")}` : `no evidence for ${head?.sha.slice(0, 7) ?? "the head"}`,
+      detail: evidence
+        ? `${evidence.producer}, ${evidence.clean ? "clean" : "dirty"}, ${evidence.checks.map((c) => `${c.name} ${c.exitCode}`).join(", ")}`
+        : `no evidence for ${head?.sha.slice(0, 7) ?? "the head"}`,
     },
     {
       name: "handed over, not merged",
@@ -115,7 +136,8 @@ for (const deadline = Date.now() + timeoutMs; ; await new Promise((r) => setTime
   // The review label is all that keeps the PR from merging on an auto repo, so it is read back once the job exists, long before any decision.
   if (job && !labelChecked) {
     const labels = (await sourceFor(job.source).labels(parseJob(job))).map((l) => l.toLowerCase());
-    if (!labels.includes(REVIEW_LABEL)) await finish(false, `${filed.key} has no ${REVIEW_LABEL} label (${labels.join(", ")}); add it in Linear or stop the job before its PR`);
+    if (!labels.includes(REVIEW_LABEL))
+      await finish(false, `${filed.key} has no ${REVIEW_LABEL} label (${labels.join(", ")}); add it in Linear or stop the job before its PR`);
     labelChecked = true;
   }
   if (job?.stage === "merged") await finish(false, `${filed.key} merged, which the review label should have prevented; revert ${job.pr_url}`);

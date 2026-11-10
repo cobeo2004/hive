@@ -4,13 +4,7 @@ import { db } from "@/db/client";
 import { machines } from "@/db/schema";
 import { currentUser } from "@/lib/auth/server";
 import { reportedSlack } from "@/lib/machine";
-import {
-  requestSlackTest,
-  saveNotifications as save,
-  slackTestOutcome,
-  type NotificationDeps,
-  type NotificationInput,
-} from "@/lib/notifications";
+import { requestSlackTest, saveNotifications as save, slackTestOutcome, type NotificationDeps, type NotificationInput } from "@/lib/notifications";
 
 const user = currentUser;
 

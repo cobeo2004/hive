@@ -33,7 +33,8 @@ const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").rep
 export const which = (bin: string) => execFileSync("/usr/bin/which", [bin], { encoding: "utf8" }).trim();
 
 /** launchd starts a daemon with a bare PATH, so carry the directories of every tool it calls. */
-export const pathWith = (...tools: readonly string[]) => [...new Set([...tools.map((tool) => dirname(which(tool))), "/usr/bin", "/bin", "/usr/sbin", "/sbin"])].join(":");
+export const pathWith = (...tools: readonly string[]) =>
+  [...new Set([...tools.map((tool) => dirname(which(tool))), "/usr/bin", "/bin", "/usr/sbin", "/sbin"])].join(":");
 
 export function plistFor(agent: LaunchAgent): string {
   const env = Object.entries(agent.environment ?? {});

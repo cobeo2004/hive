@@ -19,7 +19,8 @@ export function readScreenshot(file: string, dir = SCREENSHOT_DIR): ReadScreensh
   const rel = relative(root, path);
   if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return { ok: false, reason: `${file} is not inside ${dir}` };
   const size = statSync(path).size;
-  if (size > MAX_SCREENSHOT_BYTES) return { ok: false, reason: `${file} is ${size} bytes, over the ${MAX_SCREENSHOT_BYTES} limit; take a viewport screenshot instead of a full page` };
+  if (size > MAX_SCREENSHOT_BYTES)
+    return { ok: false, reason: `${file} is ${size} bytes, over the ${MAX_SCREENSHOT_BYTES} limit; take a viewport screenshot instead of a full page` };
   const bytes = readFileSync(path);
   const contentType = sniffType(bytes);
   if (!contentType) return { ok: false, reason: `${file} is not a PNG, JPEG or WebP image` };
@@ -47,6 +48,18 @@ export function screenshotEvents(
   return [...new Set(refs.map((r) => r.file))].flatMap((file) => {
     const read = readScreenshot(file, dir);
     if (!read.ok) return [];
-    return [{ eventId: `screenshot:${stageEventId}:${file}`, sessionId, at, kind: "screenshot" as const, jobKey, stageEventId, file, contentType: read.contentType, data: read.bytes.toString("base64") }];
+    return [
+      {
+        eventId: `screenshot:${stageEventId}:${file}`,
+        sessionId,
+        at,
+        kind: "screenshot" as const,
+        jobKey,
+        stageEventId,
+        file,
+        contentType: read.contentType,
+        data: read.bytes.toString("base64"),
+      },
+    ];
   });
 }

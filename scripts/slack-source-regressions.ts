@@ -121,9 +121,20 @@ const sign = (body: string, ts = Math.floor(Date.now() / 1000), secret = SIGNING
 let urls = 0;
 const command = (text: string, user = OWNER_SLACK, headers?: (body: string) => Record<string, string>) => {
   const response_url = `${base}/response/${++urls}`;
-  const body = new URLSearchParams({ command: "/factory", text, user_id: user, channel_id: "C0GENERAL", trigger_id: `trigger-${urls}`, response_url }).toString();
+  const body = new URLSearchParams({
+    command: "/factory",
+    text,
+    user_id: user,
+    channel_id: "C0GENERAL",
+    trigger_id: `trigger-${urls}`,
+    response_url,
+  }).toString();
   const sent = handleCommand(
-    new Request("http://localhost/api/slack/commands", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...(headers ?? sign)(body) }, body }),
+    new Request("http://localhost/api/slack/commands", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...(headers ?? sign)(body) },
+      body,
+    }),
     deps,
   );
   return { response_url, trigger: `trigger-${urls}`, sent };
@@ -162,7 +173,11 @@ const lastView = (trigger: string) => {
 /** What a request did before its ack: the loading view, and nothing read before it. */
 const openedFirst = (from: number) => {
   // users.info, which finds the clicker's Hive user, is the one call allowed before it.
-  assert.equal(timeline.slice(from).filter((m) => m !== "users.info")[0], "views.open", `the loading view opens first, not after ${timeline.slice(from).join(", ")}`);
+  assert.equal(
+    timeline.slice(from).filter((m) => m !== "users.info")[0],
+    "views.open",
+    `the loading view opens first, not after ${timeline.slice(from).join(", ")}`,
+  );
   const loading = JSON.parse(calls.findLast((c) => c.method === "views.open")!.params.view!) as { submit?: unknown; callback_id: string };
   assert.match(JSON.stringify(loading), new RegExp(LOADING));
   assert.equal(loading.submit, undefined, "with nothing to submit");
@@ -199,9 +214,17 @@ try {
   // --- the commands route checks the signature first, like the interactivity route
   assert.equal((await command("", OWNER_SLACK, () => ({})).sent).status, 401, "no signature");
   assert.equal((await command("", OWNER_SLACK, (b) => sign(b, undefined, "wrong-secret")).sent).status, 401, "a wrong secret");
-  assert.equal((await command("", OWNER_SLACK, (b) => sign(b, Math.floor(Date.now() / 1000) - MAX_SKEW_SECONDS - 5)).sent).status, 401, "a replay older than five minutes");
+  assert.equal(
+    (await command("", OWNER_SLACK, (b) => sign(b, Math.floor(Date.now() / 1000) - MAX_SKEW_SECONDS - 5)).sent).status,
+    401,
+    "a replay older than five minutes",
+  );
   const body = new URLSearchParams({ command: "/factory", text: "", user_id: OWNER_SLACK, trigger_id: "t", response_url: `${base}/response/x` }).toString();
-  assert.equal((await handleCommand(new Request("http://localhost/", { method: "POST", headers: sign(body), body }), { ...deps, signingSecret: undefined })).status, 401, "no signing secret");
+  assert.equal(
+    (await handleCommand(new Request("http://localhost/", { method: "POST", headers: sign(body), body }), { ...deps, signingSecret: undefined })).status,
+    401,
+    "no signing secret",
+  );
   await drain();
   assert.equal(opens(), 0, "nothing opened for a bad signature");
 
@@ -233,19 +256,33 @@ try {
   assert.equal(await emptyAck.text(), "", "acked with nothing to show");
   openedFirst(emptyFrom);
   await drain();
-  assert.ok(timeline.indexOf("registry", emptyFrom) > emptyFrom && timeline.indexOf("views.update", emptyFrom) > timeline.indexOf("registry", emptyFrom), "repositories read after the open, the form after them");
+  assert.ok(
+    timeline.indexOf("registry", emptyFrom) > emptyFrom && timeline.indexOf("views.update", emptyFrom) > timeline.indexOf("registry", emptyFrom),
+    "repositories read after the open, the form after them",
+  );
   const blankView = lastView(empty.trigger);
   assert.equal(blankView.callback_id, NEW_JOB_CALLBACK_ID);
   assert.equal(block(blankView, NEW_JOB_BLOCKS.title)!.element!.initial_value, undefined);
   assert.equal(block(blankView, NEW_JOB_BLOCKS.description)!.optional, true, "a description is optional, as in the panel");
   const repo = block(blankView, NEW_JOB_BLOCKS.repo)!.element!;
-  assert.deepEqual(repo.options!.map((o) => o.value), ["acme/shop", "acme/api"], "the enabled repositories");
+  assert.deepEqual(
+    repo.options!.map((o) => o.value),
+    ["acme/shop", "acme/api"],
+    "the enabled repositories",
+  );
   assert.equal(repo.initial_option?.value, "acme/shop", "the default repository first");
   const harness = block(blankView, NEW_JOB_BLOCKS.harness)!.element!;
-  assert.deepEqual(harness.options!.map((o) => o.value), [SETTINGS_DEFAULT, "claude-1"], "Settings default and the enabled harnesses");
+  assert.deepEqual(
+    harness.options!.map((o) => o.value),
+    [SETTINGS_DEFAULT, "claude-1"],
+    "Settings default and the enabled harnesses",
+  );
   assert.equal(harness.initial_option?.value, SETTINGS_DEFAULT);
   const runsOn = block(blankView, NEW_JOB_BLOCKS.runsOn)!.element!;
-  assert.deepEqual(runsOn.options!.map((o) => o.text.text), ["Settings default", "Local", "Cloud"]);
+  assert.deepEqual(
+    runsOn.options!.map((o) => o.text.text),
+    ["Settings default", "Local", "Cloud"],
+  );
   assert.equal(runsOn.initial_option?.value, SETTINGS_DEFAULT);
   assert.ok(!JSON.stringify(blankView).includes("tracking-") && !/"[A-Z ]{6,}"/.test(JSON.stringify(blankView)), "plain sentence-case labels");
 
@@ -278,7 +315,11 @@ try {
   assert.equal(opens(), opened, "no modal for a stranger's shortcut");
 
   const sharedFrom = timeline.length;
-  const shared = shortcut({ ts: "1700000000.000200", thread_ts: "1700000000.000100", text: "Cart total is wrong &amp; <https://shop.test/cart|the cart page> shows NaN\nSteps: add two items." });
+  const shared = shortcut({
+    ts: "1700000000.000200",
+    thread_ts: "1700000000.000100",
+    text: "Cart total is wrong &amp; <https://shop.test/cart|the cart page> shows NaN\nSteps: add two items.",
+  });
   await shared.sent;
   openedFirst(sharedFrom);
   await drain();
@@ -344,7 +385,11 @@ try {
   assert.equal(responses.find((r) => shared.response_url.endsWith(r.path))!.body.response_type, "ephemeral");
   const threadReplies = calls.filter((c) => c.method === "chat.postMessage" && c.params.thread_ts);
   assert.ok(threadReplies.length >= 1);
-  assert.deepEqual([threadReplies[0]!.params.channel, threadReplies[0]!.params.thread_ts], ["C0GENERAL", "1700000000.000100"], "answered in the message's thread");
+  assert.deepEqual(
+    [threadReplies[0]!.params.channel, threadReplies[0]!.params.thread_ts],
+    ["C0GENERAL", "1700000000.000100"],
+    "answered in the message's thread",
+  );
   assert.match(threadReplies[0]!.params.blocks!, /Filed as <https:\/\/linear\.app\/x\/issue\/FAC-700\|FAC-700>/);
 
   // --- Settings default adds no override label; a command's job gets no thread reply

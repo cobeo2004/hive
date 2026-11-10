@@ -48,30 +48,22 @@ assert.equal(
   "stop",
   "swapping factory for another label in one edit stops too",
 );
-assert.equal(
-  linearIntent(issue({ state: { type: "canceled", name: "Canceled" } }, { stateId: "x" }), opts)?.kind,
-  "stop",
-  "canceling stops",
-);
-assert.deepEqual(
-  linearIntent({ action: "create", type: "Comment", data: { id: "c1", issueId: "i1", body: "1: (b)" } }, opts),
-  { kind: "answer", jobId: "linear:i1" },
-);
+assert.equal(linearIntent(issue({ state: { type: "canceled", name: "Canceled" } }, { stateId: "x" }), opts)?.kind, "stop", "canceling stops");
+assert.deepEqual(linearIntent({ action: "create", type: "Comment", data: { id: "c1", issueId: "i1", body: "1: (b)" } }, opts), {
+  kind: "answer",
+  jobId: "linear:i1",
+});
 
 const delivered = JSON.stringify({ ...issue({}, { labelIds: [] }), webhookTimestamp: now - 1_000 });
 assert.deepEqual(verifyLinear(delivered, sign(delivered), secret, now), { ok: true }, "a signed delivery passes the source's webhook");
-assert.deepEqual(
-  webhook.intent(JSON.parse(delivered), opts),
-  { kind: "claim", jobId: "linear:i1" },
-  "and the source's webhook turns it into the claim intent",
-);
+assert.deepEqual(webhook.intent(JSON.parse(delivered), opts), { kind: "claim", jobId: "linear:i1" }, "and the source's webhook turns it into the claim intent");
 assert.equal(webhook.deliveryHeader, "Linear-Delivery");
 assert.equal(webhook.eventHeader, "Linear-Event");
 
-assert.deepEqual(
-  githubIntent("pull_request", { action: "closed", pull_request: { html_url: "https://g/p/1", merged: true } }),
-  { kind: "merged", prUrl: "https://g/p/1" },
-);
+assert.deepEqual(githubIntent("pull_request", { action: "closed", pull_request: { html_url: "https://g/p/1", merged: true } }), {
+  kind: "merged",
+  prUrl: "https://g/p/1",
+});
 assert.equal(githubIntent("pull_request", { action: "closed", pull_request: { html_url: "u", merged: false } }), null, "a closed, unmerged PR is not a merge");
 assert.equal(githubIntent("push", { ref: "refs/heads/main", repository: { default_branch: "main" } })?.kind, "recheck_conflicts");
 assert.equal(githubIntent("push", { ref: "refs/heads/hive/FAC-1", repository: { default_branch: "main" } }), null);
@@ -111,9 +103,29 @@ const postGithub = (event: string, delivery: string, raw: string, signature: str
 try {
   const appBody = JSON.stringify({ action: "created", installation: { id: 7 } });
   for (const { event, id } of appDeliveries) {
-    assert.deepEqual(await (await postGithub(event, id, appBody, sign(appBody))).json(), { duplicate: false, intent: null }, `an app ${event} delivery is recorded with no intent`);
-    assert.equal((await db.select().from(webhookDeliveries).where(eq(webhookDeliveries.delivery_id, `github:${id}`))).length, 1);
-    assert.equal((await db.select().from(intents).where(eq(intents.id, `github:${id}`))).length, 0);
+    assert.deepEqual(
+      await (await postGithub(event, id, appBody, sign(appBody))).json(),
+      { duplicate: false, intent: null },
+      `an app ${event} delivery is recorded with no intent`,
+    );
+    assert.equal(
+      (
+        await db
+          .select()
+          .from(webhookDeliveries)
+          .where(eq(webhookDeliveries.delivery_id, `github:${id}`))
+      ).length,
+      1,
+    );
+    assert.equal(
+      (
+        await db
+          .select()
+          .from(intents)
+          .where(eq(intents.id, `github:${id}`))
+      ).length,
+      0,
+    );
   }
   const oldSecret = createHmac("sha256", "old-per-repo-secret").update(appBody).digest("hex");
   assert.equal((await postGithub("issues", `${deliveryId}-old`, appBody, oldSecret)).status, 401, "a delivery signed with another secret is refused");
@@ -123,7 +135,16 @@ try {
   assert.deepEqual(await (await post(fresh, sign(fresh))).json(), { duplicate: false, intent: "claim" }, "a signed delivery records the claim intent");
   assert.deepEqual(await (await post(fresh, sign(fresh))).json(), { duplicate: true, intent: null }, "a redelivery records nothing");
   assert.equal((await deliver("nope", new Request("http://panel/api/webhooks/nope", { method: "POST", body: "{}" }))).status, 404);
-  assert.equal((await db.select().from(intents).where(eq(intents.id, `linear:${deliveryId}`))).length, 1, "exactly one intent row");
+  assert.equal(
+    (
+      await db
+        .select()
+        .from(intents)
+        .where(eq(intents.id, `linear:${deliveryId}`))
+    ).length,
+    1,
+    "exactly one intent row",
+  );
 } finally {
   await db.delete(intents).where(eq(intents.id, `linear:${deliveryId}`));
   await db.delete(webhookDeliveries).where(eq(webhookDeliveries.delivery_id, `linear:${deliveryId}`));

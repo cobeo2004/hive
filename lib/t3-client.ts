@@ -25,9 +25,33 @@ type Scope = "orchestration:read" | "orchestration:operate";
 
 export async function startThread(
   host: JobHost,
-  { project, message, worktree, branch, title, provider, model }: { project: string; message: string; worktree: string; branch: string; title: string; provider: string; model: string },
+  {
+    project,
+    message,
+    worktree,
+    branch,
+    title,
+    provider,
+    model,
+  }: { project: string; message: string; worktree: string; branch: string; title: string; provider: string; model: string },
 ) {
-  const args = ["thread", "start", project, "-", "--worktree", worktree, "--branch", branch, "--title", title, "--provider", provider, "--model", model, "--json"];
+  const args = [
+    "thread",
+    "start",
+    project,
+    "-",
+    "--worktree",
+    worktree,
+    "--branch",
+    branch,
+    "--title",
+    title,
+    "--provider",
+    provider,
+    "--model",
+    model,
+    "--json",
+  ];
   return (await host.run(host.t3, args, { input: message, ...CLI })).stdout;
 }
 
@@ -96,7 +120,11 @@ function userdataDir(host: JobHost) {
 }
 
 /** Signs in to the host's T3 for the length of `work`, then revokes the session. */
-async function withMcp<T>(host: JobHost, scopes: readonly Scope[], work: (call: (tool: string, args: Record<string, unknown>) => Promise<unknown>) => Promise<T>) {
+async function withMcp<T>(
+  host: JobHost,
+  scopes: readonly Scope[],
+  work: (call: (tool: string, args: Record<string, unknown>) => Promise<unknown>) => Promise<T>,
+) {
   if (host === localHost) forbidInTest("T3's MCP endpoint");
   const runtime = await host.readFile(`${userdataDir(host)}/server-runtime.json`);
   if (runtime === null) throw new Error("T3 is not running on the job's host");
@@ -149,7 +177,8 @@ export async function listSubagents(host: JobHost, threadId: string, projectId: 
       all.push(...result.threads);
       cursor = result.nextCursor;
     }
-    if (cursor !== null) throw new Error(`project ${projectId} has more than ${LIST_SUBAGENTS_PAGES * 100} threads; its subagent threads could not all be read`);
+    if (cursor !== null)
+      throw new Error(`project ${projectId} has more than ${LIST_SUBAGENTS_PAGES * 100} threads; its subagent threads could not all be read`);
     const below = new Set([threadId]);
     const found: SubagentThread[] = [];
     // Parents can be listed after their children, so repeat until a pass adds nothing.
@@ -175,7 +204,9 @@ const interrupted = z.object({ status: z.string() });
 export async function interruptThread(host: JobHost, threadId: string, requestId: string, reason: string): Promise<InterruptOutcome> {
   return withMcp(host, ["orchestration:read", "orchestration:operate"], async (call) => {
     try {
-      const { status } = interrupted.parse(await call("t3_thread_interrupt", { threadId, reason: reason.slice(0, 2000), clientRequestId: requestId.slice(0, 256) }));
+      const { status } = interrupted.parse(
+        await call("t3_thread_interrupt", { threadId, reason: reason.slice(0, 2000), clientRequestId: requestId.slice(0, 256) }),
+      );
       return status === "interrupt_requested" ? { kind: "requested" } : { kind: "idle" };
     } catch (error) {
       if (error instanceof T3ToolError) return { kind: "refused", reason: error.message };

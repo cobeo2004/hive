@@ -18,8 +18,7 @@ type Line = {
   };
 };
 
-export const readTranscript = (path: string | null | undefined) =>
-  path && existsSync(path) ? readFileSync(path, "utf8") : "";
+export const readTranscript = (path: string | null | undefined) => (path && existsSync(path) ? readFileSync(path, "utf8") : "");
 
 /** One API message spans several JSONL lines that repeat its usage, so count each message id once. */
 export function sumUsage(transcript: string): Usage {

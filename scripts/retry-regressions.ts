@@ -27,7 +27,11 @@ const deps = (user: typeof owner | null = owner) => ({
 });
 
 const row = async (key: string) => (await db.select().from(jobs).where(eq(jobs.key, key)))[0]!;
-const intentsOf = (id: string) => db.select().from(intents).where(eq(intents.job_id, id as never));
+const intentsOf = (id: string) =>
+  db
+    .select()
+    .from(intents)
+    .where(eq(intents.job_id, id as never));
 
 // The label is the source's: until requeue puts it back, the source offers nothing.
 const offered = new Set<string>();
@@ -54,7 +58,17 @@ config.factory.maxInFlight = 1000;
 
 async function failed(name: string, over: Partial<typeof jobs.$inferInsert> = {}) {
   const key = `RTY-${name}-${stamp}`;
-  await db.insert(jobs).values(linearJob(key, key, { stage: "failed", stage_at: new Date(), stage_summary: "The tests never passed.", stage_event_id: `e-${key}`, synced_event_id: `e-${key}`, machine_id: TEST_MACHINE_ID, ...over }));
+  await db.insert(jobs).values(
+    linearJob(key, key, {
+      stage: "failed",
+      stage_at: new Date(),
+      stage_summary: "The tests never passed.",
+      stage_event_id: `e-${key}`,
+      synced_event_id: `e-${key}`,
+      machine_id: TEST_MACHINE_ID,
+      ...over,
+    }),
+  );
   return key;
 }
 
@@ -68,7 +82,10 @@ try {
   const A = await failed("a");
   const aId = (await row(A)).id;
   assert.equal(inboxKind(await row(A)), "failed");
-  assert.deepEqual(inboxItems([await row(A)]).map((i) => i.kind), ["failed"]);
+  assert.deepEqual(
+    inboxItems([await row(A)]).map((i) => i.kind),
+    ["failed"],
+  );
   const rid = crypto.randomUUID();
   assert.deepEqual(await inbox.retryFailed(deps(null), aId, rid, ""), { ok: false, message: "Sign in to Hive to act on the inbox." });
   assert.deepEqual(await inbox.retryFailed(deps(), aId, "nope", ""), { ok: false, message: "The request is not valid." });
@@ -81,9 +98,16 @@ try {
   assert.deepEqual([intent!.kind, JSON.parse(intent!.detail!)], ["retry_job", { actor: OWNER, attempt: 1, note: "Use the staging key." }]);
 
   const working = await failed("working", { stage: "implementing" });
-  assert.deepEqual(await inbox.retryFailed(deps(), (await row(working)).id, crypto.randomUUID(), ""), { ok: false, message: "Only a failed job can be retried." });
+  assert.deepEqual(await inbox.retryFailed(deps(), (await row(working)).id, crypto.randomUUID(), ""), {
+    ok: false,
+    message: "Only a failed job can be retried.",
+  });
   const dismissedKey = await failed("dismissed", { dismissed_at: new Date(Date.now() + 1000) });
-  assert.equal((await inbox.retryFailed(deps(), (await row(dismissedKey)).id, crypto.randomUUID(), "")).ok, false, "a dismissed failure is out of the inbox, so Retry is not offered");
+  assert.equal(
+    (await inbox.retryFailed(deps(), (await row(dismissedKey)).id, crypto.randomUUID(), "")).ok,
+    false,
+    "a dismissed failure is out of the inbox, so Retry is not offered",
+  );
 
   // --- the runner: one new attempt, the same one the label would start
   const detail = { actor: OWNER, attempt: 1, note: "Use the staging key." };
@@ -92,7 +116,10 @@ try {
   const after = await row(A);
   assert.deepEqual([after.attempt, after.stage, after.previous_failure], [2, "queued", "The tests never passed."]);
   assert.deepEqual(after.attempt_note, { attempt: 2, text: "Use the staging key." });
-  assert.ok(comments.every((c) => c.noteKey === "retry-2" && c.key === A), "the source's comment is keyed by attempt, so it posts once");
+  assert.ok(
+    comments.every((c) => c.noteKey === "retry-2" && c.key === A),
+    "the source's comment is keyed by attempt, so it posts once",
+  );
   assert.match(comments[0]!.body, /Use the staging key\./);
 
   requeued.length = 0;

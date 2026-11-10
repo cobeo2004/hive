@@ -54,7 +54,16 @@ export async function addableRepositories() {
 }
 
 export async function addRepository(input: { repo: string }) {
-  return add({ user, registry, installable, create: (repo, by) => writeNewRepository(db, repo, by, new Date()), syncLabels: (groups) => panelSource().panelSyncLabelGroups!(groups) }, input);
+  return add(
+    {
+      user,
+      registry,
+      installable,
+      create: (repo, by) => writeNewRepository(db, repo, by, new Date()),
+      syncLabels: (groups) => panelSource().panelSyncLabelGroups!(groups),
+    },
+    input,
+  );
 }
 
 export async function saveRepositorySecrets(input: SecretsInput) {

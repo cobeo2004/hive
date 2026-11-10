@@ -32,8 +32,7 @@ export function jobKey(prefix: string, number: number | string, scope?: string) 
 }
 
 /** hive/FAC-5 is the first attempt at FAC-5; hive/FAC-5-a2 the second. */
-export const attemptBranch = (key: string, attempt: number) =>
-  attempt > 1 ? `${BRANCH_PREFIX}${key}-a${attempt}` : `${BRANCH_PREFIX}${key}`;
+export const attemptBranch = (key: string, attempt: number) => (attempt > 1 ? `${BRANCH_PREFIX}${key}-a${attempt}` : `${BRANCH_PREFIX}${key}`);
 
 /** The job and attempt an attempt branch is for; undefined for any other branch. */
 export function parseBranch(branch: string | undefined): { key: string; attempt: number } | undefined {

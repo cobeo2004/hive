@@ -38,7 +38,11 @@ const logLineSchema = z.object({ at: z.string(), event: z.string(), result: z.un
 
 /** The steps of a tick or reconcile result that returned an error instead of their result. */
 const failedSteps = (result: unknown) =>
-  result && typeof result === "object" ? Object.entries(result).filter(([, v]) => v && typeof v === "object" && "error" in v).map(([k]) => k) : [];
+  result && typeof result === "object"
+    ? Object.entries(result)
+        .filter(([, v]) => v && typeof v === "object" && "error" in v)
+        .map(([k]) => k)
+    : [];
 
 /**
  * How the runner came up, from the log lines written since it was restarted: clean at its first

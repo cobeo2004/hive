@@ -36,7 +36,10 @@ export async function GET(request: Request) {
         }
       };
       request.signal.addEventListener("abort", stop);
-      const client = (held.client = await listen((table) => send(`data: ${table}\n\n`), () => stop()));
+      const client = (held.client = await listen(
+        (table) => send(`data: ${table}\n\n`),
+        () => stop(),
+      ));
       if (done || request.signal.aborted) {
         done = true;
         await client.end().catch(() => {});

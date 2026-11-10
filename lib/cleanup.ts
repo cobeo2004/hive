@@ -16,10 +16,7 @@ export type BranchState = {
   threadRunning: boolean;
 };
 
-export type CleanupPlan =
-  | { kind: "skip"; reason: string }
-  | { kind: "hold"; reason: string }
-  | { kind: "remove" };
+export type CleanupPlan = { kind: "skip"; reason: string } | { kind: "hold"; reason: string } | { kind: "remove" };
 
 const DAY_MS = 86_400_000;
 

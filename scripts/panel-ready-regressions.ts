@@ -31,7 +31,11 @@ try {
 
   answers = Array(1_000).fill(503);
   const started = Date.now();
-  await assert.rejects(waitForPanel(url, { timeoutMs: 300, everyMs: 50 }), (error: Error) => error.message.includes(url), "a panel that never answers 200 fails, naming the URL");
+  await assert.rejects(
+    waitForPanel(url, { timeoutMs: 300, everyMs: 50 }),
+    (error: Error) => error.message.includes(url),
+    "a panel that never answers 200 fails, naming the URL",
+  );
   assert.ok(Date.now() - started < 2_000, "the wait gives up near its timeout");
 } finally {
   await close(server);

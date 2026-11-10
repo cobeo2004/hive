@@ -79,7 +79,11 @@ function StepChip({ n, name, state }: { n: number; name: string; state: "todo" |
       <span
         className={cn(
           "grid size-[18px] place-items-center rounded-md border text-[10.5px] font-semibold",
-          state === "current" ? "border-foreground bg-foreground text-background" : state === "done" ? "border-transparent bg-success/12 text-success" : "border-border",
+          state === "current"
+            ? "border-foreground bg-foreground text-background"
+            : state === "done"
+              ? "border-transparent bg-success/12 text-success"
+              : "border-border",
         )}
       >
         {state === "done" ? <CheckIcon className="size-3" /> : n}
@@ -137,7 +141,12 @@ function Account({
       </p>
       <Details name={name} setName={setName} user={user} />
       <div className="flex flex-col rounded-xl border">
-        <Row aside={<Badge variant="secondary">{role.chip}</Badge>} mark={user.role === "admin" ? "AD" : "EN"} note={role.note} title={user.role === "admin" ? "Admin" : "Engineer"} />
+        <Row
+          aside={<Badge variant="secondary">{role.chip}</Badge>}
+          mark={user.role === "admin" ? "AD" : "EN"}
+          note={role.note}
+          title={user.role === "admin" ? "Admin" : "Engineer"}
+        />
         <Row
           aside={
             user.slackMatched ? (
@@ -230,11 +239,30 @@ function Details({ user, name, setName }: { user: SetupUser; name: string; setNa
 type Started = { totpURI: string; secret: string; backupCodes: string[] };
 
 /** Password → QR code and secret → a code to check → the backup codes, shown once. */
-function Enrolment({ enrolled, onEnrolled, saved, setSaved }: { enrolled: boolean; onEnrolled: () => void; saved: boolean; setSaved: (saved: boolean) => void }) {
+function Enrolment({
+  enrolled,
+  onEnrolled,
+  saved,
+  setSaved,
+}: {
+  enrolled: boolean;
+  onEnrolled: () => void;
+  saved: boolean;
+  setSaved: (saved: boolean) => void;
+}) {
   const [started, setStarted] = useState<Started | null>(null);
   const [verified, setVerified] = useState(false);
   if (started && verified) return <BackupCodes codes={started.backupCodes} saved={saved} setSaved={setSaved} />;
-  if (started) return <Verify started={started} onVerified={() => { setVerified(true); onEnrolled(); }} />;
+  if (started)
+    return (
+      <Verify
+        started={started}
+        onVerified={() => {
+          setVerified(true);
+          onEnrolled();
+        }}
+      />
+    );
   if (enrolled)
     return (
       <p className="flex items-center gap-2 text-sm">
@@ -327,9 +355,7 @@ function Verify({ started, onVerified }: { started: Started; onVerified: () => v
 function BackupCodes({ codes, saved, setSaved }: { codes: string[]; saved: boolean; setSaved: (saved: boolean) => void }) {
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm">
-        Two-factor authentication is on. Save these backup codes: each works once, and Hive shows them only now.
-      </p>
+      <p className="text-sm">Two-factor authentication is on. Save these backup codes: each works once, and Hive shows them only now.</p>
       <div className="grid grid-cols-2 gap-x-6 gap-y-1 rounded-lg border bg-muted/50 p-4 font-mono text-sm">
         {codes.map((code) => (
           <span key={code}>{code}</span>
@@ -340,8 +366,7 @@ function BackupCodes({ codes, saved, setSaved }: { codes: string[]; saved: boole
           Copy
         </CopyButton>
         <label className="flex items-center gap-2 text-sm">
-          <Checkbox checked={saved} onCheckedChange={(checked) => setSaved(checked)} />
-          I saved these
+          <Checkbox checked={saved} onCheckedChange={(checked) => setSaved(checked)} />I saved these
         </label>
       </div>
     </div>
@@ -353,8 +378,8 @@ function Done({ user, name }: { user: SetupUser; name: string }) {
     <>
       <h1 className="text-2xl font-semibold tracking-[-0.015em]">You&apos;re set up</h1>
       <p className="text-sm text-muted-foreground">
-        Assign a Linear issue to Hive or label it <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">hive</code>, and it shows up under Jobs
-        within a minute.
+        Assign a Linear issue to Hive or label it <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">hive</code>, and it shows up
+        under Jobs within a minute.
       </p>
       <div className="flex flex-col rounded-xl border">
         <Row aside={<Badge variant="success">Ready</Badge>} mark="2F" note="Password and an authenticator code" title="Two-factor authentication" />

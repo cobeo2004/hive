@@ -93,7 +93,11 @@ const canonical = (value: unknown): unknown =>
   Array.isArray(value)
     ? value.map(canonical)
     : value && typeof value === "object"
-      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)]))
+      ? Object.fromEntries(
+          Object.entries(value)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([k, v]) => [k, canonical(v)]),
+        )
       : value;
 
 /** The same text for recipes that mean the same, whatever their key order; lib/recipe-hash.ts hashes it. */
@@ -116,7 +120,9 @@ function runtimeSteps(runtimes: Recipe["runtimes"]) {
     );
   }
   if (runtimes?.bun) {
-    steps.push(`if ! bun --version 2>/dev/null | grep -q '^${runtimes.bun.replaceAll(".", "\\.")}'; then curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash -s bun-v${runtimes.bun} || exit 12; fi`);
+    steps.push(
+      `if ! bun --version 2>/dev/null | grep -q '^${runtimes.bun.replaceAll(".", "\\.")}'; then curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash -s bun-v${runtimes.bun} || exit 12; fi`,
+    );
   }
   if (runtimes?.python) {
     const pin = runtimes.python;
@@ -141,7 +147,12 @@ export const pythonPinCheck = (pin: string) =>
 
 /** Where the build script keeps its log, exit code and check results in the sandbox. */
 export const BUILD_DIR = "/work/onboarding";
-export const BUILD_FILES = { script: `${BUILD_DIR}/build.sh`, log: `${BUILD_DIR}/build.log`, code: `${BUILD_DIR}/build.code`, checks: `${BUILD_DIR}/checks.tsv` } as const;
+export const BUILD_FILES = {
+  script: `${BUILD_DIR}/build.sh`,
+  log: `${BUILD_DIR}/build.log`,
+  code: `${BUILD_DIR}/build.code`,
+  checks: `${BUILD_DIR}/checks.tsv`,
+} as const;
 
 /** Exit codes the build script uses, so a failure names its step. */
 export const BUILD_EXIT: Record<number, string> = {
@@ -181,7 +192,12 @@ export function parseCheckResults(text: string | null, recipe: Recipe) {
     .split("\n")
     .map((line) => line.split("\t"))
     .filter((parts): parts is [CheckName, string] => parts.length === 2 && (CHECKS as readonly string[]).includes(parts[0]!))
-    .map(([name, code]) => ({ name, command: recipe.checks[name] ?? "", ok: code.trim() === "0", ...(code.trim() !== "0" && { note: `exited ${code.trim()}` }) }));
+    .map(([name, code]) => ({
+      name,
+      command: recipe.checks[name] ?? "",
+      ok: code.trim() === "0",
+      ...(code.trim() !== "0" && { note: `exited ${code.trim()}` }),
+    }));
 }
 
 /**

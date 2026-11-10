@@ -36,5 +36,4 @@ const DRIVER_LABELS: Record<string, string> = {
   antigravity: "Antigravity",
 };
 
-export const harnessLabel = (id: string, driver?: string, displayName?: string | null) =>
-  displayName || DRIVER_LABELS[driver ?? id] || DRIVER_LABELS[id] || id;
+export const harnessLabel = (id: string, driver?: string, displayName?: string | null) => displayName || DRIVER_LABELS[driver ?? id] || DRIVER_LABELS[id] || id;

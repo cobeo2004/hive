@@ -9,7 +9,11 @@ import { subagentTranscripts, sumUsage, transcriptPathFor } from "../lib/transcr
 const line = (id: string, input: number, output: number) =>
   JSON.stringify({
     type: "assistant",
-    message: { id, model: "claude-opus-5-5", usage: { input_tokens: input, output_tokens: output, cache_read_input_tokens: 10, cache_creation_input_tokens: 1 } },
+    message: {
+      id,
+      model: "claude-opus-5-5",
+      usage: { input_tokens: input, output_tokens: output, cache_read_input_tokens: 10, cache_creation_input_tokens: 1 },
+    },
   });
 
 const transcript = [line("m1", 5, 1), line("m1", 5, 7), line("m2", 3, 2), "not json", JSON.stringify({ type: "user" })].join("\n");

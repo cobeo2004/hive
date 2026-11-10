@@ -33,7 +33,13 @@ async function Panel() {
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<PageSkeleton title="Settings"><FormSkeleton /></PageSkeleton>}>
+    <Suspense
+      fallback={
+        <PageSkeleton title="Settings">
+          <FormSkeleton />
+        </PageSkeleton>
+      }
+    >
       <Panel />
     </Suspense>
   );

@@ -159,7 +159,12 @@ const threadAlive = async (threadId: string | null, host: JobHost) => (await thr
  * the database before anything is sent, so a replayed or concurrent pass never delivers twice.
  */
 export async function resumeAnswered() {
-  const waiting = parseJobs(await db.select().from(jobs).where(and(await mine(), eq(jobs.stage, "waiting"))));
+  const waiting = parseJobs(
+    await db
+      .select()
+      .from(jobs)
+      .where(and(await mine(), eq(jobs.stage, "waiting"))),
+  );
   const resumed: string[] = [];
   for (const job of waiting) {
     const source = sourceFor(job.source);
@@ -209,7 +214,11 @@ export async function resumeAnswered() {
 
     if (alive) {
       try {
-        await threads.send(job.t3_thread_id!, await withLocalImages(job.source, job.key, resumeMessage(source.describe(job), plan.question, plan.answer, factoryPlaybook(jobExecution(job)))), host);
+        await threads.send(
+          job.t3_thread_id!,
+          await withLocalImages(job.source, job.key, resumeMessage(source.describe(job), plan.question, plan.answer, factoryPlaybook(jobExecution(job)))),
+          host,
+        );
       } catch (error) {
         await db
           .update(jobs)
@@ -219,9 +228,7 @@ export async function resumeAnswered() {
       }
     }
 
-    const summary = alive
-      ? "Answer received; the thread resumes from triage."
-      : "Answer received; a fresh thread will pick it up.";
+    const summary = alive ? "Answer received; the thread resumes from triage." : "Answer received; a fresh thread will pick it up.";
     await postEvent({
       eventId: runnerEventId("resume", job.external_id, replyIds.join(",")),
       sessionId: job.session_id ?? runnerEventId("resume", job.external_id),
@@ -244,9 +251,10 @@ export async function watchdog() {
     .select({
       job: jobs,
       // Only the current attempt's runs: an earlier attempt's thread must not keep a retry looking alive.
-      lastEventAt: sql<Date | null>`(select max(${runs.last_event_at}) from ${runs} where ${runs.job_key} = ${jobs.key} and ${runs.branch} = ${attemptBranchSql})`.mapWith(
-        (v: string | null) => (v ? new Date(v) : null),
-      ),
+      lastEventAt:
+        sql<Date | null>`(select max(${runs.last_event_at}) from ${runs} where ${runs.job_key} = ${jobs.key} and ${runs.branch} = ${attemptBranchSql})`.mapWith(
+          (v: string | null) => (v ? new Date(v) : null),
+        ),
     })
     .from(jobs)
     .where(and(await mine(), inArray(jobs.stage, IN_FLIGHT), or(isNotNull(jobs.t3_thread_id), isNotNull(jobs.session_id))));
@@ -278,22 +286,13 @@ export async function watchdog() {
       const claimed = await db
         .update(jobs)
         .set({ nudged_at: now, nudged_stage: job.stage, updated_at: now })
-        .where(
-          and(
-            eq(jobs.id, job.id),
-            eq(jobs.stage, job.stage),
-            or(isNull(jobs.nudged_stage), ne(jobs.nudged_stage, job.stage)),
-          ),
-        )
+        .where(and(eq(jobs.id, job.id), eq(jobs.stage, job.stage), or(isNull(jobs.nudged_stage), ne(jobs.nudged_stage, job.stage))))
         .returning({ key: jobs.key });
       if (claimed.length === 0) continue;
       try {
         await threads.send(job.t3_thread_id!, nudgeMessage(job.key, job.stage, action.idleMinutes, factoryPlaybook(jobExecution(job))), host);
       } catch (error) {
-        await db
-          .update(jobs)
-          .set({ nudged_at: job.nudged_at, nudged_stage: job.nudged_stage })
-          .where(eq(jobs.id, job.id));
+        await db.update(jobs).set({ nudged_at: job.nudged_at, nudged_stage: job.nudged_stage }).where(eq(jobs.id, job.id));
         throw error;
       }
       actions.push(`${job.key}:nudged`);
@@ -318,19 +317,17 @@ export const jobTracked = (job: Pick<JobRow, "provider">, drivers: ReadonlyMap<s
   isTracked(drivers.get(job.provider ?? config.factory.provider) ?? job.provider ?? config.factory.provider);
 
 /** Fails the stage this pass looked at, so a report that landed since then wins; false when one did. */
-export async function watchdogFail(job: Pick<JobRow, "id" | "key" | "external_id" | "attempt" | "stage" | "stage_event_id" | "session_id">, reason: string, now = new Date()) {
+export async function watchdogFail(
+  job: Pick<JobRow, "id" | "key" | "external_id" | "attempt" | "stage" | "stage_event_id" | "session_id">,
+  reason: string,
+  now = new Date(),
+) {
   const eventId = runnerEventId("watchdog", job.external_id, job.attempt, job.stage_event_id ?? job.stage);
   const summary = `Watchdog stopped this run: ${reason}.`;
   const failed = await db
     .update(jobs)
     .set({ stage: "failed", stage_at: now, stage_summary: summary, question: null, stage_event_id: eventId, updated_at: now })
-    .where(
-      and(
-        eq(jobs.id, job.id),
-        eq(jobs.stage, job.stage),
-        sql`${jobs.stage_event_id} is not distinct from ${job.stage_event_id}`,
-      ),
-    )
+    .where(and(eq(jobs.id, job.id), eq(jobs.stage, job.stage), sql`${jobs.stage_event_id} is not distinct from ${job.stage_event_id}`))
     .returning({ key: jobs.key });
   if (failed.length === 0) return false;
   await postEvent({
@@ -357,13 +354,7 @@ export async function reconcileUsage({ only }: { only?: string[] } = {}) {
     .select({ run: runs, sandbox_id: jobs.sandbox_id, sandbox_snapshot: jobs.sandbox_snapshot, stage: jobs.stage })
     .from(runs)
     .leftJoin(jobs, eq(jobs.key, runs.job_key))
-    .where(
-      and(
-        isNotNull(runs.job_key),
-        gt(runs.last_event_at, new Date(Date.now() - 7 * 86_400_000)),
-        only ? inArray(runs.job_key, only) : undefined,
-      ),
-    );
+    .where(and(isNotNull(runs.job_key), gt(runs.last_event_at, new Date(Date.now() - 7 * 86_400_000)), only ? inArray(runs.job_key, only) : undefined));
   const fixed: string[] = [];
   for (const { run, sandbox_id, sandbox_snapshot, stage } of recent) {
     // A hibernated job's transcripts are in its snapshot; its thread is settled, so nothing is behind.
@@ -375,7 +366,9 @@ export async function reconcileUsage({ only }: { only?: string[] } = {}) {
       if (await (isMcpSession(run.session_id) ? recordCodexUsage(run, host, { final }) : reconcileRun(run, host))) fixed.push(run.job_key!);
     } catch (error) {
       if (!(error instanceof HostGoneError)) throw error;
-      console.log(JSON.stringify({ at: new Date().toISOString(), event: "reconcile:skipped", key: run.job_key, session: run.session_id, reason: error.message }));
+      console.log(
+        JSON.stringify({ at: new Date().toISOString(), event: "reconcile:skipped", key: run.job_key, session: run.session_id, reason: error.message }),
+      );
     }
   }
   return fixed;
@@ -391,16 +384,17 @@ async function reconcileRun(run: RunRow, host: JobHost) {
   const subagents = await subagentTranscripts(path, run.session_id, host);
   const rows = await db.select().from(agents).where(eq(agents.session_id, run.session_id));
   const lags = (u: Usage, row: { input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number } | undefined) =>
-    !row ||
-    u.input > row.input_tokens ||
-    u.output > row.output_tokens ||
-    u.cacheRead > row.cache_read_tokens ||
-    u.cacheWrite > row.cache_write_tokens;
-  const behind = lags(usage, run) || subagents.some((s) => lags(s.usage, rows.find((r) => r.agent_id === s.agentId)));
+    !row || u.input > row.input_tokens || u.output > row.output_tokens || u.cacheRead > row.cache_read_tokens || u.cacheWrite > row.cache_write_tokens;
+  const behind =
+    lags(usage, run) ||
+    subagents.some((s) =>
+      lags(
+        s.usage,
+        rows.find((r) => r.agent_id === s.agentId),
+      ),
+    );
   if (!behind) return false;
-  const fingerprint = [usage, ...subagents.map((s) => s.usage)]
-    .map((u) => `${u.input}.${u.output}.${u.cacheRead}.${u.cacheWrite}`)
-    .join(":");
+  const fingerprint = [usage, ...subagents.map((s) => s.usage)].map((u) => `${u.input}.${u.output}.${u.cacheRead}.${u.cacheWrite}`).join(":");
   await postEvent({
     eventId: `reconcile:${run.session_id}:${fingerprint}`,
     sessionId: run.session_id,
@@ -501,7 +495,11 @@ export async function claim({
   sources = allSources(),
   repos = factoryRepos,
   registry = () => readRegistry(db),
-}: { sources?: readonly SourceAdapter<JobSource>[]; repos?: () => Promise<string[]>; registry?: () => Promise<Registry> } = {}) {
+}: {
+  sources?: readonly SourceAdapter<JobSource>[];
+  repos?: () => Promise<string[]>;
+  registry?: () => Promise<Registry>;
+} = {}) {
   const ready: { source: SourceAdapter<JobSource>; draft: JobDraft }[] = [];
   const failed: string[] = [];
   // One source down must not hold back the others; its error is thrown once they are claimed.
@@ -520,11 +518,16 @@ export async function claim({
   return claimed;
 }
 
-async function claimDrafts(ready: readonly { source: SourceAdapter<JobSource>; draft: JobDraft }[], repos: () => Promise<string[]>, registry: () => Promise<Registry>) {
+async function claimDrafts(
+  ready: readonly { source: SourceAdapter<JobSource>; draft: JobDraft }[],
+  repos: () => Promise<string[]>,
+  registry: () => Promise<Registry>,
+) {
   const [checkouts, known] = await Promise.all([repos(), registry()]);
   const targets = [...new Set([...checkouts, ...known.filter((r) => r.enabled).map((r) => r.repo)])];
   if (targets.length === 0) throw new Error("no repository is registered and factory.repos is empty, so there is no repository to claim work for");
-  const targetOf = (source: SourceAdapter<JobSource>, draft: JobDraft) => routeRepo(source.overrides(draft.sourceState), known).repo ?? checkouts[0] ?? targets[0]!;
+  const targetOf = (source: SourceAdapter<JobSource>, draft: JobDraft) =>
+    routeRepo(source.overrides(draft.sourceState), known).repo ?? checkouts[0] ?? targets[0]!;
   const me = await mine();
   return db.transaction(async (tx) => {
     // The lock's name predates other sources; runners on older code take the same one.
@@ -532,12 +535,7 @@ async function claimDrafts(ready: readonly { source: SourceAdapter<JobSource>; d
     const [{ count }] = await tx
       .select({ count: sql<number>`count(*)::int` })
       .from(jobs)
-      .where(
-        or(
-          and(me, or(inArray(jobs.stage, IN_FLIGHT), stoppingSql)),
-          and(isNull(jobs.machine_id), eq(jobs.stage, "queued"), inArray(jobs.repo, targets)),
-        ),
-      );
+      .where(or(and(me, or(inArray(jobs.stage, IN_FLIGHT), stoppingSql)), and(isNull(jobs.machine_id), eq(jobs.stage, "queued"), inArray(jobs.repo, targets))));
     let inFlight = count;
     const claimed: string[] = [];
     for (const { source, draft } of ready) {
@@ -638,19 +636,11 @@ export function launchMessage(job: Job) {
     "",
     job.description?.trim() || "(The issue has no description.)",
     ...(job.previous_failure
-      ? [
-          "",
-          `This is attempt ${job.attempt}. The previous attempt failed: ${job.previous_failure} Start fresh from main on this branch.`,
-        ]
+      ? ["", `This is attempt ${job.attempt}. The previous attempt failed: ${job.previous_failure} Start fresh from main on this branch.`]
       : []),
     ...(ownerNote ? ["", ownerNote] : []),
     ...(job.resume_context
-      ? [
-          "",
-          "An earlier run on this branch stopped with a question, and the reporter answered it. Treat the answer as the spec.",
-          "",
-          job.resume_context,
-        ]
+      ? ["", "An earlier run on this branch stopped with a question, and the reporter answered it. Treat the answer as the spec.", "", job.resume_context]
       : []),
   ].join("\n");
 }
@@ -732,11 +722,7 @@ export async function cleanup(dryRun = false) {
  * stop recorded while the launch was pending reaches the thread however the binding happened.
  */
 export async function bindThread(key: string, threadId: string) {
-  const [bound] = await db
-    .update(jobs)
-    .set({ t3_thread_id: threadId, updated_at: new Date() })
-    .where(eq(jobs.key, key))
-    .returning({ id: jobs.id });
+  const [bound] = await db.update(jobs).set({ t3_thread_id: threadId, updated_at: new Date() }).where(eq(jobs.key, key)).returning({ id: jobs.id });
   if (!bound) throw new Error(`No claimed job ${key}`);
   const stopped = await deliverStops(bound.id);
   return { bound: key, threadId, stopped: stopped.length > 0 };
@@ -744,7 +730,10 @@ export async function bindThread(key: string, threadId: string) {
 
 /** True when GitHub has finished computing mergeability for every open factory PR. */
 export async function pullRequestsSettled() {
-  const open = await db.select().from(jobs).where(and(await mine(), eq(jobs.stage, "pr"), isNotNull(jobs.pr_url)));
+  const open = await db
+    .select()
+    .from(jobs)
+    .where(and(await mine(), eq(jobs.stage, "pr"), isNotNull(jobs.pr_url)));
   for (const job of open) {
     if ((await github.pullRequest(job.pr_url!)).mergeable === "unknown") return false;
   }
@@ -851,7 +840,10 @@ export async function claimLaunch(
   where?: { execution: Execution; ticket: TicketRecord | null },
 ) {
   if (machine.repos.length === 0) return false;
-  const working = sql.join(IN_FLIGHT.map((stage) => sql`${stage}`), sql`, `);
+  const working = sql.join(
+    IN_FLIGHT.map((stage) => sql`${stage}`),
+    sql`, `,
+  );
   const claimed = await db
     .update(jobs)
     .set({
@@ -888,7 +880,10 @@ export const leaseCodexSlot = (key: string, marker: string, slots: readonly stri
 
 /** Records the harness a launch fell back to after its sandbox refused the one it was claimed with. */
 export async function recordHarness(key: string, marker: string, { provider, model }: HarnessChoice) {
-  await db.update(jobs).set({ provider, model }).where(and(eq(jobs.key, key), eq(jobs.t3_thread_id, marker)));
+  await db
+    .update(jobs)
+    .set({ provider, model })
+    .where(and(eq(jobs.key, key), eq(jobs.t3_thread_id, marker)));
 }
 
 export async function recordSandbox(key: string, marker: string, sandboxId: string) {
@@ -924,7 +919,6 @@ export async function pendingLaunches() {
     codex_slot: i.codex_slot,
   }));
 }
-
 
 /**
  * Sends the stop message to every stopped job's thread that has not had it; claimed per thread.
@@ -994,7 +988,12 @@ export async function reconcileStops({
   for (const source of sources) {
     // A job no machine holds yet has no thread, so any machine may record its stop.
     const unfinished = and(eq(jobs.source, source.source), inArray(jobs.stage, STOPPABLE), or(await mine(), isNull(jobs.machine_id)));
-    const open = parseJobs(await db.select().from(jobs).where(only ? and(unfinished, inArray(jobs.id, only)) : unfinished));
+    const open = parseJobs(
+      await db
+        .select()
+        .from(jobs)
+        .where(only ? and(unfinished, inArray(jobs.id, only)) : unfinished),
+    );
     if (open.length === 0) continue;
     let wanted: Awaited<ReturnType<typeof source.stopWanted>>;
     try {

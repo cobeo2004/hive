@@ -98,22 +98,16 @@ const CLOSED_STATE_TYPES = new Set(["completed", "canceled", "duplicate"]);
 
 type WaitingJob = Pick<Job, "external_id" | "stage_event_id" | "question" | "source_state" | "delivered_reply_ids">;
 
-export const claimCommentId = (issueId: string, attempt = 1) =>
-  attempt > 1 ? commentId(issueId, "claim", String(attempt)) : commentId(issueId, "claim");
-export const stageCommentId = (issueId: string, stageEventId: string) =>
-  commentId(issueId, stageEventId);
-export const resumeCommentId = (issueId: string, replyIds: readonly string[]) =>
-  commentId(issueId, "resume", ...replyIds);
+export const claimCommentId = (issueId: string, attempt = 1) => (attempt > 1 ? commentId(issueId, "claim", String(attempt)) : commentId(issueId, "claim"));
+export const stageCommentId = (issueId: string, stageEventId: string) => commentId(issueId, stageEventId);
+export const resumeCommentId = (issueId: string, replyIds: readonly string[]) => commentId(issueId, "resume", ...replyIds);
 
 /**
  * Decides what a waiting issue needs from what Linear shows. Replies are the comments after the
  * question comment that the factory did not post and no earlier resume delivered. The API key is
  * the operator's own, so authorship cannot tell them apart; the stored comment ids do.
  */
-export function planResume(
-  issue: WaitingJob,
-  linear: { state: { name: string; type: string }; comments: readonly Reply[] },
-): ResumePlan {
+export function planResume(issue: WaitingJob, linear: { state: { name: string; type: string }; comments: readonly Reply[] }): ResumePlan {
   if (CLOSED_STATE_TYPES.has(linear.state.type)) return { kind: "close", state: linear.state.name };
   if (!issue.stage_event_id) return { kind: "wait" };
 
@@ -121,11 +115,7 @@ export function planResume(
   const asked = linear.comments.find((c) => c.id === questionId);
   if (!asked) return { kind: "wait" };
 
-  const ours = new Set([
-    ...issue.source_state.factoryCommentIds,
-    claimCommentId(issue.external_id),
-    questionId,
-  ]);
+  const ours = new Set([...issue.source_state.factoryCommentIds, claimCommentId(issue.external_id), questionId]);
   const delivered = new Set(issue.delivered_reply_ids);
   const replies = linear.comments
     .filter((c) => c.createdAt > asked.createdAt && !ours.has(c.id) && !delivered.has(c.id))
@@ -139,7 +129,6 @@ export function planResume(
     answer: replies.map((r) => r.body.trim()).join("\n\n"),
   };
 }
-
 
 type IssueNode = Awaited<ReturnType<LinearClient["issuesByIds"]>>[number];
 
@@ -204,16 +193,14 @@ const writeBackTable = (factoryLabel: string): Partial<Record<Stage, WriteBack>>
         .join("\n\n"),
   },
   waiting: {
-    comment: (i) =>
-      `Hive stopped and needs an answer before it can continue:\n\n${i.question ?? i.stage_summary}`,
+    comment: (i) => `Hive stopped and needs an answer before it can continue:\n\n${i.question ?? i.stage_summary}`,
   },
   // Back to Todo without the factory label, so the runner does not pick it up again in a loop.
   // Adding the label again retries it as a new attempt.
   failed: {
     state: "Todo",
     labels: { add: [FAILED_LABEL], remove: [factoryLabel] },
-    comment: (i) =>
-      `Hive gave up on this issue (attempt ${i.attempt}): ${i.stage_summary}\n\nAdd the \`${factoryLabel}\` label again to retry.`,
+    comment: (i) => `Hive gave up on this issue (attempt ${i.attempt}): ${i.stage_summary}\n\nAdd the \`${factoryLabel}\` label again to retry.`,
   },
   merged: { state: "Done" },
 });
@@ -292,9 +279,7 @@ export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>
         d,
         job,
         claimCommentId(job.writeback.issueId, job.attempt),
-        job.attempt > 1
-          ? `Picked up by Hive again (attempt ${job.attempt}, branch ${attemptBranch(job.key, job.attempt)}).`
-          : "Picked up by Hive.",
+        job.attempt > 1 ? `Picked up by Hive again (attempt ${job.attempt}, branch ${attemptBranch(job.key, job.attempt)}).` : "Picked up by Hive.",
       );
       await recordState(d, job, ANNOUNCED, { updated_at: new Date() });
     },
@@ -332,7 +317,10 @@ export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>
       const nodes = await client.issuesByIds(open.map((j) => j.external_id));
       const wanted = [];
       for (const job of open) {
-        const reason = stopReason(nodes.find((n) => n.id === job.external_id), limits.label);
+        const reason = stopReason(
+          nodes.find((n) => n.id === job.external_id),
+          limits.label,
+        );
         if (reason) wanted.push({ job, reason });
       }
       return wanted;
@@ -446,7 +434,11 @@ export function linearFiler(apiKey: string, teamKey: string, label: string, opti
     const overrides = draft.labels ?? [];
     const overrideIds: string[] = [];
     if (overrides.length > 0) {
-      const groups = await syncLabelGroups(client, team.id, overrides.map((l) => ({ group: l.group, children: [l.name] })));
+      const groups = await syncLabelGroups(
+        client,
+        team.id,
+        overrides.map((l) => ({ group: l.group, children: [l.name] })),
+      );
       for (const l of overrides) {
         const id = groups.ids.get(labelKey(l.group, l.name));
         if (!id) throw new Error(`cannot apply the ${l.group} label "${l.name}": ${groups.problems.join(" ")}`);

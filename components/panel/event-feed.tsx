@@ -26,7 +26,10 @@ function summarize(payload: unknown, kind: string) {
     case "session_end":
       return { who: "session", text: `ended${e.reason ? ` (${e.reason})` : ""}` };
     case "evidence":
-      return { who: "evidence", text: `${e.checks.filter((c) => c.passed).length}/${e.checks.length} checks at ${shortSha(e.sha)}${e.clean ? "" : " (uncommitted changes)"}` };
+      return {
+        who: "evidence",
+        text: `${e.checks.filter((c) => c.passed).length}/${e.checks.length} checks at ${shortSha(e.sha)}${e.clean ? "" : " (uncommitted changes)"}`,
+      };
     case "screenshot":
       return { who: "screenshot", text: e.file };
     default: {

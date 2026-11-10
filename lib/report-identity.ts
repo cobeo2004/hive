@@ -25,7 +25,11 @@ export type McpIdentity = { jobKey: string; branch: string; sessionId: string; r
  * The job the server reports for: `FACTORY_JOB_KEY` and `FACTORY_ATTEMPT`, which a sandbox launch
  * sets, else the factory branch checked out in its working directory.
  */
-export function mcpIdentity(env: Readonly<Record<string, string | undefined>>, cwd: string, branchOf: (cwd: string) => string | undefined = currentBranch): McpIdentity | undefined {
+export function mcpIdentity(
+  env: Readonly<Record<string, string | undefined>>,
+  cwd: string,
+  branchOf: (cwd: string) => string | undefined = currentBranch,
+): McpIdentity | undefined {
   const attempt = Number(env.FACTORY_ATTEMPT ?? "1");
   const branch = env.FACTORY_JOB_KEY ? (Number.isInteger(attempt) && attempt > 0 ? attemptBranch(env.FACTORY_JOB_KEY, attempt) : undefined) : branchOf(cwd);
   const jobKey = parseBranch(branch)?.key;

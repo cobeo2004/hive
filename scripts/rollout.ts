@@ -1,5 +1,18 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { loadLimits } from "../lib/config";
@@ -102,7 +115,10 @@ async function beforePull() {
 function bundleInputs(entries: readonly string[]) {
   const dir = mkdtempSync(join(tmpdir(), "rollout-bundle-"));
   try {
-    execFileSync("bun", ["build", ...entries, "--target=bun", "--root", ".", "--outdir", join(dir, "out"), `--metafile=${join(dir, "meta.json")}`], { cwd: checkout, stdio: "ignore" });
+    execFileSync("bun", ["build", ...entries, "--target=bun", "--root", ".", "--outdir", join(dir, "out"), `--metafile=${join(dir, "meta.json")}`], {
+      cwd: checkout,
+      stdio: "ignore",
+    });
     return Object.keys((JSON.parse(readFileSync(join(dir, "meta.json"), "utf8")) as { inputs: Record<string, unknown> }).inputs);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -148,8 +164,14 @@ async function afterPull() {
   else {
     const problem = imageProblem(image, loadLimits().sandbox);
     const imageChanged = changedSince(image.factoryCommit);
-    const imageTouched = imageChanged && touchedInputs(imageChanged, [...(bundleInputs(IMAGE_BUNDLES)), "scripts/sandbox-image.ts", "lib/sandbox-image-build.ts"]);
-    const why = [problem, imageTouched === null ? `its commit ${image.factoryCommit.slice(0, 7)} is not in this checkout` : imageTouched.length > 0 && `${imageTouched.join(", ")} changed`].filter(Boolean);
+    const imageTouched =
+      imageChanged && touchedInputs(imageChanged, [...bundleInputs(IMAGE_BUNDLES), "scripts/sandbox-image.ts", "lib/sandbox-image-build.ts"]);
+    const why = [
+      problem,
+      imageTouched === null
+        ? `its commit ${image.factoryCommit.slice(0, 7)} is not in this checkout`
+        : imageTouched.length > 0 && `${imageTouched.join(", ")} changed`,
+    ].filter(Boolean);
     if (why.length > 0) {
       log(`image: rebuilding, ${why.join("; ")}`);
       run("bun", ["scripts/sandbox-image.ts"]);
@@ -202,7 +224,8 @@ try {
   process.exit(0);
 } catch (error) {
   console.error(`rollout stopped: ${error instanceof Error ? error.message : String(error)}`);
-  if (runnerStopped) console.error("The runner is stopped. Fix the cause and run the rollout again, or start the runner as it is with bun scripts/install-runner.ts.");
+  if (runnerStopped)
+    console.error("The runner is stopped. Fix the cause and run the rollout again, or start the runner as it is with bun scripts/install-runner.ts.");
   if (!(error instanceof StepError) && error instanceof Error) console.error(error.stack);
   process.exit(1);
 }

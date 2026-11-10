@@ -33,12 +33,19 @@ const fire = async () => {
 
 await listening.start();
 assert.equal(connections.length, 1, "start opens one connection");
-assert.ok(logged.some((l) => l.status === "live"), "a listening connection is logged live");
+assert.ok(
+  logged.some((l) => l.status === "live"),
+  "a listening connection is logged live",
+);
 
 // The connection ends: it is closed and replaced after a backoff.
 connections[0]!.onClose("ended");
 assert.equal(connections[0]!.closed, true, "the ended connection is closed");
-assert.deepEqual(timers.map((t) => t.ms), [5_000], "an end schedules one restart");
+assert.deepEqual(
+  timers.map((t) => t.ms),
+  [5_000],
+  "an end schedules one restart",
+);
 connections[0]!.onClose("Connection terminated unexpectedly");
 assert.equal(timers.length, 1, "a second close from the same connection schedules nothing more");
 await fire();
@@ -58,7 +65,10 @@ assert.equal(connections.length, 3);
 connections[2]!.onClose("ended");
 assert.equal(timers[0]!.ms, 5_000, "a live connection resets the backoff");
 await fire();
-assert.ok(logged.some((l) => l.status === "restarting" && String(l.reason).includes("ECONNREFUSED")), "a restart is logged with its cause");
+assert.ok(
+  logged.some((l) => l.status === "restarting" && String(l.reason).includes("ECONNREFUSED")),
+  "a restart is logged with its cause",
+);
 
 listening.close();
 assert.equal(connections.at(-1)!.closed, true, "close closes the current connection");

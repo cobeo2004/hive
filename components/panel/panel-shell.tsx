@@ -82,7 +82,11 @@ function Nav({
         <span className="flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-primary text-[11px] font-semibold text-primary-foreground">M</span>
         <span className={cn("min-w-0 truncate font-medium", fade)}>Hive</span>
       </div>
-      <nav aria-label="Panel" data-collapsed={collapsed || undefined} className="flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto px-1.5 py-2">
+      <nav
+        aria-label="Panel"
+        data-collapsed={collapsed || undefined}
+        className="flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto px-1.5 py-2"
+      >
         {NAV.map((group) => (
           <div key={group[0]!.href} className="flex flex-col gap-px">
             {group.map(({ href, label, icon: Icon }) => {
@@ -99,7 +103,9 @@ function Nav({
                       on ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                     )}
                   >
-                    {on && <motion.span layoutId="panel-nav-marker" transition={spring} className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-foreground" />}
+                    {on && (
+                      <motion.span layoutId="panel-nav-marker" transition={spring} className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-foreground" />
+                    )}
                     <Icon className="size-4 shrink-0" />
                     <span className={cn("min-w-0 flex-1 truncate", fade)}>{label}</span>
                     {href === "/inbox" && inboxCount}

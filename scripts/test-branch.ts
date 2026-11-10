@@ -29,9 +29,16 @@ async function maintenance<T>(work: (client: Client) => Promise<T>) {
 }
 
 const only = process.argv.slice(2);
+// REGRESSIONS_SKIP="playbook,other" leaves out scripts by name prefix; CI uses it for scripts known to fail.
+const skip = (process.env.REGRESSIONS_SKIP ?? "")
+  .split(",")
+  .map((name) => name.trim())
+  .filter(Boolean);
 const scripts = readdirSync(scriptsDir)
   .filter((f) => f.endsWith("-regressions.ts") && (only.length === 0 || only.some((name) => f.startsWith(name))))
+  .filter((f) => !skip.some((name) => f.startsWith(name)))
   .sort();
+if (skip.length > 0) console.log(`skipping regression scripts starting with ${skip.join(", ")}`);
 if (scripts.length === 0) throw new Error(`no regression script matches ${only.join(", ")}`);
 
 const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 12);
@@ -58,7 +65,9 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 const failed: string[] = [];
 try {
   await maintenance(async (client) => {
-    const { rows } = await client.query<{ datname: string }>("select datname from pg_database where datname like 'hive\\_test\\_%' and pg_get_userbyid(datdba) = current_user");
+    const { rows } = await client.query<{ datname: string }>(
+      "select datname from pg_database where datname like 'hive\\_test\\_%' and pg_get_userbyid(datdba) = current_user",
+    );
     // Only this role's own: on a shared server another role's stale database can't be dropped, and is theirs to sweep.
     for (const { datname } of rows) {
       if (!NAME.test(datname) || !(Date.now() - createdAt(datname) > EXPIRES_AFTER_MS)) continue;

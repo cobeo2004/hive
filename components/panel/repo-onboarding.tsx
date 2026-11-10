@@ -113,8 +113,8 @@ export function AddRepository() {
         <DialogHeader>
           <DialogTitle>Add repository</DialogTitle>
           <DialogDescription>
-            Pick a repository the factory&apos;s GitHub App can reach. An agent then writes its setup recipe as a pull request, and the factory builds a
-            warm sandbox image from it so jobs start fast.
+            Pick a repository the factory&apos;s GitHub App can reach. An agent then writes its setup recipe as a pull request, and the factory builds a warm
+            sandbox image from it so jobs start fast.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="flex flex-col gap-3">
@@ -232,7 +232,11 @@ function Secrets({ row, panelTakesSecrets }: { row: RepoSettingsRow; panelTakesS
           {e.purpose && <FieldDescription>{e.purpose}</FieldDescription>}
         </Field>
       ))}
-      {!panelTakesSecrets && <p className="text-sm text-muted-foreground">This panel has no cloud sandbox token, so run each command on the runner Mac; it asks for the value without showing it.</p>}
+      {!panelTakesSecrets && (
+        <p className="text-sm text-muted-foreground">
+          This panel has no cloud sandbox token, so run each command on the runner Mac; it asks for the value without showing it.
+        </p>
+      )}
       {panelTakesSecrets && (
         <div>
           <Button size="sm" onClick={save} disabled={pending || Object.values(values).every((v) => v.trim() === "")}>
@@ -274,7 +278,13 @@ export function OnboardingSection({ row, panelTakesSecrets }: { row: RepoSetting
     <div className="flex flex-col gap-4 px-4.5 py-4">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-medium">Onboarding</h3>
-        {state ? <OnboardingBadge state={state} /> : <Badge variant="outline" size="sm">Not onboarded</Badge>}
+        {state ? (
+          <OnboardingBadge state={state} />
+        ) : (
+          <Badge variant="outline" size="sm">
+            Not onboarded
+          </Badge>
+        )}
       </div>
       <p className={cn("text-sm", state === "failed" || state === "needs_input" ? "text-warning" : "text-muted-foreground")}>
         {state ? stateLine(state, detail) : "Registered before onboarding. Its cloud sandbox jobs start from the base image and set themselves up."}
@@ -329,7 +339,10 @@ export function OnboardingSection({ row, panelTakesSecrets }: { row: RepoSetting
       {detail.image && (
         <p className="text-sm text-muted-foreground">
           Warm image built <ShortTime date={new Date(detail.image.builtAt)} /> at <span className="font-mono text-xs">{detail.image.commit.slice(0, 7)}</span>
-          {versions && ` · ${IMAGE_COMPONENTS.filter((c) => versions[c]).map((c) => `${componentName(c)} ${versions[c]}`).join(", ")}`}
+          {versions &&
+            ` · ${IMAGE_COMPONENTS.filter((c) => versions[c])
+              .map((c) => `${componentName(c)} ${versions[c]}`)
+              .join(", ")}`}
         </p>
       )}
       <Secrets key={(detail.secretsSet ?? []).join(",")} row={row} panelTakesSecrets={panelTakesSecrets} />
@@ -338,7 +351,12 @@ export function OnboardingSection({ row, panelTakesSecrets }: { row: RepoSetting
           {state ? "Retry onboarding" : "Onboard"}
         </Button>
         {recipe && (
-          <Button variant="outline" size="sm" disabled={pending || state === "needs_input" || detail.run?.kind === "agent"} onClick={() => act(rebuildRepositoryImage)}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pending || state === "needs_input" || detail.run?.kind === "agent"}
+            onClick={() => act(rebuildRepositoryImage)}
+          >
             Rebuild image
           </Button>
         )}

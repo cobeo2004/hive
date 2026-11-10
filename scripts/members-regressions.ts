@@ -32,13 +32,23 @@ try {
   assert.deepEqual(await members.setMemberRole(engineer, ids.eng, "admin"), refused, "an engineer can't promote themselves");
   assert.deepEqual(await members.createInvite(engineer, "new@unibuz.com.au"), refused, "an engineer can't invite");
   assert.deepEqual(await members.createMemberResetLink(engineer, ADMIN), refused, "an engineer can't make reset links");
-  assert.deepEqual(await members.listMembers({ user: async () => ({ email: ADMIN, role: "admin", twoFactorEnabled: false }) }), refused, "an admin without TOTP is refused");
+  assert.deepEqual(
+    await members.listMembers({ user: async () => ({ email: ADMIN, role: "admin", twoFactorEnabled: false }) }),
+    refused,
+    "an admin without TOTP is refused",
+  );
   assert.equal(await roleOf(ids.eng), "engineer");
   assert.equal((await db.select().from(accessLinks)).length, 0, "no link was made");
 
   const listed = await members.listMembers(admin);
   assert.ok(listed.ok);
-  assert.deepEqual(listed.members.map((m) => [m.email, m.role]), [[ADMIN, "admin"], [ENG, "engineer"]]);
+  assert.deepEqual(
+    listed.members.map((m) => [m.email, m.role]),
+    [
+      [ADMIN, "admin"],
+      [ENG, "engineer"],
+    ],
+  );
 
   // The last admin can't be demoted.
   assert.deepEqual(await members.setMemberRole(admin, ids.admin, "engineer"), { ok: false, status: 400, message: members.LAST_ADMIN });
@@ -47,10 +57,7 @@ try {
 
   // With two admins, demoting each other at once leaves exactly one.
   assert.deepEqual(await members.setMemberRole(admin, ids.eng, "admin"), { ok: true });
-  const raced = await Promise.all([
-    members.setMemberRole(admin, ids.eng, "engineer"),
-    members.setMemberRole(as(ENG, "admin", ids.eng), ids.admin, "engineer"),
-  ]);
+  const raced = await Promise.all([members.setMemberRole(admin, ids.eng, "engineer"), members.setMemberRole(as(ENG, "admin", ids.eng), ids.admin, "engineer")]);
   assert.equal(raced.filter((r) => r.ok).length, 1, "one demotion wins");
   assert.equal(Number((await db.execute<{ n: string }>(sql`select count(*) as n from "user" where role = 'admin'`)).rows[0]!.n), 1, "one admin is left");
   await db.update(user).set({ role: "admin" }).where(eq(user.id, ids.admin));
