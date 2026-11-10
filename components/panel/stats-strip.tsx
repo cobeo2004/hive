@@ -4,9 +4,9 @@ import { cn } from "@/lib/utils";
 import { formatTokens, formatUsd, runCost, totalTokens } from "./format";
 import { MeterBar } from "./usage-meter";
 
-function Stat({ label, value, note, tone, meter }: { label: string; value: string; note: string; tone?: string; meter?: number }) {
+function Stat({ label, value, note, tone, meter }: { label: string; value: string; note: string; tone?: string; meter?: number | null }) {
   return (
-    <div className="bg-background px-5 py-3.5">
+    <div className="basis-44 flex-1 border-b border-r bg-background px-5 py-3.5">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={cn("mt-0.5 text-xl font-semibold tabular-nums", tone)}>{value}</div>
       <div className="text-xs text-faint">{note}</div>
@@ -36,8 +36,9 @@ export function StatsStrip({
 
   const pool = meters.pool.fiveHourPct;
 
+  // Cells carry their own borders, so a wrapped last row leaves no grey tracks.
   return (
-    <section className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-px border-b bg-border">
+    <section className="flex flex-wrap">
       <Stat label="Active runs" value={String(active)} note="working now" tone={active ? "text-primary" : undefined} />
       <Stat label="Idle runs" value={String(idle)} note="waiting for a prompt" />
       <Stat label="Running agents" value={String(runningAgents)} note="subagents in flight" />
@@ -51,11 +52,11 @@ export function StatsStrip({
             label={`Your ${a.label}`}
             value={a.kind === "api_key" ? "API key" : pct === undefined ? "—" : `${Math.round(pct)}%`}
             note={a.kind === "api_key" ? "no usage window" : "5-hour window"}
-            meter={pct}
+            meter={a.kind === "api_key" ? undefined : (pct ?? null)}
           />
         );
       })}
-      <Stat label="Team pool" value={pool === null ? "—" : `${Math.round(pool)}%`} note="mean of the active accounts" meter={pool ?? undefined} />
+      <Stat label="Team pool" value={pool === null ? "—" : `${Math.round(pool)}%`} note="mean of the active accounts" meter={pool} />
     </section>
   );
 }

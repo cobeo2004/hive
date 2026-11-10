@@ -15,14 +15,14 @@ export function MeterBar({ pct, label, className }: { pct: number | null; label:
   );
 }
 
-function Window({ label, pct }: { label: string; pct: number | null }) {
+function Window({ label, name, pct }: { label: string; name: string; pct: number | null }) {
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-xs">
         <span className="text-muted-foreground">{label}</span>
         <span className="tabular-nums">{pct === null ? "—" : `${Math.round(pct)}%`}</span>
       </div>
-      <MeterBar pct={pct} label={label} />
+      <MeterBar pct={pct} label={name} />
     </div>
   );
 }
@@ -37,8 +37,8 @@ export function UsageMeter({ account }: { account: MeterAccount }) {
         <div className="text-xs text-muted-foreground">API key</div>
       ) : (
         <>
-          <Window label="5-hour window" pct={fiveHour?.usedPct ?? null} />
-          <Window label="Weekly" pct={weekly?.usedPct ?? null} />
+          <Window label="5-hour window" name={`${label} 5-hour window`} pct={fiveHour?.usedPct ?? null} />
+          <Window label="Weekly" name={`${label} weekly window`} pct={weekly?.usedPct ?? null} />
           {fiveHour?.resetsAt && (
             <div className="text-xs text-faint">
               Resets <ShortTime date={fiveHour.resetsAt} />

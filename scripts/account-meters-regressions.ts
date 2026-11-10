@@ -11,6 +11,7 @@ const { accountMeters } = await import("../lib/account-meters");
 const pair = newKeyPair();
 const TOKEN = "sk-ant-oat-meters-secret-token";
 const sealed = seal(TOKEN, pair.publicKey);
+const METER_KEYS = ["fiveHour", "id", "kind", "label", "ownerId", "ownerName", "provider", "weekly"];
 const users = ["meters-a", "meters-b", "meters-admin"];
 const ids = ["m-a-claude", "m-a-codex", "m-b-claude", "m-pool-60", "m-pool-82", "m-pool-key", "m-pool-gone"];
 const acct = (id: string, owner: string | null, provider: "claude" | "codex", kind: "subscription" | "api_key", label: string, disconnected = false) => ({
@@ -60,6 +61,7 @@ try {
       reading("m-b-claude", 30),
       reading("m-pool-60", 60),
       reading("m-pool-82", 82),
+      reading("m-pool-key", 5),
       reading("m-pool-gone", 99),
     ]);
 
@@ -71,7 +73,7 @@ try {
   );
   assert.equal(a.accounts, undefined, "an engineer gets no all-accounts list");
   assert.ok(!("accounts" in a), "the property is absent");
-  assert.equal(a.pool.fiveHourPct, 71, "the pool mean counts active pool readings only");
+  assert.equal(a.pool.fiveHourPct, 71, "the pool mean counts active subscription readings only (api_key 5, disconnected 99 excluded)");
   const [claude, codex] = a.mine;
   assert.equal(claude!.fiveHour?.usedPct, 62);
   assert.equal(claude!.weekly?.usedPct, 38);
@@ -97,6 +99,8 @@ try {
     assert.ok(!json.includes("sealed"), "no sealed key");
     assert.ok(!json.includes(TOKEN), "no token text");
     assert.ok(!json.includes(Buffer.from(sealed).toString("base64")), "no sealed bytes");
+    assert.ok(!json.includes('"Buffer"'), "no serialized Buffer");
+    for (const m of [...result.mine, ...(result.accounts ?? [])]) assert.deepEqual(Object.keys(m).sort(), METER_KEYS, "only the documented MeterAccount keys");
   }
 
   assert.deepEqual(await accountMeters(db, null), { mine: [], pool: { fiveHourPct: null } }, "no viewer, nothing");
