@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { repoSstackConfig } from "../db/schema";
 import { type JobHost, localHost } from "../lib/host";
@@ -27,6 +27,7 @@ type Snapshot = { repo: string; skipped: "no checkout" } | { repo: string; sha: 
  * sha already stored writes nothing. Throws when git fails, so callers catch.
  */
 export async function snapshotSstack(repo: string): Promise<Snapshot> {
+  const read_at = snapshotDeps.now(); // taken before the read, so a slower, older read cannot look newer than a later one
   const cwd = await snapshotDeps.checkout(repo);
   if (!cwd) return { repo, skipped: "no checkout" };
 
@@ -42,7 +43,10 @@ export async function snapshotSstack(repo: string): Promise<Snapshot> {
   const paths = (await git(["ls-tree", "-r", "-z", "--name-only", sha, "--", ".sstack"])).split("\0").filter((path) => WANTED.test(path));
   const files = Object.fromEntries(await Promise.all(paths.map(async (path) => [path, await git(["show", `${sha}:${path}`])] as const)));
 
-  const read_at = snapshotDeps.now();
-  await db.insert(repoSstackConfig).values({ repo, files, sha, read_at }).onConflictDoUpdate({ target: repoSstackConfig.repo, set: { files, sha, read_at } });
+  // ponytail: ordered by read_at, so it trusts the clocks of the machines that snapshot; a sequence column if they drift.
+  await db
+    .insert(repoSstackConfig)
+    .values({ repo, files, sha, read_at })
+    .onConflictDoUpdate({ target: repoSstackConfig.repo, set: { files, sha, read_at }, setWhere: sql`${repoSstackConfig.read_at} <= ${read_at}` });
   return { repo, sha, files: paths.length };
 }

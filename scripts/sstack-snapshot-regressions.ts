@@ -16,10 +16,14 @@ const NONE = "acme/none";
 
 const root = mkdtempSync(join(tmpdir(), "hive-sstack-snapshot-"));
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync("git", ["-c", "user.name=regression", "-c", "user.email=regression@example.com", "-c", "commit.gpgsign=false", ...args], {
-    cwd,
-    encoding: "utf8",
-  }).trim();
+  execFileSync(
+    "git",
+    ["-c", "core.autocrlf=false", "-c", "user.name=regression", "-c", "user.email=regression@example.com", "-c", "commit.gpgsign=false", ...args],
+    {
+      cwd,
+      encoding: "utf8",
+    },
+  ).trim();
 
 /** Writes the files, commits them and points origin/main at the commit, as a fetch would. */
 function commit(cwd: string, files: Record<string, string>, message: string) {
@@ -98,7 +102,26 @@ try {
   assert.deepEqual(await snapshotSstack(NONE), { repo: NONE, skipped: "no checkout" });
   assert.equal(await rowOf(NONE), undefined);
 
+  // 5. a read taken before the stored one never replaces it
+  const stored = (await rowOf(SSTACK))!;
+  const newer = new Date(stored.read_at.getTime() + 60_000);
+  await db.update(repoSstackConfig).set({ sha: "newer-sha", files: {}, read_at: newer }).where(eq(repoSstackConfig.repo, SSTACK));
+  const realNow = snapshotDeps.now;
+  snapshotDeps.now = () => new Date(stored.read_at.getTime() - 60_000);
+  try {
+    assert.deepEqual(await snapshotSstack(SSTACK), { repo: SSTACK, sha: second, files: 4 });
+  } finally {
+    snapshotDeps.now = realNow;
+  }
+  const kept = (await rowOf(SSTACK))!;
+  assert.equal(kept.sha, "newer-sha", "an older read leaves the newer row alone");
+  assert.deepEqual(kept.files, {});
+  assert.equal(kept.read_at.getTime(), newer.getTime());
+
   console.log("sstack-snapshot regressions passed");
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
 } finally {
   rmSync(root, { recursive: true, force: true });
   await db.delete(repoSstackConfig).where(inArray(repoSstackConfig.repo, [SSTACK, BARE, NONE]));
