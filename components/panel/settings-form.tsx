@@ -25,6 +25,8 @@ import {
   sandboxLogin,
   type SandboxReadiness,
 } from "@/lib/machine";
+import type { LinearSettings } from "@/lib/linear-settings";
+import { LinearSettingsSection } from "./linear-settings";
 import { MembersSection } from "./members-section";
 import { NotificationsCard } from "./notifications-card";
 import { useFeed, type Feed } from "./live-refresh";
@@ -250,11 +252,13 @@ export function SettingsForm({
   members,
   saved,
   notifications,
+  linear,
 }: {
   machines: Feed<MachineRow>;
   members: Member[];
   saved: SettingsRow | null;
   notifications: NotificationSettingsRow | null;
+  linear: { saved: LinearSettings; userName: string | null };
 }) {
   const router = useRouter();
   const { rows, status } = useFeed(machines);
@@ -302,6 +306,7 @@ export function SettingsForm({
       <PanelHeader title="Settings" />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-6xl flex-col divide-y p-4 md:p-8">
+          <LinearSettingsSection saved={linear.saved} userName={linear.userName} />
           <SettingsSection
             id="new-jobs"
             title="New jobs"
