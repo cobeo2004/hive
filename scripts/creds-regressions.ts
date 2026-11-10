@@ -1,12 +1,15 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 // R9a: sealed credentials and per-user account selection.
 const { db } = await import("../db/client");
-const { agentAccounts, jobs, user } = await import("../db/schema");
+const { accountUsage, agentAccounts, jobs, runs, user } = await import("../db/schema");
+const { config } = await import("../runner/config");
 const { linearJob } = await import("./fixtures");
-const { accountFor, credsProvider, newKeyPair, pickAccount, recordRunAccount, runnerDefaultClaudeToken, seal, unseal } = await import("../lib/creds");
+const { accountFor, credsProvider, newKeyPair, pickAccount, RATE_LIMITED, recordRunAccount, runnerDefaultClaudeToken, seal, unseal } = await import(
+  "../lib/creds"
+);
 
 const FAILED = /^Error: a sealed credential could not be opened$/;
 const pair = newKeyPair();
@@ -50,8 +53,17 @@ const row = (id: string, owner_id: string | null, extra: Partial<Parameters<type
   created_at: new Date(1_700_000_000_000 + n++),
   ...extra,
 });
-const pick = (rows: ReturnType<typeof row>[], owner: string | null, provider: "claude" | "codex" = "claude") =>
-  (pickAccount(rows, owner, provider) as { id: string } | undefined)?.id;
+const pick = (
+  rows: ReturnType<typeof row>[],
+  owner: string | null,
+  provider: "claude" | "codex" = "claude",
+  usage: Record<string, number> = {},
+  pool = { threshold: 90, pauseInstead: false },
+  exclude: string[] = [],
+) => {
+  const got = pickAccount(rows, owner, provider, new Map(Object.entries(usage)), pool, new Set(exclude));
+  return typeof got === "string" ? got : got?.id;
+};
 assert.equal(pick([row("a1", "A"), row("b1", "B"), row("pool", null)], "A"), "a1", "A's job gets A's account");
 assert.equal(pick([row("b1", "B")], "A"), undefined, "A's job never gets B's account, even when it is the only row");
 assert.equal(pick([row("b1", "B"), row("pool", null)], "A"), "pool", "an owner without an account gets the pool's");
@@ -59,6 +71,22 @@ assert.equal(pick([row("a1", "A", { disconnected_at: new Date() }), row("pool", 
 assert.equal(pick([row("a1", "A"), row("pool", null)], null), "pool", "a job with no owner gets the pool's, not A's");
 assert.equal(pick([row("a2", "A"), row("a1", "A", { created_at: new Date(1) })], "A"), "a1", "the oldest account wins");
 assert.equal(pick([row("a1", "A", { provider: "codex" })], "A"), undefined, "the provider must match");
+
+// R10a, pure: the owner's account under 95% of its 5h window, else the lowest-use pool account, else wait.
+const pools = [row("p1", null), row("p2", null), row("p3", null)];
+const own = [row("a1", "A"), ...pools];
+const stop = { threshold: 90, pauseInstead: true };
+assert.equal(pick(own, "A", "claude", { a1: 94.9, p1: 1 }), "a1", "1.1: an owner under 95% keeps its account");
+assert.equal(pick(own, "A", "claude", { a1: 95, p1: 40, p2: 10 }), "p3", "1.2: at 95% the lowest pool use wins; no meter counts as 0");
+assert.equal(pick(own, "A", "claude", { a1: 97, p1: 5, p2: 5, p3: 5 }), "p1", "a tie goes to the oldest pool account");
+const full = { p1: 90, p2: 95, p3: 100 };
+assert.equal(pick(pools, "A", "claude", full, stop), "wait", "1.4: every pool account at the threshold with pauseInstead on waits");
+assert.equal(pick(pools, "A", "claude", full), "p1", "1.4: pauseInstead off uses the lowest pool account");
+assert.equal(pick(pools, "A", "claude", { ...full, p2: 89.9 }, stop), "p2", "1.4: one pool account under the threshold does not wait");
+assert.equal(pick([row("a1", "A")], "A", "claude", { a1: 99 }, stop), undefined, "Q17: no pool row is never a wait; the runner default stands in");
+assert.equal(pick(own, "A", "claude", { a1: 10 }, undefined, ["a1"]), "p1", "an excluded owner account falls to the pool");
+const codexOnly = [row("a1", "A", { provider: "codex" }), row("p1", null)];
+assert.equal(pick(codexOnly, "A", credsProvider("claudeAgent")), "p1", "1.5: a Codex-only owner on a Claude lead gets the pool's Claude account");
 
 // accountFor, against the database.
 const A = "creds-user-a";
@@ -76,6 +104,7 @@ const account = (id: string, owner_id: string | null, secret: string, provider: 
 });
 const ids = ["creds-a", "creds-b", "creds-pool", "creds-a-codex"];
 await db.delete(agentAccounts).where(inArray(agentAccounts.id, ids));
+await db.delete(runs).where(inArray(runs.job_key, Object.values(keys)));
 await db.delete(jobs).where(inArray(jobs.key, Object.values(keys)));
 await db.delete(user).where(inArray(user.id, [A, B]));
 await db.insert(user).values([
@@ -105,6 +134,65 @@ try {
   assert.deepEqual(await secretOf(keys.none), { id: "creds-pool", secret: "token-of-pool" }, "an owner-less job runs on the pool's");
   assert.deepEqual(await secretOf("CRD-gone"), { id: "creds-pool", secret: "token-of-pool" }, "so does a job that is gone");
 
+  // R10a: the owner's account under 95% of its 5h window, else the pool's; each attempt records its account.
+  const meter = (account_id: string, used_pct: number) =>
+    db
+      .insert(accountUsage)
+      .values({ account_id, window: "5h", used_pct, read_at: new Date() })
+      .onConflictDoUpdate({ target: [accountUsage.account_id, accountUsage.window], set: { used_pct } });
+  const idOf = async (jobKey: string) => {
+    const got = await accountFor(jobKey, "claude", "runner-token", key);
+    return got === "wait" ? got : got?.id;
+  };
+  // A run row as ingest makes it, then the stamp the launch writes (R36).
+  const stamp = async (thread: string, branch: string, accountId: string) => {
+    const at = new Date();
+    await db.insert(runs).values({ session_id: `creds-${thread}`, job_key: keys.a, branch, t3_thread_id: thread, started_at: at, last_event_at: at });
+    await recordRunAccount(keys.a, thread, accountId);
+  };
+  const ranOn = () => db.select({ branch: runs.branch, account: runs.account_id }).from(runs).where(eq(runs.job_key, keys.a)).orderBy(runs.branch);
+  const failed = (attempt: number, previous_failure: string | null) => db.update(jobs).set({ attempt, previous_failure }).where(eq(jobs.key, keys.a));
+  await meter("creds-a", 50);
+  assert.equal(await idOf(keys.a), "creds-a", "1.1: the owner under 95% runs on its own account");
+  await stamp("t-1", "hive/CRD-1", "creds-a");
+  assert.deepEqual(await ranOn(), [{ branch: "hive/CRD-1", account: "creds-a" }], "1.1: runs.account_id is the owner's");
+  await meter("creds-a", 95);
+  assert.equal(await idOf(keys.a), "creds-pool", "1.2: at 95% the pool account runs");
+
+  // 1.4: every pool account at the threshold: pauseInstead decides between the wait and the account.
+  const pool = config.factory.pool;
+  const was = { ...pool };
+  try {
+    await meter("creds-pool", 95);
+    pool.pauseInstead = true;
+    assert.equal(await idOf(keys.a), "wait", "1.4: pool at its threshold with pauseInstead on waits");
+    pool.pauseInstead = false;
+    assert.equal(await idOf(keys.a), "creds-pool", "1.4: pauseInstead off never waits");
+  } finally {
+    Object.assign(pool, was);
+  }
+
+  // 1.3: after a rate limit the next attempt skips every account that already ran the job.
+  await meter("creds-a", 10);
+  await meter("creds-pool", 10);
+  const limited = (stage: string) => `Watchdog stopped this run: ${RATE_LIMITED} (stage ${stage}).`;
+  await failed(2, limited("implementing"));
+  assert.equal(await idOf(keys.a), "creds-pool", "1.3: the owner's account just rate-limited, so the next attempt runs on the pool's");
+  await stamp("t-2", "hive/CRD-1-a2", "creds-pool");
+  assert.deepEqual(
+    await ranOn(),
+    [
+      { branch: "hive/CRD-1", account: "creds-a" },
+      { branch: "hive/CRD-1-a2", account: "creds-pool" },
+    ],
+    "1.3: each attempt's runs.account_id says which account ran it",
+  );
+  await failed(3, limited("pr"));
+  assert.equal(await idOf(keys.a), null, "once the owner and the pool have both been limited, only the runner default is left");
+  await failed(2, "Watchdog stopped this run: no events for 30 minutes.");
+  assert.equal(await idOf(keys.a), "creds-a", "a retry after any other failure goes back to the owner");
+  await failed(1, null);
+
   // The pool's rows beat the runner default, and B's account is never A's, whatever is left.
   await db.delete(agentAccounts).where(inArray(agentAccounts.id, ["creds-a", "creds-pool"]));
   assert.deepEqual(await secretOf(keys.a), { id: null, secret: "runner-token" }, "A has none and the pool is empty: the runner default, never B's");
@@ -114,6 +202,15 @@ try {
   await db.insert(agentAccounts).values(account("creds-a-codex", A, '{"auth":"a-codex"}', "codex"));
   assert.deepEqual(await secretOf(keys.a, "codex", null), { id: "creds-a-codex", secret: '{"auth":"a-codex"}' });
   assert.deepEqual(await secretOf(keys.a, "claude", null), null, "a Codex account is not a Claude one");
+  // 1.5: an owner with only Codex, on a Claude lead, runs on the pool's Claude account.
+  await db.insert(agentAccounts).values(account("creds-pool", null, "token-of-pool"));
+  assert.deepEqual(await secretOf(keys.a), { id: "creds-pool", secret: "token-of-pool" }, "1.5: a Codex-only owner gets a pool Claude account");
+  assert.deepEqual(
+    await secretOf(keys.a, "codex", null),
+    { id: "creds-a-codex", secret: '{"auth":"a-codex"}' },
+    "and a Codex lead still gets the owner's Codex",
+  );
+  await db.delete(agentAccounts).where(eq(agentAccounts.id, "creds-pool"));
 
   // A runner without the private key says so without the sealed bytes; one with another key gets the fixed error.
   await assert.rejects(accountFor(keys.b, "claude", undefined, {}), /^Error: HIVE_CREDS_PRIVATE_KEY is not set; cannot open account creds-b$/);
@@ -123,6 +220,7 @@ try {
   await recordRunAccount(keys.a, "thread-1", null);
   await recordRunAccount(keys.a, "thread-1", "creds-a-codex");
 } finally {
+  await db.delete(runs).where(inArray(runs.job_key, Object.values(keys)));
   await db.delete(agentAccounts).where(inArray(agentAccounts.id, ids));
   await db.delete(jobs).where(inArray(jobs.key, Object.values(keys)));
   await db.delete(user).where(inArray(user.id, [A, B]));
