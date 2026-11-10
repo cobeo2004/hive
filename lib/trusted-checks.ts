@@ -23,19 +23,21 @@ export function scriptsOf(packageJson: string | null): Scripts | null {
   }
 }
 
-const RUNS_SCRIPT = /\b(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?([\w][\w:.-]*)/g;
+// ponytail: any word that names a script counts as running it. It over-matches (`echo test`), which
+// only hands over more; parsing each package manager's flags is what let `bun run --silent x` slip by.
+const WORD = /[\w][\w:.-]*/g;
 
 /**
- * The scripts the commands run in any of these versions, following one script calling another. A
- * script only the head has counts too, so adding one is as visible as changing one.
+ * The scripts the commands may run in any of these versions, following one script calling another.
+ * A script only the head has counts too, so adding one is as visible as changing one.
  */
 export function usedScripts(commands: readonly string[], ...versions: readonly Scripts[]): string[] {
   const used = new Set<string>();
   const queue = [...commands];
   for (let command = queue.pop(); command !== undefined; command = queue.pop()) {
-    for (const [, name] of command.matchAll(RUNS_SCRIPT)) {
-      if (!name || used.has(name)) continue;
-      const bodies = versions.flatMap((scripts) => (name in scripts ? [scripts[name]!] : []));
+    for (const [name] of command.matchAll(WORD)) {
+      if (used.has(name)) continue;
+      const bodies = versions.flatMap((scripts) => (Object.hasOwn(scripts, name) ? [scripts[name]!] : []));
       if (bodies.length === 0) continue;
       used.add(name);
       queue.push(...bodies);
@@ -48,15 +50,18 @@ export function usedScripts(commands: readonly string[], ...versions: readonly S
  * Why this PR edits what the factory trusts, one reason each; empty when it doesn't. `required` is
  * the recorded recipe's checks, null for a repo whose checks are its package.json scripts. `base`
  * and `head` are the two versions of package.json's scripts; null when one couldn't be read.
+ * `verify` is the recorded project.toml verify list, whose scripts are trusted too.
  */
 export function trustedEdits({
   files,
   required,
+  verify = null,
   base,
   head,
 }: {
   files: readonly string[];
   required: readonly PlannedCheck[] | null;
+  verify?: readonly string[] | null;
   base: Scripts | null;
   head: Scripts | null;
 }): string[] {
@@ -70,7 +75,7 @@ export function trustedEdits({
   if (files.includes(PACKAGE_JSON)) {
     if (!base || !head) reasons.push("The pull request edits package.json, and its scripts couldn't be compared with the base branch's.");
     else {
-      const commands = required ? required.map((c) => c.command) : CHECKS.map((name) => `bun run ${name}`);
+      const commands = [...(required ? required.map((c) => c.command) : CHECKS.map((name) => `bun run ${name}`)), ...(verify ?? [])];
       const changed = usedScripts(commands, base, head).filter((name) => base[name] !== head[name]);
       if (changed.length > 0)
         reasons.push(`The pull request edits the check scripts the factory trusts: ${changed.map((name) => `package.json scripts.${name}`).join(", ")}.`);

@@ -3,7 +3,9 @@
 import { db } from "@/db/client";
 import { machines } from "@/db/schema";
 import { currentUser } from "@/lib/auth/server";
+import type { RepoName } from "@/lib/github/app";
 import { installationRepos } from "@/lib/github/installation";
+import { github } from "@/lib/github/pulls";
 import { reportedHarnesses } from "@/lib/machine";
 import { modalEnvConfigured, modalSecretStore } from "@/lib/modal-secrets";
 import {
@@ -15,8 +17,10 @@ import {
   saveRepoSecrets as saveSecrets,
   writeNewRepository,
   writeRepoRequest,
+  writeVerify,
   type SecretsInput,
 } from "@/lib/repo-onboarding";
+import { SSTACK_PROJECT_PATH } from "@/lib/sstack-verify";
 import {
   makeDefaultRepo,
   readRegistry,
@@ -84,5 +88,14 @@ export async function retryOnboarding(input: { repo: string }) {
 }
 
 export async function rebuildRepositoryImage(input: { repo: string }) {
-  return rebuild({ user, registry, request }, input);
+  return rebuild(
+    {
+      user,
+      registry,
+      request,
+      projectToml: (repo) => github.fileAt(repo as RepoName, SSTACK_PROJECT_PATH, "HEAD"),
+      saveVerify: (repo, verify) => writeVerify(db, repo, verify),
+    },
+    input,
+  );
 }

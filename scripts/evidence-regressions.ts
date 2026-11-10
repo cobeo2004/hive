@@ -1,11 +1,13 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, eq, inArray, like } from "drizzle-orm";
 import type { MergeAssessment } from "../lib/assessment";
+import type { SessionUser } from "../lib/auth/owner";
+import type { Registry } from "../lib/repositories";
 import type { EvidenceCheck } from "../lib/evidence";
 import type { FactoryEvent } from "../lib/events";
 
@@ -22,6 +24,8 @@ const { github } = await import("../lib/github/pulls");
 const { evidenceLine, headEvidence, outputTail, parseSummary, planChecks } = await import("../lib/evidence");
 const { writeRepoAutonomy } = await import("../lib/settings");
 const { trustedEdits } = await import("../lib/trusted-checks");
+const { readVerify, scanVerify } = await import("../lib/sstack-verify");
+const { rebuildRepoImage, writeVerify } = await import("../lib/repo-onboarding");
 const { decideMerges, requiredChecks } = await import("../runner/merge-decision");
 const { forgetVerifications, runnerVerification, startVerification, verificationsSettled, verifyAtHead, verifyingKeys, verifyRuntime } = await import(
   "../runner/verify"
@@ -113,6 +117,40 @@ assert.equal(
 );
 assert.deepEqual(planChecks({ recipe: null, packageJson: "{not json", files: [] }).source, "none", "a broken package.json defines nothing");
 assert.deepEqual(planChecks({ recipe: null, packageJson: null, files: [] }).checks, [], "no recipe, no package.json: no checks");
+const hiveVerify = ["bun run lint", "bunx next typegen && bunx tsc --noEmit", "bun run format:check"];
+assert.deepEqual(
+  planChecks({ verify: hiveVerify, recipe, packageJson: JSON.stringify({ scripts: { test: "vitest" } }), files: ["bun.lock"] }),
+  {
+    source: "project.toml",
+    setup: ["bun install"],
+    checks: [
+      { name: "lint", command: "bun run lint" },
+      { name: "typecheck", command: "bunx next typegen && bunx tsc --noEmit" },
+      { name: "custom", command: "bun run format:check" },
+    ],
+    envNames: ["STRIPE_KEY"],
+  },
+  "project.toml's verify list comes first, in its order",
+);
+assert.equal(planChecks({ verify: [], recipe, packageJson: null, files: [] }).source, "recipe", "an empty verify list falls back to the recipe");
+const projectToml = readFileSync(join(import.meta.dirname, "../.sstack/project.toml"), "utf8");
+assert.deepEqual(readVerify(projectToml), hiveVerify, "Bun.TOML reads this repo's verify list");
+assert.deepEqual(scanVerify(projectToml), hiveVerify, "the panel's scanner reads it the same");
+assert.deepEqual(scanVerify(`verify = ['a "b"', "c \\"d\\"",] # x\n[t]\nverify = ["no"]`), ['a "b"', 'c "d"'], "quotes, a trailing comma and a later table");
+assert.equal(scanVerify(`brief = "x"\n[t]\nverify = ["nested"]`), null, "a verify inside a table is not the list");
+assert.equal(scanVerify(`notes = """\nverify = ["true"]\n"""\n`), null, "a verify line inside a multi-line string is not the list");
+assert.equal(scanVerify(`notes = '''\nverify = ["true"]\n'''\n`), null, "nor inside a literal multi-line string");
+for (const [toml, list] of [
+  [`notes = """\nverify = ["true"]\n"""\nverify = ["false"]`, ["false"]],
+  [`notes = """\nx\n"""\nverify = ["true"]`, ["true"]],
+  [`notes = '''\nx\n'''\nverify = ["true"]`, ["true"]],
+] as const) {
+  assert.deepEqual(scanVerify(toml), list, "the list after a multi-line string is still read");
+  assert.deepEqual(scanVerify(toml), readVerify(toml), "and the scanner agrees with Bun.TOML");
+}
+assert.equal(scanVerify(`notes = """\nverify = ["true"]`), null, "an unterminated multi-line string fails safe");
+assert.equal(scanVerify(`verify = ["a\\e"]`), null, "an escape JSON doesn't know fails safe instead of throwing");
+assert.deepEqual(scanVerify(`verify = ["a\\tb\\u0041"]`), ["a\tbA"], "escapes decode");
 
 // --- redaction
 const secretValue = "s3cr3t-value-0123456789";
@@ -208,8 +246,75 @@ assert.deepEqual(
   "required comes from the recorded recipe, commands included",
 );
 assert.equal(requiredChecks(rows, "other/repo").required, null, "no recipe, no required list");
+const tomlEv = (commands: string[], over: Partial<Parameters<typeof headEvidence>[0][number]> = {}) =>
+  ev(SHA_A, { source: "project.toml", checks: commands.map((command) => check("custom", true, { command })), ...over });
+assert.deepEqual(
+  headEvidence([tomlEv(["true"])], SHA_A, null, hiveVerify),
+  { state: "untrusted", sha: SHA_A, mismatched: [".sstack/project.toml verify"] },
+  "a PR whose verify list is not the trusted one proves nothing",
+);
+assert.equal(headEvidence([tomlEv(hiveVerify)], SHA_A, null, null).state, "untrusted", "no recorded list, nothing to trust");
+assert.equal(headEvidence([tomlEv(hiveVerify.slice(1))], SHA_A, null, hiveVerify).state, "untrusted", "a dropped command");
+assert.deepEqual(headEvidence([tomlEv(hiveVerify)], SHA_A, planned("test"), hiveVerify), {
+  state: "verified",
+  sha: SHA_A,
+  passed: 3,
+  total: 3,
+  producer: "agent",
+});
+assert.deepEqual(
+  headEvidence([tomlEv(hiveVerify, { checks: [check("custom", false, { command: "bun run format:check" })] })], SHA_A, null, ["bun run format:check"]),
+  { state: "failed", sha: SHA_A, failed: ["bun run format:check"], passed: 0, total: 1 },
+  "a failed verify command is named by its command",
+);
+assert.equal(headEvidence([tomlEv(["true"], { clean: false })], SHA_A, null, hiveVerify).state, "dirty");
+assert.equal(headEvidence([tomlEv(["false\ntrue"])], SHA_A, null, ["false", "true"]).state, "untrusted", "one command with a newline is not two");
+assert.equal(headEvidence([tomlEv(["true"])], SHA_A, [], ["true"]).state, "verified", "a recipe with no checks doesn't hide trusted project.toml evidence");
+assert.equal(headEvidence([tomlEv(["true", "true"])], SHA_A, null, ["true"]).state, "untrusted", "an extra command before the trusted list");
+assert.deepEqual(
+  headEvidence([ev(SHA_A, { source: "recipe", checks: [check("test", true, { command: "true" })] })], SHA_A, [{ name: "test", command: "true" }], ["false"]),
+  { state: "untrusted", sha: SHA_A, mismatched: [".sstack/project.toml verify"] },
+  "a recorded verify list replaces the recipe: recipe evidence proves nothing",
+);
+assert.deepEqual(
+  requiredChecks([{ repo: REPO, onboarding_detail: { verify: hiveVerify } }] as unknown as typeof rows, REPO).verify,
+  hiveVerify,
+  "the recorded verify list",
+);
+
+// --- the rebuild re-records the trusted list from the default branch
+const saved: [string, string[] | null][] = [];
+const rebuildDeps = (toml: string | null) => ({
+  user: async () => ({ role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() }) as unknown as SessionUser,
+  registry: async () => [{ repo: REPO, onboarding_detail: { recipe } }] as unknown as Registry,
+  request: async () => {},
+  projectToml: async () => toml,
+  saveVerify: async (repo: string, verify: string[] | null) => void saved.push([repo, verify]),
+});
+assert.deepEqual(await rebuildRepoImage(rebuildDeps(projectToml), { repo: REPO }), { ok: false, status: 400, message: "Save STRIPE_KEY first." });
+const noSecrets = { ...recipe, env: [] };
+const deps = (toml: string | null) => ({
+  ...rebuildDeps(toml),
+  registry: async () => [{ repo: REPO, onboarding_detail: { recipe: noSecrets } }] as unknown as Registry,
+});
+assert.deepEqual(await rebuildRepoImage(deps(projectToml), { repo: REPO }), { ok: true });
+assert.deepEqual(await rebuildRepoImage(deps(null), { repo: REPO }), { ok: true });
+assert.deepEqual(
+  saved,
+  [
+    [REPO, hiveVerify],
+    [REPO, null],
+  ],
+  "main's list is recorded; no project.toml drops it",
+);
 
 // --- what a PR must not edit
+for (const command of ["bun --silent run verify-ci", "bun run --silent verify-ci", "bun --cwd . run verify-ci"])
+  assert.equal(
+    trustedEdits({ files: ["package.json"], required: null, verify: [command], base: { "verify-ci": "false" }, head: { "verify-ci": "true" } }).length,
+    1,
+    `flags don't hide the script a verify command runs: ${command}`,
+  );
 const scripts = (over: Record<string, string> = {}) => ({ test: "vitest", lint: "eslint .", dev: "next dev", ...over });
 const recipeChecks = [{ name: "test" as const, command: "bun run test" }];
 const edits = (
@@ -450,6 +555,27 @@ try {
     ["recipe", 2, ["test", "typecheck"]],
     "the recipe wins over package.json; the attempt comes from the branch",
   );
+  const tomlRepo = repoWith(
+    `hive/${CLI}-a3`,
+    { test: "exit 1" },
+    { ".factory/setup.json": JSON.stringify({ setup: [], checks: { test: "exit 1" } }), ".sstack/project.toml": `verify = ["true", "echo lint"]\n` },
+  );
+  const fromToml = await runVerify(tomlRepo, ["--json", "--no-post"]);
+  const tomlEvent = eventSchema.parse(JSON.parse(fromToml.stdout));
+  assert.ok(tomlEvent.kind === "evidence");
+  assert.deepEqual(
+    [fromToml.code, tomlEvent.source, tomlEvent.checks.map((c) => [c.name, c.command])],
+    [
+      0,
+      "project.toml",
+      [
+        ["custom", "true"],
+        ["lint", "echo lint"],
+      ],
+    ],
+    "project.toml's verify list wins over the recipe",
+  );
+  assert.match(fromToml.stderr, /running 2 checks from \.sstack\/project\.toml/, "the log names the source");
 
   const offBranch = repoWith("main", { test: "true" });
   const off = await runVerify(offBranch, []);
@@ -460,6 +586,11 @@ try {
   // The runner's own verification, in a fake sandbox that is this machine with temp dirs.
   await writeRepoAutonomy(db, { repo: REPO, autonomy: "auto" }, "owner@example.com", new Date());
   await writeRepoAutonomy(db, { repo: TRIAL_REPO, autonomy: "trial" }, "owner@example.com", new Date());
+  const detailOf = async () => (await db.select().from(repoSettings).where(eq(repoSettings.repo, REPO)))[0]!.onboarding_detail;
+  await writeVerify(db, REPO, hiveVerify);
+  assert.deepEqual((await detailOf())?.verify, hiveVerify, "the rebuild's list is on the row");
+  await writeVerify(db, REPO, null);
+  assert.equal((await detailOf())?.verify, undefined, "and dropped again");
   const origin = join(dir, "origin.git");
   execFileSync("git", ["init", "-q", "--bare", origin]);
   const work = repoWith("main", { test: "true" });

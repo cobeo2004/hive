@@ -60,11 +60,24 @@ type Evaluated =
   | { decision: Decision; headSha: string | null; headSeenAt: number | null; review?: ReviewSummary; evidence?: HeadEvidence; runner?: RunnerVerification }
   | "unchanged";
 
-/** The checks, with their commands, a repo's recorded recipe requires; null when the factory knows no recipe for it. */
-export function requiredChecks(rows: readonly RepoSettingsRow[], repo: string): { recipe: Recipe | null; required: PlannedCheck[] | null } {
-  const recipe = parseDetail(rows.find((r) => r.repo === repo)?.onboarding_detail).recipe ?? null;
-  return { recipe, required: recipe ? CHECKS.flatMap((name) => (recipe.checks[name] ? [{ name, command: recipe.checks[name] }] : [])) : null };
+/**
+ * The checks, with their commands, a repo's recorded recipe requires, null when the factory knows no
+ * recipe for it; and its recorded project.toml verify list, null when none was recorded.
+ */
+export function requiredChecks(
+  rows: readonly RepoSettingsRow[],
+  repo: string,
+): { recipe: Recipe | null; required: PlannedCheck[] | null; verify: string[] | null } {
+  const detail = parseDetail(rows.find((r) => r.repo === repo)?.onboarding_detail);
+  const recipe = detail.recipe ?? null;
+  return {
+    recipe,
+    required: recipe ? CHECKS.flatMap((name) => (recipe.checks[name] ? [{ name, command: recipe.checks[name] }] : [])) : null,
+    verify: detail.verify ?? null,
+  };
 }
+
+type Trusted = { required: PlannedCheck[] | null; verify: string[] | null };
 
 /** This attempt's evidence, one row per commit. */
 async function attemptEvidence(job: Job): Promise<EvidenceRow[]> {
@@ -76,17 +89,17 @@ async function attemptEvidence(job: Job): Promise<EvidenceRow[]> {
 }
 
 /** Whether the PR edits what the trusted checks depend on; package.json is read at the base branch and at the head only when the PR touches it. */
-async function changedTrust(job: Job, detail: { headSha: string; baseRef: string }, pr: PrFacts, required: PlannedCheck[] | null) {
+async function changedTrust(job: Job, detail: { headSha: string; baseRef: string }, pr: PrFacts, { required, verify }: Trusted) {
   const files = pr.files.map((f) => f.path);
   const [base, head] = files.includes("package.json")
     ? await Promise.all([detail.baseRef, detail.headSha].map((ref) => github.fileAt(job.repo as RepoName, "package.json", ref).then(scriptsOf, () => null)))
     : [null, null];
-  return trustedEdits({ files, required, base, head });
+  return trustedEdits({ files, required, verify, base, head });
 }
 
 const sameEvidence = (a: HeadEvidence | undefined, b: HeadEvidence) => JSON.stringify(a) === JSON.stringify(b);
 
-async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | null, now: number, required: PlannedCheck[] | null): Promise<Evaluated> {
+async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | null, now: number, trusted: Trusted): Promise<Evaluated> {
   const sameReport = previous !== null && previous.autonomy === policy.autonomy && previous.stageEventId === job.stage_event_id;
   if (policy.autonomy === "off") {
     return sameReport ? "unchanged" : { decision: OFF_DECISION, headSha: null, headSeenAt: null };
@@ -97,7 +110,7 @@ async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | 
   const sameHead = previous?.headSha === detail.headSha;
   const fresh = previous !== null && now - Date.parse(previous.evaluatedAt) < RECHECK_MS;
   const unsettled = previous?.outcome === "pending" || (previous?.outcome === "merge" && previous.autonomy === "auto");
-  const evidence = headEvidence(await attemptEvidence(job), detail.headSha, required);
+  const evidence = headEvidence(await attemptEvidence(job), detail.headSha, trusted.required, trusted.verify);
   if (sameReport && sameHead && fresh && !unsettled && sameEvidence(previous.evidence, evidence)) return "unchanged";
   const runner = runnerVerification(job, detail.headSha, policy, previous, now);
 
@@ -116,7 +129,7 @@ async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | 
     evidence,
     runner,
     browser: job.execution === "modal",
-    trustEdits: await changedTrust(job, detail, pr, required),
+    trustEdits: await changedTrust(job, detail, pr, trusted),
   });
   return { decision, headSha: detail.headSha, headSeenAt, review: reviewSummary(pr), evidence, runner };
 }
@@ -155,8 +168,8 @@ export async function decideMerges({ now = Date.now(), only }: { now?: number; o
     try {
       const policy = resolvePolicy(policies, job.repo);
       const previous = storedDecision(job);
-      const { recipe, required } = requiredChecks(policies, job.repo);
-      const result = await evaluate(job, policy, previous, now, required);
+      const { recipe, ...trusted } = requiredChecks(policies, job.repo);
+      const result = await evaluate(job, policy, previous, now, trusted);
       if (result === "unchanged") {
         if (previous) await syncComments(job, previous);
         continue;
