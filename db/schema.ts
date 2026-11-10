@@ -98,6 +98,10 @@ export const agents = pgTable(
     subagent_type: text("subagent_type"),
     description: text("description"),
     model: text("model"),
+    /** The sstack role a lineage child ran as (R19); set on `sstack:<run_dir>` agents only (Q31). */
+    role: text("role"),
+    /** The harness that ran a lineage child, e.g. claude or codex (R19/Q31). */
+    harness: text("harness"),
     status: agentStatus("status").notNull().default("running"),
     started_at: ts("started_at").notNull(),
     ended_at: ts("ended_at"),
@@ -673,4 +677,29 @@ export const accountLogins = pgTable("account_logins", {
   code: text("code"),
   expires_at: ts("expires_at").notNull(),
   created_at: ts("created_at").notNull().defaultNow(),
+});
+
+/**
+ * Hive's snapshot of a repo's sstack files, so the panel never reads GitHub or git (Q34, R20/R22/R39).
+ * The runner refreshes it after onboarding and after each merge to main.
+ */
+export const repoSstackConfig = pgTable("repo_sstack_config", {
+  /** GitHub `owner/name`. */
+  repo: text("repo").primaryKey(),
+  /** Each file's text keyed by its path: `.sstack/config.toml`, `.sstack/project.toml`, a role's `.toml` and a step's `step.toml` (Q47, Q57). */
+  files: jsonb("files").$type<Record<string, string>>().notNull(),
+  /** The main commit the snapshot was read at. */
+  sha: text("sha").notNull(),
+  read_at: ts("read_at").notNull(),
+});
+
+/** Hive's `~/.sstack` defaults in one `"factory"` row, which runners sync from (Q37). */
+export const sstackDefaults = pgTable("sstack_defaults", {
+  id: text("id").primaryKey(),
+  files: jsonb("files").$type<Record<string, string>>().notNull(),
+  /** The sstack commit these defaults came from; null for hand-edited defaults. */
+  sha: text("sha"),
+  updated_at: ts("updated_at"),
+  /** The editor's email. */
+  updated_by: text("updated_by"),
 });
