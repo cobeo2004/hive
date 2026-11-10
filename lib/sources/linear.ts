@@ -269,6 +269,7 @@ export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>
           labels: n.labels.nodes.map((l) => l.name),
           labelGroups: n.labels.nodes.flatMap((l) => (l.parent ? [{ name: l.name, group: l.parent.name }] : [])),
         },
+        owner: { assigneeId: n.assignee?.id, assigneeEmail: n.assignee?.email, creatorId: n.creator?.id, creatorEmail: n.creator?.email },
       }));
     },
 
