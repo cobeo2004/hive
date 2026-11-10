@@ -102,21 +102,12 @@ try {
   assert.deepEqual(await snapshotSstack(NONE), { repo: NONE, skipped: "no checkout" });
   assert.equal(await rowOf(NONE), undefined);
 
-  // 5. a read taken before the stored one never replaces it
-  const stored = (await rowOf(SSTACK))!;
-  const newer = new Date(stored.read_at.getTime() + 60_000);
-  await db.update(repoSstackConfig).set({ sha: "newer-sha", files: {}, read_at: newer }).where(eq(repoSstackConfig.repo, SSTACK));
-  const realNow = snapshotDeps.now;
-  snapshotDeps.now = () => new Date(stored.read_at.getTime() - 60_000);
-  try {
-    assert.deepEqual(await snapshotSstack(SSTACK), { repo: SSTACK, sha: second, files: 4 });
-  } finally {
-    snapshotDeps.now = realNow;
-  }
-  const kept = (await rowOf(SSTACK))!;
-  assert.equal(kept.sha, "newer-sha", "an older read leaves the newer row alone");
-  assert.deepEqual(kept.files, {});
-  assert.equal(kept.read_at.getTime(), newer.getTime());
+  // 5. two snapshots fired together run one after the other: the second finds the sha already stored
+  const third = commit(repoDir, { ".sstack/config.toml": "workflow = 'slow'\n" }, "third");
+  const both = await Promise.all([snapshotSstack(SSTACK), snapshotSstack(SSTACK)]);
+  assert.equal((await rowOf(SSTACK))!.sha, third, "the row holds the newest commit");
+  assert.equal((await db.select().from(repoSstackConfig).where(eq(repoSstackConfig.repo, SSTACK))).length, 1, "still one row");
+  assert.equal(both.filter((result) => "unchanged" in result).length, 1, "the queued duplicate is a no-op, which only holds if they were serialized");
 
   console.log("sstack-snapshot regressions passed");
 } catch (error) {
