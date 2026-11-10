@@ -632,9 +632,7 @@ export const agentAccounts = pgTable(
     label: text("label").notNull(),
     /** The sealed token; the panel cannot open it (R36). */
     sealed: bytea("sealed").notNull(),
-    created_by: text("created_by")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    created_by: text("created_by").references(() => user.id, { onDelete: "set null" }),
     created_at: ts("created_at").notNull().defaultNow(),
     disconnected_at: ts("disconnected_at"),
   },
@@ -655,7 +653,7 @@ export const accountUsage = pgTable(
     resets_at: ts("resets_at"),
     read_at: ts("read_at").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.account_id, t.window] })],
+  (t) => [primaryKey({ columns: [t.account_id, t.window] }), check("account_usage_used_pct_range", sql`${t.used_pct} >= 0 and ${t.used_pct} <= 100`)],
 );
 
 export const accountLoginStatus = pgEnum("account_login_status", ["pending", "waiting_code", "done", "failed"]);

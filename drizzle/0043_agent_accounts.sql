@@ -19,7 +19,8 @@ CREATE TABLE "account_usage" (
 	"used_pct" real NOT NULL,
 	"resets_at" timestamp with time zone,
 	"read_at" timestamp with time zone NOT NULL,
-	CONSTRAINT "account_usage_account_id_window_pk" PRIMARY KEY("account_id","window")
+	CONSTRAINT "account_usage_account_id_window_pk" PRIMARY KEY("account_id","window"),
+	CONSTRAINT "account_usage_used_pct_range" CHECK ("account_usage"."used_pct" >= 0 and "account_usage"."used_pct" <= 100)
 );
 --> statement-breakpoint
 CREATE TABLE "agent_accounts" (
@@ -29,7 +30,7 @@ CREATE TABLE "agent_accounts" (
 	"kind" "agent_account_kind" NOT NULL,
 	"label" text NOT NULL,
 	"sealed" "bytea" NOT NULL,
-	"created_by" text NOT NULL,
+	"created_by" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"disconnected_at" timestamp with time zone
 );
@@ -38,7 +39,7 @@ ALTER TABLE "runs" ADD COLUMN "account_id" text;--> statement-breakpoint
 ALTER TABLE "account_logins" ADD CONSTRAINT "account_logins_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "account_usage" ADD CONSTRAINT "account_usage_account_id_agent_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."agent_accounts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "agent_accounts" ADD CONSTRAINT "agent_accounts_owner_id_user_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "agent_accounts" ADD CONSTRAINT "agent_accounts_created_by_user_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "agent_accounts" ADD CONSTRAINT "agent_accounts_created_by_user_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "agent_accounts_owner_idx" ON "agent_accounts" USING btree ("owner_id");--> statement-breakpoint
 ALTER TABLE "runs" ADD CONSTRAINT "runs_account_id_agent_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."agent_accounts"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "runs_account_idx" ON "runs" USING btree ("account_id");

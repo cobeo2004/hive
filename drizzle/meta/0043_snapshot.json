@@ -1,5 +1,5 @@
 {
-  "id": "415430de-e638-43aa-98c9-fff455f7cfa4",
+  "id": "31851661-4347-4427-ae79-be8bfcea1c81",
   "prevId": "e6762df1-d342-48d6-9406-eccac8847f1a",
   "version": "7",
   "dialect": "postgresql",
@@ -347,7 +347,12 @@
       },
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "account_usage_used_pct_range": {
+          "name": "account_usage_used_pct_range",
+          "value": "\"account_usage\".\"used_pct\" >= 0 and \"account_usage\".\"used_pct\" <= 100"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.agent_accounts": {
@@ -396,7 +401,7 @@
           "name": "created_by",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -453,7 +458,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
