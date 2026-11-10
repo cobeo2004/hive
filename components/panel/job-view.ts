@@ -20,8 +20,12 @@ export const jobsHref = (view: JobView, run?: string, archived = false, owner?: 
     ...(owner === "mine" && { owner }),
   })}`;
 
-/** The inbox, with its item open on the right when there is one. Only Everyone is carried, since Mine is the page's default. */
-export const inboxHref = (owner?: OwnerView, job?: string) => {
-  const params = new URLSearchParams({ ...(owner === "everyone" && { owner }), ...(job && { job }) }).toString();
+/**
+ * The inbox, with its item open on the right when there is one. Mine is the page's default, so it is left
+ * out of a plain link, and Everyone is carried. An item link always names its owner, since a bare `?job=`
+ * opens on Everyone (Slack posts those links).
+ */
+export const inboxHref = (owner: OwnerView = "mine", job?: string) => {
+  const params = new URLSearchParams({ ...((owner === "everyone" || job) && { owner }), ...(job && { job }) }).toString();
   return params ? `/inbox?${params}` : "/inbox";
 };
