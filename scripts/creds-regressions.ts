@@ -30,6 +30,11 @@ for (const at of [0, 1, 33, 45, sealed.length - 1]) {
 assert.throws(() => unseal(sealed.subarray(0, 20), pair.privateKey), FAILED, "a short blob fails");
 assert.throws(() => unseal(sealed, "not a key"), FAILED, "a bad key fails without its detail");
 
+// A tag cut to 4 bytes is refused, not read as a short tag.
+const tagAt = 1 + 32 + 12;
+const shortTag = Buffer.concat([sealed.subarray(0, tagAt), sealed.subarray(tagAt, tagAt + 4), sealed.subarray(tagAt + 16)]);
+assert.throws(() => unseal(shortTag, pair.privateKey), FAILED, "a 4-byte tag fails");
+
 assert.deepEqual([credsProvider("claudeAgent"), credsProvider("codex"), credsProvider("cursor")], ["claude", "codex", "codex"]);
 assert.equal(runnerDefaultClaudeToken({ CLAUDE_CODE_OAUTH_TOKEN: "t" }), "t");
 assert.equal(runnerDefaultClaudeToken({ CLAUDE_CODE_OAUTH_TOKEN: "" }), undefined);

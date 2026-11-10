@@ -36,7 +36,7 @@ export function seal(plaintext: string, publicKeyPem: string): Buffer {
   const ephemeralRaw = Buffer.from(ephemeral.publicKey.export({ format: "jwk" }).x!, "base64url");
   const key = aesKey(diffieHellman({ privateKey: ephemeral.privateKey, publicKey: recipient }), ephemeralRaw);
   const iv = randomBytes(IV_LENGTH);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: TAG_LENGTH });
   const body = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   return Buffer.concat([Buffer.from([VERSION]), ephemeralRaw, iv, cipher.getAuthTag(), body]);
 }
@@ -49,9 +49,10 @@ export function unseal(sealed: Uint8Array, privateKeyPem: string): string {
     const ephemeralRaw = bytes.subarray(1, 1 + KEY_LENGTH);
     const iv = bytes.subarray(1 + KEY_LENGTH, 1 + KEY_LENGTH + IV_LENGTH);
     const tag = bytes.subarray(1 + KEY_LENGTH + IV_LENGTH, HEADER);
+    if (tag.length !== TAG_LENGTH) throw new Error();
     const ephemeral = createPublicKey({ key: { kty: "OKP", crv: "X25519", x: ephemeralRaw.toString("base64url") }, format: "jwk" });
     const key = aesKey(diffieHellman({ privateKey: createPrivateKey(pem(privateKeyPem)), publicKey: ephemeral }), ephemeralRaw);
-    const decipher = createDecipheriv("aes-256-gcm", key, iv).setAuthTag(tag);
+    const decipher = createDecipheriv("aes-256-gcm", key, iv, { authTagLength: TAG_LENGTH }).setAuthTag(tag);
     return Buffer.concat([decipher.update(bytes.subarray(HEADER)), decipher.final()]).toString("utf8");
   } catch {
     throw new Error("a sealed credential could not be opened");
