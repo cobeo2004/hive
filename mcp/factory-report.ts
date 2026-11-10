@@ -6,7 +6,7 @@ import { stageReportSchema, stageReportShape, type FactoryEvent, type StageRepor
 import { REPORT_SERVER, REPORT_TOOL } from "../lib/factory";
 import { reportEvents } from "../lib/outbox";
 import { mcpIdentity, mcpPosts, type McpIdentity } from "../lib/report-identity";
-import { screenshotEvents, unreadable } from "../lib/screenshot-files";
+import { screenshotEvents, unreadable } from "../lib/media-files";
 
 // Under Claude Code the PostToolUse hook (hooks/report.ts), which knows the session id, turns the
 // accepted call into the stage event, so the tool only validates. Under any other harness the tool

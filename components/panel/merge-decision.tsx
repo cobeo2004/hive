@@ -5,7 +5,7 @@ import { parseAssessment, type MergeAssessment } from "@/lib/assessment";
 import { AUTONOMY_LABELS, mergeDecisionSchema, type FactoryMerge, type MergeDecision, type MergeWatch } from "@/lib/merge-decision";
 import { cn } from "@/lib/utils";
 import { shownDecision } from "./cards";
-import { Screenshots } from "./screenshots";
+import { Media } from "./media";
 import { Time } from "./time";
 
 export const parseDecision = (value: unknown): MergeDecision | null => mergeDecisionSchema.safeParse(value).data ?? null;
@@ -90,7 +90,7 @@ function Assessment({ job, assessment }: { job: JobRow; assessment: MergeAssessm
       {assessment.screenshots?.length ? (
         <div className="flex flex-col gap-1">
           <h4 className="text-xs font-medium text-muted-foreground">Screenshots</h4>
-          <Screenshots job={job} assessment={assessment} />
+          <Media job={job} assessment={assessment} />
         </div>
       ) : null}
       {assessment.notes && (

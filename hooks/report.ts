@@ -8,7 +8,7 @@ import { stageReportSchema, type FactoryEvent, type Usage } from "../lib/events"
 import { parseBranch, REPORT_STAGE_TOOL } from "../lib/factory";
 import { localHost } from "../lib/host";
 import { readIngestTarget, reportEvents } from "../lib/outbox";
-import { screenshotEvents, unreadable } from "../lib/screenshot-files";
+import { screenshotEvents, unreadable } from "../lib/media-files";
 import { rememberSessionBranch, sessionBranch } from "../lib/session-branch";
 import { mainTranscript, readTranscript, subagentTranscripts, sumUsage } from "../lib/transcript";
 

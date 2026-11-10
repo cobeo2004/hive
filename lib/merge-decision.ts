@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { MergeAssessment } from "./assessment";
 import { headEvidenceSchema, notVerifiedWhy, shortSha, type HeadEvidence } from "./evidence";
-import { uiFiles } from "./screenshots";
+import { uiFiles } from "./media";
 
 // Whether a factory PR would merge on its own. The agent recommends merge unless it isn't confident
 // (lib/assessment.ts); the runner enforces factual hard limits that no recommendation overrides. Pure, so the runner pass and the

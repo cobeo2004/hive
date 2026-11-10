@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { assessmentInputSchema } from "./assessment";
 import { evidenceShape } from "./evidence";
-import { screenshotShape } from "./screenshots";
+import { screenshotShape } from "./media";
 
 export const usageSchema = z.object({
   input: z.number().nonnegative(),

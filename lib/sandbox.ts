@@ -6,7 +6,7 @@ import { z } from "zod";
 import { CONFIG_PATH, SANDBOX_IMAGE_PATH, type SandboxLimits } from "./config";
 import { runnerDefaultClaudeToken } from "./creds";
 import { imageDrift, imageVersionsSchema, rebuildText, type ImageComponent, type ImageVersions, type SandboxReadiness } from "./machine";
-import { SCREENSHOT_DIR } from "./screenshots";
+import { SCREENSHOT_DIR } from "./media";
 
 // Fixed paths inside a job's sandbox. The image puts the factory's hook and MCP bundles and its
 // playbooks under FACTORY_ROOT; each launch clones the job's repo into REPO_DIR.

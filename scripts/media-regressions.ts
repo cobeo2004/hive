@@ -20,9 +20,9 @@ const { ingest } = await import("../lib/ingest");
 const { parseAssessment } = await import("../lib/assessment");
 const { appendEvent, flushOutbox, localFs } = await import("../lib/outbox");
 const { decideMerge, DEFAULT_POLICY } = await import("../lib/merge-decision");
-const { MAX_SCREENSHOT_BYTES, screenshotUrl, sniffType, uiFiles } = await import("../lib/screenshots");
-const { readScreenshot, screenshotEvents, unreadable } = await import("../lib/screenshot-files");
-const { GET } = await import("../app/api/jobs/[key]/screenshots/[index]/route");
+const { MAX_SCREENSHOT_BYTES, mediaUrl, sniffType, uiFiles } = await import("../lib/media");
+const { readScreenshot, screenshotEvents, unreadable } = await import("../lib/media-files");
+const { GET } = await import("../app/api/jobs/[key]/media/[index]/route");
 
 const stamp = Date.now() % 1_000_000;
 const dir = mkdtempSync(join(tmpdir(), "screenshot-regress-"));
@@ -176,7 +176,7 @@ try {
   assert.equal(job!.assessment_event_id, stageEventId, "the job remembers which report its assessment came from");
 
   const get = (index: number, v: string | null = stageEventId) =>
-    GET(new Request(`http://panel${screenshotUrl(KEY, index, v)}`), { params: Promise.resolve({ key: KEY, index: String(index) }) } as never);
+    GET(new Request(`http://panel${mediaUrl(KEY, index, v)}`), { params: Promise.resolve({ key: KEY, index: String(index) }) } as never);
   const one = await get(0);
   assert.equal(one.status, 200);
   assert.equal(one.headers.get("content-type"), "image/png");
@@ -199,7 +199,7 @@ try {
   assert.deepEqual((await ingest(db, [after])).refused, [], "the later stage applies");
   const [moved] = await db.select().from(jobs).where(eq(jobs.key, KEY));
   assert.equal(moved!.stage_event_id, after.eventId);
-  assert.equal(screenshotUrl(KEY, 0, moved!.assessment_event_id), screenshotUrl(KEY, 0, stageEventId), "the panel's URL stays the pr report's");
+  assert.equal(mediaUrl(KEY, 0, moved!.assessment_event_id), mediaUrl(KEY, 0, stageEventId), "the panel's URL stays the pr report's");
   assert.equal((await get(0)).status, 200, "the images still serve after a later stage");
   await db.update(jobs).set({ stage: "pr" }).where(eq(jobs.key, KEY));
 

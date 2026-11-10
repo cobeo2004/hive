@@ -18,7 +18,7 @@ import { AUTONOMY_LABELS, type ReviewSummary } from "@/lib/merge-decision";
 import { sourceLink } from "@/lib/sources/shapes";
 import { cn } from "@/lib/utils";
 import type { BoardCard } from "./cards";
-import { Screenshots } from "./screenshots";
+import { Media } from "./media";
 import { EvidenceSummaryList } from "./evidence";
 import { InboxActions } from "./inbox-actions";
 import { FullViewToggle, useEscapeToSidePanel, type FullView } from "./full-view";
@@ -172,7 +172,7 @@ function Assessment({ job }: { job: JobRow }) {
       </Section>
       {assessment.screenshots?.length ? (
         <Section title="Screenshots">
-          <Screenshots job={job} assessment={assessment} />
+          <Media job={job} assessment={assessment} />
         </Section>
       ) : null}
       {assessment.notes && (

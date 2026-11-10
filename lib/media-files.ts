@@ -1,6 +1,6 @@
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
-import { MAX_SCREENSHOT_BYTES, SCREENSHOT_DIR, sniffType, type ScreenshotRef, type ScreenshotType } from "./screenshots";
+import { MAX_SCREENSHOT_BYTES, SCREENSHOT_DIR, sniffType, type ScreenshotRef, type ScreenshotType } from "./media";
 
 // The reporter's side of lib/screenshots.ts: reading the attached files on the agent's machine.
 

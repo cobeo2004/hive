@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { screenshotsInputSchema, type ScreenshotRef } from "./screenshots";
+import { screenshotsInputSchema, type ScreenshotRef } from "./media";
 
 // The agent's merge assessment, sent with stage pr. The agent recommends merge when it is confident
 // it built what the issue asked for and that it works, and handover only when it isn't. The

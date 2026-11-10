@@ -5,7 +5,7 @@ import { parseAssessment } from "@/lib/assessment";
 import { parseJobKey } from "@/lib/live-queries";
 
 /** One screenshot of the job's current assessment, by its place in the list; the proxy lets only the owner through. */
-export async function GET(request: Request, { params }: RouteContext<"/api/jobs/[key]/screenshots/[index]">) {
+export async function GET(request: Request, { params }: RouteContext<"/api/jobs/[key]/media/[index]">) {
   const { key: rawKey, index } = await params;
   const key = parseJobKey(rawKey);
   if (!key || !/^\d+$/.test(index)) return Response.json({ error: "invalid screenshot" }, { status: 400 });
