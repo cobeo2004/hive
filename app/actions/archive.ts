@@ -1,11 +1,11 @@
 "use server";
 
-import { auth } from "@/lib/auth/server";
+import { currentUser } from "@/lib/auth/server";
 import { archiveJobs as archive, unarchiveJobs as unarchive } from "@/lib/archive-actions";
 import { inboxDeps } from "@/lib/inbox-deps";
 import type { JobId } from "@/lib/sources/shapes";
 
-const deps = inboxDeps(async () => (await auth.getSession()).data?.user);
+const deps = inboxDeps(currentUser);
 
 export async function archiveJobs(ids: JobId[]) {
   return archive(deps, ids);

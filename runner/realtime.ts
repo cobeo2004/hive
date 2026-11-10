@@ -1,70 +1,49 @@
-import type { LiveQueryState } from "@neon/realtime/client";
+export type Listening = { close(): void };
 
-export type LiveSubscription = {
-  getState(): LiveQueryState;
-  onStateChange(listener: (state: LiveQueryState) => void): () => void;
-};
-
-export type KeepSubscribedDeps<Client extends { close(): void }> = {
-  connect: () => Client;
-  /** Subscribes on the client and attaches the change listeners. */
-  subscribe: (client: Client) => Promise<readonly LiveSubscription[]>;
+export type KeepListeningDeps = {
+  /** Connects and LISTENs; `onClose` runs when that connection errors or ends. */
+  listen: (onClose: (reason: string) => void) => Promise<Listening>;
   log: (detail: Record<string, unknown>) => void;
   schedule: (run: () => void, ms: number) => void;
 };
 
 /**
- * Keeps the runner's live queries subscribed. An error is final for a subscription, and a
- * connection-level failure (such as the server's "protocol error" when a late renewal meets an
- * expired query) is final for the whole client: every later subscribe on it fails at once. So a
- * failure closes the client and starts over on a new one, with backoff, until they are live again.
+ * Keeps the runner listening for table changes. A connection that fails, errors or ends is closed and
+ * replaced, with backoff, until one is listening again; a live connection resets the backoff. The
+ * tick stays the real loop, so a gap only delays work until the next tick.
  */
-export function keepSubscribed<Client extends { close(): void }>(
-  deps: KeepSubscribedDeps<Client>,
-  { baseMs = 5_000, capMs = 60_000 } = {},
-) {
-  let client: Client | undefined;
+export function keepListening(deps: KeepListeningDeps, { baseMs = 5_000, capMs = 60_000 } = {}) {
+  let current: Listening | undefined;
   let generation = 0;
   let failures = 0;
   let closed = false;
 
-  const restart = (current: number, reason: Record<string, unknown>) => {
-    if (closed || current !== generation) return;
+  const restart = (gen: number, reason: string) => {
+    if (closed || gen !== generation) return;
     generation += 1;
-    client?.close();
-    client = undefined;
+    current?.close();
+    current = undefined;
     const delayMs = Math.min(baseMs * 2 ** failures, capMs);
     failures += 1;
-    deps.log({ status: "restarting", delayMs, ...reason });
+    deps.log({ status: "restarting", delayMs, reason });
     deps.schedule(() => void start(), delayMs);
-  };
-
-  const watch = (current: number, state: LiveQueryState) => {
-    if (current !== generation) return;
-    if (state.status === "live") failures = 0;
-    if (state.status === "error") restart(current, { error: state.error.message, code: state.error.code });
   };
 
   async function start() {
     if (closed) return;
-    const current = generation;
-    const fresh = deps.connect();
-    client = fresh;
-    let subscriptions: readonly LiveSubscription[];
+    const gen = generation;
+    let listening: Listening;
     try {
-      subscriptions = await deps.subscribe(fresh);
+      listening = await deps.listen((reason) => restart(gen, reason));
     } catch (error) {
-      restart(current, { error: String(error) });
+      restart(gen, String(error));
       return;
     }
-    for (const subscription of subscriptions) {
-      subscription.onStateChange((state) => {
-        if (current === generation) deps.log({ status: state.status, error: state.error?.message, code: state.error?.code });
-        watch(current, state);
-      });
-      // A subscription can fail before its listener is attached.
-      watch(current, subscription.getState());
-    }
+    // Closed, or the connection already ended while it was being set up.
+    if (gen !== generation) return listening.close();
+    current = listening;
+    failures = 0;
+    deps.log({ status: "live" });
   }
 
   return {
@@ -72,8 +51,8 @@ export function keepSubscribed<Client extends { close(): void }>(
     close() {
       closed = true;
       generation += 1;
-      client?.close();
-      client = undefined;
+      current?.close();
+      current = undefined;
     },
   };
 }

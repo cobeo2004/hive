@@ -51,15 +51,16 @@ function Row({
 }) {
   const cost = spendOf(card.attemptRuns, agentsBySession);
   const decision = card.stop
-    ? { text: stopLine(card.stop.view), tone: card.stop.view.kind === "unconfirmed" ? "text-destructive" : card.stop.view.kind === "stopping" ? "text-warning" : undefined }
+    ? {
+        text: stopLine(card.stop.view),
+        tone: card.stop.view.kind === "unconfirmed" ? "text-destructive" : card.stop.view.kind === "stopping" ? "text-warning" : undefined,
+      }
     : showsDecision(card)
       ? decisionLine(card.mergeDecision)
       : null;
-  const where = card.runsOn && (card.runsOn.kind === "modal" && card.runsOn.sandbox ? `Cloud sandbox · ${card.runsOn.sandbox}` : whereLine(card.runsOn, machineName));
-  const className = cn(
-    "flex h-9 min-w-0 flex-1 items-center gap-3 ps-1 pe-4 text-left outline-none @3xl:pe-5",
-    !href && "cursor-default",
-  );
+  const where =
+    card.runsOn && (card.runsOn.kind === "modal" && card.runsOn.sandbox ? `Cloud sandbox · ${card.runsOn.sandbox}` : whereLine(card.runsOn, machineName));
+  const className = cn("flex h-9 min-w-0 flex-1 items-center gap-3 ps-1 pe-4 text-left outline-none @3xl:pe-5", !href && "cursor-default");
   const content = (
     <>
       <span className={cn("size-2 shrink-0 rounded-full", STAGE_META[card.stage].dot)} title={STAGE_META[card.stage].label} />
@@ -147,7 +148,10 @@ export function JobList({
   const act = () => {
     const ids = chosen.map((c) => c.jobId!);
     startTransition(async () => {
-      const outcome = await (archived ? unarchiveJobs(ids) : archiveJobs(ids)).catch((e: unknown) => ({ ok: false, message: e instanceof Error ? e.message : String(e) }));
+      const outcome = await (archived ? unarchiveJobs(ids) : archiveJobs(ids)).catch((e: unknown) => ({
+        ok: false,
+        message: e instanceof Error ? e.message : String(e),
+      }));
       if (!outcome.ok) {
         toastManager.add({ type: "error", title: outcome.message });
         return;

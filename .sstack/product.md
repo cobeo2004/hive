@@ -34,10 +34,11 @@ merges on its own only where a repository allows it.
 
 - **Panel** (`app/`, Next.js): Jobs, Inbox, Repositories, Machines, Settings, Workflow. Served on the
   Unibuz tailnet only (replacing Vercel + Neon Auth).
-- **Database and live updates**: Neon Postgres via Drizzle (`db/schema.ts`), Neon Realtime
-  (`lib/live-queries.ts`, `runner/realtime.ts`).
-- **Ingest** (`functions/`): Neon Functions receiving Linear/GitHub webhooks and reporter events,
-  signature-checked. The only public surface.
+- **Database and live updates**: any Postgres via Drizzle (`db/schema.ts`). Triggers notify
+  `hive_changes` (`drizzle/0040_live_notify.sql`); the panel follows it over SSE (`app/api/live`,
+  `components/panel/live-refresh.tsx`) and the runner with `runner/realtime.ts`.
+- **Ingest** (`app/api/ingest`, `app/api/webhooks/[source]`): panel routes receiving reporter
+  events and Linear/GitHub webhooks, secret- or signature-checked. The only public paths.
 - **Runner** (`runner/`): the only process touching T3, git and the GitHub API; one per pool Mac.
 - **Agents**: T3 Code threads on a runner Mac or in Modal sandboxes (`lib/modal-host.ts`,
   `lib/sandbox.ts`). The lead thread runs sstack `work` and dispatches roles as T3 child tasks.

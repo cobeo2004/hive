@@ -32,10 +32,7 @@ export type StageTransition = { stage: Stage; eventId: string };
 
 export type Reply = { id: string; body: string; createdAt: string };
 
-export type ResumePlan =
-  | { kind: "wait" }
-  | { kind: "close"; state: string }
-  | { kind: "resume"; question: string; replies: Reply[]; answer: string };
+export type ResumePlan = { kind: "wait" } | { kind: "close"; state: string } | { kind: "resume"; question: string; replies: Reply[]; answer: string };
 
 export type StopReason = string;
 

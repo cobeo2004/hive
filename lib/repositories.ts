@@ -3,7 +3,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type * as schema from "@/db/schema";
 import { jobs, repoSettings, type RepoSettingsRow } from "@/db/schema";
-import { isOwner, type SessionUser } from "@/lib/auth/owner";
+import { isAdmin, type SessionUser } from "@/lib/auth/owner";
 import { executionSchema, type Execution } from "@/lib/execution";
 import type { Harness } from "@/lib/harness";
 import { autonomySchema } from "@/lib/merge-decision";
@@ -60,7 +60,10 @@ export function routeRepo(asked: Pick<SourceOverrides, "repository">, registry: 
   const name = picked[0]!;
   const matches = labelMatches(registry, name);
   if (matches.length > 1) {
-    return { repo, problem: `The ${REPOSITORY_GROUP} label "${name}" names more than one repository (${matches.map((r) => r.repo).join(", ")}), so it runs in ${to}.` };
+    return {
+      repo,
+      problem: `The ${REPOSITORY_GROUP} label "${name}" names more than one repository (${matches.map((r) => r.repo).join(", ")}), so it runs in ${to}.`,
+    };
   }
   const match = matches[0];
   if (!match) return { repo, problem: `The ${REPOSITORY_GROUP} label "${name}" names no repository the factory knows, so it runs in ${to}.` };
@@ -91,7 +94,10 @@ export function withRepoDefaults(settings: LaunchDefaults, repo: RepoSettingsRow
   if (repo?.provider && repo.provider !== settings.harness.provider) {
     const model = harnesses?.find((h) => h.id === repo.provider && h.enabled)?.models[0]?.slug;
     if (model) harness = { provider: repo.provider, model, from: "repo" };
-    else problems.push(`${repo.repo} defaults to harness ${repo.provider}, which no runner reports enabled with a model, so its jobs start on the Settings harness.`);
+    else
+      problems.push(
+        `${repo.repo} defaults to harness ${repo.provider}, which no runner reports enabled with a model, so its jobs start on the Settings harness.`,
+      );
   }
   return { defaults: { harness, execution: repo?.execution ?? settings.execution }, problems };
 }
@@ -111,7 +117,8 @@ export const readRepoStats = (database: Db): Promise<RepoStats[]> =>
     .from(jobs)
     .groupBy(jobs.repo);
 
-const isUniqueViolation = (error: unknown) => (error as { code?: string; cause?: { code?: string } })?.code === "23505" || (error as { cause?: { code?: string } })?.cause?.code === "23505";
+const isUniqueViolation = (error: unknown) =>
+  (error as { code?: string; cause?: { code?: string } })?.code === "23505" || (error as { cause?: { code?: string } })?.cause?.code === "23505";
 
 /**
  * Adds the runner's checkouts to the registry and makes the first one the default when none is.
@@ -122,7 +129,9 @@ export async function registerRepos(database: Db, repos: readonly string[], by: 
   if (repos.length === 0) return;
   await database.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('repo_settings.display_name'))`);
-    const named: Pick<RepoSettingsRow, "repo" | "display_name">[] = await tx.select({ repo: repoSettings.repo, display_name: repoSettings.display_name }).from(repoSettings);
+    const named: Pick<RepoSettingsRow, "repo" | "display_name">[] = await tx
+      .select({ repo: repoSettings.repo, display_name: repoSettings.display_name })
+      .from(repoSettings);
     const added: (typeof repoSettings.$inferInsert)[] = [];
     for (const repo of repos) {
       if (named.some((r) => r.repo === repo)) continue;
@@ -154,7 +163,6 @@ export async function writeDefaultRepo(database: Db, repo: string, by: string, a
     if (!moved) throw new Error(`${repo} is not an enabled repository`);
   });
 }
-
 
 export const repositoryInputSchema = z.object({
   repo: z.string().regex(REPO_NAME, "Name the repo as owner/name."),
@@ -203,7 +211,7 @@ export type RepositoryDeps = {
   save: (choice: RepositoryChoice, by: string) => Promise<void>;
 };
 
-const FORBIDDEN = { ok: false, status: 403, message: "Only the factory owner can change repositories." } as const;
+const FORBIDDEN = { ok: false, status: 403, message: "Only an admin can change repositories." } as const;
 const invalid = (message: string): SettingsOutcome => ({ ok: false, status: 400, message });
 const failed = (error: unknown): SettingsOutcome => ({
   ok: false,
@@ -214,7 +222,7 @@ const failed = (error: unknown): SettingsOutcome => ({
 /** Edits one registered repo. The default stays enabled, and display names stay unique, since labels match by them. */
 export async function saveRepository(deps: RepositoryDeps, input: unknown): Promise<SettingsOutcome> {
   const user = await deps.user();
-  if (!user || !isOwner(user)) return FORBIDDEN;
+  if (!user || !isAdmin(user)) return FORBIDDEN;
   const parsed = repositoryInputSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error.issues[0]?.message ?? "The repository is not valid.");
   const choice = parsed.data;
@@ -245,7 +253,7 @@ export type DefaultRepoDeps = {
 
 export async function makeDefaultRepo(deps: DefaultRepoDeps, input: unknown): Promise<SettingsOutcome> {
   const user = await deps.user();
-  if (!user || !isOwner(user)) return FORBIDDEN;
+  if (!user || !isAdmin(user)) return FORBIDDEN;
   const parsed = defaultRepoInputSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error.issues[0]?.message ?? "The repository is not valid.");
   const row = (await deps.registry()).find((r) => r.repo === parsed.data.repo);

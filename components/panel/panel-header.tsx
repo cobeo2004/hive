@@ -8,7 +8,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import type { JobView } from "./job-view";
 import { useShell } from "./panel-shell";
-import type { FeedStatus } from "./sealed";
+import type { FeedStatus } from "./live-refresh";
 
 const STATUS: Record<FeedStatus, { dot: string; label: string }> = {
   live: { dot: "animate-pulse bg-success", label: "Live" },
@@ -39,7 +39,11 @@ function ViewSwitch({ current, onChange }: ViewSwitchProps) {
           )}
         >
           {view === current && (
-            <motion.span layoutId="panel-view-marker" transition={{ type: "spring", stiffness: 500, damping: 40 }} className="absolute inset-0 rounded-[5px] bg-accent" />
+            <motion.span
+              layoutId="panel-view-marker"
+              transition={{ type: "spring", stiffness: 500, damping: 40 }}
+              className="absolute inset-0 rounded-[5px] bg-accent"
+            />
           )}
           <span className="relative">{label}</span>
         </button>

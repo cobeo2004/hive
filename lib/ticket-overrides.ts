@@ -35,7 +35,8 @@ export function ticketOverrides(asked: SourceOverrides, harnesses: readonly Harn
     const matches = (harnesses ?? []).filter((h) => same(h.name, name));
     const enabled = matches.find((h) => h.enabled);
     if (enabled) result.provider = enabled.id;
-    else if (matches.length > 0) problems.push(`The ${HARNESS_GROUP} label "${name}" names a harness that is disabled in T3, so it runs on the Settings harness.`);
+    else if (matches.length > 0)
+      problems.push(`The ${HARNESS_GROUP} label "${name}" names a harness that is disabled in T3, so it runs on the Settings harness.`);
     else problems.push(`The ${HARNESS_GROUP} label "${name}" matches no harness a runner reports, so it runs on the Settings harness.`);
   }
 

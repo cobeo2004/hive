@@ -6,13 +6,13 @@ import { newJobSchema, type NewJob } from "@/lib/new-job-schema";
 import { displayName } from "@/lib/repo-name";
 import { defaultRepo, type Registry } from "@/lib/repositories";
 import { SLACK_COMMAND, SLACK_SHORTCUT_CALLBACK_ID, type SlackMessage } from "@/lib/slack";
-import type { InteractionDeps } from "@/lib/slack-interactions";
-import { ephemeral, invalidSignature, NO_TOKEN, NOT_OWNER, parseJson, safeMessage, signedBody, uuidFrom } from "@/lib/slack-request";
+import { actingAs, type InteractionDeps } from "@/lib/slack-interactions";
+import { ephemeral, invalidSignature, NO_TOKEN, NOT_MEMBER, parseJson, safeMessage, signedBody, uuidFrom } from "@/lib/slack-request";
 import { RUNS_ON_LABELS } from "@/lib/ticket-overrides";
 
 // Filing jobs from Slack: `/factory` (app/api/slack/commands) and the "Send to factory" message
 // shortcut (app/api/slack/interactions) open the panel's New job form as a modal, and submitting it
-// files the job through the panel's own createJob (lib/new-job.ts) as the owner. Slack is one more
+// files the job through the panel's own createJob (lib/new-job.ts) as the Hive member who asked. Slack is one more
 // front door to the same source: the issue it files is claimed like any other.
 
 export const NEW_JOB_CALLBACK_ID = "factory:new_job";
@@ -144,9 +144,17 @@ export function renderNewJobModal(prefill: Prefill, options: ModalOptions, meta:
         optional: true,
         label: plain("Description"),
         hint: plain("The agent reads this as the spec. Markdown works."),
-        element: { type: "plain_text_input", action_id: VALUE, multiline: true, max_length: SLACK_INPUT_MAX, ...(prefill.description && { initial_value: prefill.description }) },
+        element: {
+          type: "plain_text_input",
+          action_id: VALUE,
+          multiline: true,
+          max_length: SLACK_INPUT_MAX,
+          ...(prefill.description && { initial_value: prefill.description }),
+        },
       },
-      ...(repos.length > 0 ? [select(NEW_JOB_BLOCKS.repo, "Repository", repos, initialRepo, "Goes on the issue as its Repository label, the default one included.")] : []),
+      ...(repos.length > 0
+        ? [select(NEW_JOB_BLOCKS.repo, "Repository", repos, initialRepo, "Goes on the issue as its Repository label, the default one included.")]
+        : []),
       select(NEW_JOB_BLOCKS.harness, "Harness", [settingsDefault, ...options.harnesses.map((h) => option(h.id, h.name))], settingsDefault),
       select(NEW_JOB_BLOCKS.runsOn, "Runs on", [settingsDefault, ...EXECUTIONS.map((e) => option(e, RUNS_ON_LABELS[e]))], settingsDefault),
     ],
@@ -163,7 +171,7 @@ const commandSchema = z.object({
   response_url: z.string(),
 });
 
-/** `/factory`: help, or the New job modal, empty or prefilled with the text. Only the owner gets the modal. */
+/** `/factory`: help, or the New job modal, empty or prefilled with the text. Only a Hive member gets the modal. */
 export async function handleCommand(request: Request, deps: InteractionDeps): Promise<Response> {
   const body = await signedBody(request, deps.signingSecret, deps.now?.() ?? Date.now());
   if (body === null) return invalidSignature();
@@ -171,7 +179,7 @@ export async function handleCommand(request: Request, deps: InteractionDeps): Pr
   const command = commandSchema.safeParse(Object.fromEntries(new URLSearchParams(body)));
   if (!command.success || command.data.command !== SLACK_COMMAND) return say(USAGE);
   const { user_id, text, trigger_id, response_url } = command.data;
-  if (!deps.ownerSlackId || user_id !== deps.ownerSlackId) return say(NOT_OWNER);
+  if (!(await actingAs(deps, user_id))) return say(NOT_MEMBER);
   if (text.trim().toLowerCase() === "help") return say(USAGE);
   const slack = deps.slack;
   if (!slack) return say(NO_TOKEN);
@@ -216,7 +224,7 @@ export async function sendToFactory(deps: InteractionDeps, payload: z.infer<type
   }
   deps.after(async () => {
     try {
-      if (!owner) return await reply(NOT_OWNER);
+      if (!owner) return await reply(NOT_MEMBER);
       if (!slack || !view) return await reply(openError ? safeMessage(deps.secrets, openError) : NO_TOKEN);
       const { channel, message } = payload;
       await fillIn(deps, slack, view, async () => {
@@ -231,7 +239,10 @@ export async function sendToFactory(deps: InteractionDeps, payload: z.infer<type
   return ack();
 }
 
-const stateSchema = z.record(z.string(), z.record(z.string(), z.object({ value: z.string().nullish(), selected_option: z.object({ value: z.string() }).nullish() })));
+const stateSchema = z.record(
+  z.string(),
+  z.record(z.string(), z.object({ value: z.string().nullish(), selected_option: z.object({ value: z.string() }).nullish() })),
+);
 const submissionSchema = z.object({ view: z.object({ id: z.string(), private_metadata: z.string(), state: z.object({ values: stateSchema }) }) });
 
 /** The job a submission asks for, with a request id from the modal, so submitting it again files the same issue. */
@@ -264,7 +275,7 @@ const BLOCK_OF: Record<keyof NewJob, string> = {
 /** The New job modal's submission: an invalid form is refused inline, a valid one closes and is filed after the ack. */
 export function newJobSubmitted(deps: InteractionDeps, payload: unknown, owner: boolean) {
   const refuse = (block: string, message: string) => Response.json({ response_action: "errors", errors: { [block]: message } });
-  if (!owner) return refuse(NEW_JOB_BLOCKS.title, NOT_OWNER);
+  if (!owner) return refuse(NEW_JOB_BLOCKS.title, NOT_MEMBER);
   const parsed = submissionSchema.safeParse(payload);
   const meta = metaSchema.safeParse(parseJson(parsed.data?.view.private_metadata ?? ""));
   if (!parsed.success || !meta.success) return refuse(NEW_JOB_BLOCKS.title, "This form can't be read; open it again.");
@@ -303,7 +314,11 @@ async function fileJob(deps: InteractionDeps, input: NewJob, meta: Meta) {
   }
   if (!outcome.ok) return notify(deps, meta, outcome.message);
   const { identifier, url } = outcome;
-  await notify(deps, meta, `Filed *${escape(identifier)}* · ${escape(input.title)}\nThe factory picks it up within a few seconds. <${url}|Open the issue> · <${deps.panelUrl}/|Open the board>`);
+  await notify(
+    deps,
+    meta,
+    `Filed *${escape(identifier)}* · ${escape(input.title)}\nThe factory picks it up within a few seconds. <${url}|Open the issue> · <${deps.panelUrl}/|Open the board>`,
+  );
   if (!meta.channel || !meta.threadTs || !deps.slack) return;
   try {
     await deps.slack.postMessage(meta.channel, message(`Filed as <${url}|${escape(identifier)}>`), meta.threadTs);

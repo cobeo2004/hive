@@ -31,27 +31,45 @@ const { ORPHAN_LEASE_MS, releaseOrphanLeases } = await import("../runner/lifecyc
 modal.api = fakeModal;
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
-const owner = { email: OWNER, emailVerified: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
 const stamp = Date.now();
 const NS = `test-onb-${stamp}`;
 // The test branch copies a real database, whose repos must never take this machine's build slot.
-const ours = async () => (await db.select({ repo: repoSettings.repo }).from(repoSettings).where(like(repoSettings.repo, `${NS}/%`))).map((r) => r.repo);
+const ours = async () =>
+  (
+    await db
+      .select({ repo: repoSettings.repo })
+      .from(repoSettings)
+      .where(like(repoSettings.repo, `${NS}/%`))
+  ).map((r) => r.repo);
 const { parseRecipe, buildScript, warmKeyTouched, BUILD_FILES } = recipes;
 
 // The recipe schema.
-const valid = { system: ["libvips-dev"], runtimes: { node: "22", bun: "1.4.4" }, setup: ["bun install --frozen-lockfile"], checks: { test: "bun test", lint: "bun run lint" } };
+const valid = {
+  system: ["libvips-dev"],
+  runtimes: { node: "22", bun: "1.4.4" },
+  setup: ["bun install --frozen-lockfile"],
+  checks: { test: "bun test", lint: "bun run lint" },
+};
 const parsed = parseRecipe(JSON.stringify(valid));
 assert.ok(parsed.ok, "a plain recipe parses");
 assert.deepEqual(parseRecipe("{"), { ok: false, error: ".factory/setup.json is not valid JSON." });
-assert.match((parseRecipe(JSON.stringify({ ...valid, services: ["postgres"] })) as { error: string }).error, /services, which the factory does not run yet/, "services are refused by name");
+assert.match(
+  (parseRecipe(JSON.stringify({ ...valid, services: ["postgres"] })) as { error: string }).error,
+  /services, which the factory does not run yet/,
+  "services are refused by name",
+);
 assert.equal(parseRecipe(JSON.stringify({ ...valid, system: ["libvips-dev; rm -rf /"] })).ok, false, "an apt name that is not one is refused");
 assert.equal(parseRecipe(JSON.stringify({ ...valid, runtimes: { node: "latest" } })).ok, false, "a runtime pin is a version");
 assert.equal(parseRecipe(JSON.stringify({ ...valid, checks: { e2e: "x" } })).ok, false, "only the four checks");
 assert.equal(parseRecipe(JSON.stringify({ ...valid, env: [{ name: "BAD-NAME", purpose: "", required: true }] })).ok, false, "env names are identifiers");
 assert.equal(parseRecipe(JSON.stringify({ checks: {} })).ok, false, "setup is required");
 const recipe = parsed.ok ? parsed.recipe : assert.fail();
-assert.equal(recipeHash(recipe), recipeHash(JSON.parse(JSON.stringify({ checks: valid.checks, setup: valid.setup, runtimes: { bun: "1.4.4", node: "22" }, system: valid.system }))), "key order does not change the hash");
+assert.equal(
+  recipeHash(recipe),
+  recipeHash(JSON.parse(JSON.stringify({ checks: valid.checks, setup: valid.setup, runtimes: { bun: "1.4.4", node: "22" }, system: valid.system }))),
+  "key order does not change the hash",
+);
 assert.notEqual(recipeHash(recipe), recipeHash({ ...recipe, setup: ["bun install"] }));
 assert.equal(warmKeyTouched(recipe, ["src/a.ts"]), false);
 assert.equal(warmKeyTouched(recipe, ["apps/web/bun.lock"]), true, "the default warmKey covers lockfiles in any directory");
@@ -60,7 +78,11 @@ assert.equal(warmKeyTouched({ ...recipe, warmKey: ["deps/**"] }, ["bun.lock"]), 
 assert.equal(warmKeyTouched({ ...recipe, warmKey: ["deps/**"] }, ["deps/x.txt"]), true);
 const script = buildScript(recipe, "/work/repo", { checks: true });
 assert.match(script, /apt-get install -y --no-install-recommends libvips-dev \|\| exit 10/);
-assert.match(script, new RegExp(`echo ${Buffer.from("bun install --frozen-lockfile").toString("base64")} \\| base64 -d\\)" \\|\\| exit 20`), "setup commands travel base64 encoded and stop the build");
+assert.match(
+  script,
+  new RegExp(`echo ${Buffer.from("bun install --frozen-lockfile").toString("base64")} \\| base64 -d\\)" \\|\\| exit 20`),
+  "setup commands travel base64 encoded and stop the build",
+);
 assert.match(script, /printf '%s\\t%s\\n' test \$\? >> \/work\/onboarding\/checks.tsv/, "checks record their exit codes");
 assert.doesNotMatch(buildScript(recipe, "/work/repo", { checks: false }), /checks.tsv/, "a plain build runs no checks");
 assert.deepEqual(recipes.parseCheckResults("test\t0\nlint\t1\nbogus\t0\n", recipe), [
@@ -125,18 +147,45 @@ const repoRow = (repo: string, state: RepoRow["onboarding_state"], detail: Onboa
 });
 assert.deepEqual(onboarding.repoImage(repoRow("a/legacy", null), base), { kind: "base" }, "a repo from before onboarding launches from the base image");
 assert.deepEqual(onboarding.repoImage(repoRow("a/b", "ready", { image: warmImage }), base), { kind: "warm", imageId: "im-warm-1" });
-assert.deepEqual(onboarding.repoImage(repoRow("a/b", "rebuilding", { image: warmImage }), base), { kind: "warm", imageId: "im-warm-1" }, "the old image serves while a new one builds");
-assert.deepEqual(onboarding.repoImage(repoRow("a/b", "failed", { image: warmImage }), base), { kind: "warm", imageId: "im-warm-1" }, "and after a rebuild failed");
+assert.deepEqual(
+  onboarding.repoImage(repoRow("a/b", "rebuilding", { image: warmImage }), base),
+  { kind: "warm", imageId: "im-warm-1" },
+  "the old image serves while a new one builds",
+);
+assert.deepEqual(
+  onboarding.repoImage(repoRow("a/b", "failed", { image: warmImage }), base),
+  { kind: "warm", imageId: "im-warm-1" },
+  "and after a rebuild failed",
+);
 const repinned = { ...base, versions: { ...base.versions, codex: "9.9.9" } };
-assert.match((onboarding.repoImage(repoRow("a/b", "ready", { image: warmImage }), repinned) as { outdated: string }).outdated, /Codex .+ → 9\.9\.9/, "a base pin change makes it outdated");
+assert.match(
+  (onboarding.repoImage(repoRow("a/b", "ready", { image: warmImage }), repinned) as { outdated: string }).outdated,
+  /Codex .+ → 9\.9\.9/,
+  "a base pin change makes it outdated",
+);
 assert.equal(onboarding.repoImage(repoRow("a/b", "ready", { image: warmImage }), { ...base, builtAt: "later" }).kind, "base", "so does a rebuilt base image");
 assert.deepEqual(onboarding.repoImage(repoRow("a/b", "analyzing"), base), { kind: "blocked", reason: "a/b is not onboarded yet (analyzing)" });
 assert.equal(onboarding.repoImage(repoRow("a/b", "needs_input"), base).kind, "blocked");
 const start = sandboxStart(repoRow("a/b", "ready", { image: warmImage, recipe, secretsSet: ["API_KEY"] }), baseImage);
-assert.deepEqual(start, { imageId: "im-warm-1", warm: { setup: recipe.setup }, namedSecrets: ["mf-repo-a-b"] }, "a warm launch has the repo set up and its secret attached");
-assert.deepEqual(sandboxStart(repoRow("a/b", "ready", { image: warmImage }), { ...baseImage, builtAt: "later" }), { imageId: "im-base", namedSecrets: [], outdated: "the base image was rebuilt since" });
-assert.deepEqual(onboarding.afterRecipe({ ...recipe, env: [{ name: "K", purpose: "p", required: true }] }, {}), { state: "needs_input", missingSecrets: ["K"] });
-assert.deepEqual(onboarding.afterRecipe({ ...recipe, env: [{ name: "K", purpose: "p", required: false }] }, {}), { state: "building", missingSecrets: [] }, "an optional env var never blocks");
+assert.deepEqual(
+  start,
+  { imageId: "im-warm-1", warm: { setup: recipe.setup }, namedSecrets: ["mf-repo-a-b"] },
+  "a warm launch has the repo set up and its secret attached",
+);
+assert.deepEqual(sandboxStart(repoRow("a/b", "ready", { image: warmImage }), { ...baseImage, builtAt: "later" }), {
+  imageId: "im-base",
+  namedSecrets: [],
+  outdated: "the base image was rebuilt since",
+});
+assert.deepEqual(onboarding.afterRecipe({ ...recipe, env: [{ name: "K", purpose: "p", required: true }] }, {}), {
+  state: "needs_input",
+  missingSecrets: ["K"],
+});
+assert.deepEqual(
+  onboarding.afterRecipe({ ...recipe, env: [{ name: "K", purpose: "p", required: false }] }, {}),
+  { state: "building", missingSecrets: [] },
+  "an optional env var never blocks",
+);
 assert.deepEqual(onboarding.afterRecipe(recipe, { image: warmImage }), { state: "rebuilding", missingSecrets: [] });
 
 // The push webhook names the repo and what changed.
@@ -146,7 +195,11 @@ const push = githubPushIntent("push", {
   repository: { default_branch: "main", full_name: "o/r" },
   commits: [{ added: ["a"], modified: ["bun.lock"], removed: [] }, { modified: ["bun.lock", ".factory/setup.json"] }],
 });
-assert.deepEqual(push && { ...push, detail: JSON.parse(push.detail!) }, { kind: "repo_push", key: "repo-push:o/r:abc", detail: { repo: "o/r", after: "abc", files: ["a", "bun.lock", ".factory/setup.json"] } });
+assert.deepEqual(push && { ...push, detail: JSON.parse(push.detail!) }, {
+  kind: "repo_push",
+  key: "repo-push:o/r:abc",
+  detail: { repo: "o/r", after: "abc", files: ["a", "bun.lock", ".factory/setup.json"] },
+});
 assert.equal(githubPushIntent("push", { ref: "refs/heads/feature", repository: { default_branch: "main", full_name: "o/r" } }), null);
 const pushFlags = (body: Record<string, unknown>) => {
   const intent = githubPushIntent("push", { ref: "refs/heads/main", after: "def", repository: { default_branch: "main", full_name: "o/r" }, ...body });
@@ -154,7 +207,11 @@ const pushFlags = (body: Record<string, unknown>) => {
 };
 const srcCommits = (n: number) => Array.from({ length: n }, (_, i) => ({ modified: [`src/${i}.ts`] }));
 assert.equal(pushFlags({ commits: srcCommits(19) }), false, "a push GitHub lists in full names its files");
-assert.equal(pushFlags({ commits: srcCommits(20) }), true, "a push with as many commits as GitHub lists may hide a lockfile, so it counts as touching everything");
+assert.equal(
+  pushFlags({ commits: srcCommits(20) }),
+  true,
+  "a push with as many commits as GitHub lists may hide a lockfile, so it counts as touching everything",
+);
 assert.equal(pushFlags({ commits: srcCommits(3), size: 40 }), true, "so does one whose size says commits were left out");
 assert.equal(pushFlags({ commits: srcCommits(3), distinct_size: 25 }), true);
 assert.equal(pushFlags({ commits: srcCommits(1), forced: true }), true, "and a forced push, whose commits say nothing of what it rewound");
@@ -183,13 +240,20 @@ threads.read = async () => ({ state: threadState, status: null, lastMessage: "I 
 fake.answer = (sandbox, argv) => {
   const line = argv.join(" ");
   if (argv[0] === "rm") {
-    for (const path of argv.slice(2)) for (const file of [...sandbox.files.keys()]) if (file === path || file.startsWith(`${path}/`)) sandbox.files.delete(file);
+    for (const path of argv.slice(2))
+      for (const file of [...sandbox.files.keys()]) if (file === path || file.startsWith(`${path}/`)) sandbox.files.delete(file);
     return {};
   }
   if (line.startsWith("t3 thread start")) return { stdout: '{"threadId":"thread-onb"}' };
   if (line === `git -C ${REPO_DIR} rev-parse HEAD`) return { stdout: "abc1234def\n" };
   if (line === `git -C ${REPO_DIR} ls-files`) return { stdout: "bun.lock\npackage.json\nsrc/a.ts\n" };
-  if (argv[0] === "sha256sum") return { stdout: argv.slice(2).map((f) => `aa  ${f}`).join("\n") };
+  if (argv[0] === "sha256sum")
+    return {
+      stdout: argv
+        .slice(2)
+        .map((f) => `aa  ${f}`)
+        .join("\n"),
+    };
   if (line === "claude plugin list --json") return { stdout: "[]" };
   return {};
 };
@@ -197,7 +261,9 @@ const row = async (repo: string) => (await db.select().from(repoSettings).where(
 const detail = async (repo: string) => onboarding.parseDetail((await row(repo)).onboarding_detail);
 const sandboxOf = (id: string | undefined) => sandboxes.get(id!) as FakeSandbox;
 const insert = (repo: string, state: RepoRow["onboarding_state"], d: OnboardingDetail = {}) =>
-  db.insert(repoSettings).values({ repo, enabled: true, onboarding_state: state, onboarding_detail: d, onboarding_at: new Date(), updated_at: new Date(), updated_by: "test" });
+  db
+    .insert(repoSettings)
+    .values({ repo, enabled: true, onboarding_state: state, onboarding_detail: d, onboarding_at: new Date(), updated_at: new Date(), updated_by: "test" });
 const finishBuild = (repo: string, code: number, log = "") =>
   detail(repo).then((d) => {
     const box = sandboxOf(d.run?.sandboxId);
@@ -220,7 +286,13 @@ const realError = console.error;
 try {
   // Add repository: owner only, only what the App reaches and nothing registered, then the row, its intent and its label.
   await insert(`${NS}/taken`, null);
-  const installable = { repos: [{ repo: `${NS}/taken`, private: false, description: null }, { repo: `${NS}/fresh`, private: true, description: "d" }], manageUrl: "https://github.com/settings/installations/1" };
+  const installable = {
+    repos: [
+      { repo: `${NS}/taken`, private: false, description: null },
+      { repo: `${NS}/fresh`, private: true, description: "d" },
+    ],
+    manageUrl: "https://github.com/settings/installations/1",
+  };
   const labels: unknown[] = [];
   const addDeps = (user: typeof owner | null = owner) => ({
     user: async () => user,
@@ -229,7 +301,7 @@ try {
     create: (repo: string, by: string) => actions.writeNewRepository(db, repo, by, new Date()),
     syncLabels: async (groups: unknown) => (labels.push(groups), { created: [], problems: [] }),
   });
-  for (const user of [null, { email: "x@example.com", emailVerified: true }]) {
+  for (const user of [null, { email: "x@example.com", role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() }]) {
     assert.equal((await actions.listAddable(addDeps(user))).ok, false, "only the owner lists");
     assert.equal((await actions.addRepository(addDeps(user), { repo: `${NS}/fresh` })).ok, false, "or adds");
   }
@@ -241,8 +313,15 @@ try {
   assert.deepEqual(await actions.addRepository(addDeps(), { repo: `${NS}/fresh` }), { ok: true });
   const fresh = await row(`${NS}/fresh`);
   assert.deepEqual([fresh.enabled, fresh.is_default, fresh.onboarding_state, fresh.updated_by], [true, false, "analyzing", OWNER]);
-  const freshIntents = await db.select().from(intents).where(eq(intents.detail, `${NS}/fresh`));
-  assert.deepEqual(freshIntents.map((i) => i.kind), ["onboard_repo"], "a runner is asked to onboard it");
+  const freshIntents = await db
+    .select()
+    .from(intents)
+    .where(eq(intents.detail, `${NS}/fresh`));
+  assert.deepEqual(
+    freshIntents.map((i) => i.kind),
+    ["onboard_repo"],
+    "a runner is asked to onboard it",
+  );
   assert.deepEqual(labels, [[{ group: "Repository", children: ["fresh"] }]], "its Repository label child is added");
 
   // A committed recipe skips the agent: the build validates it and its checks run.
@@ -268,11 +347,21 @@ try {
   d = onboarding.parseDetail(built.onboarding_detail);
   assert.equal(built.onboarding_state, "ready");
   assert.deepEqual([d.image?.id.startsWith("im-snap-"), d.image?.commit, d.image?.recipeHash, d.image?.base], [true, "abc1234def", recipeHash(recipe), base]);
-  assert.deepEqual(d.checks?.map((c) => [c.name, c.ok]), [["test", true], ["lint", false]], "the committed recipe's checks are recorded");
+  assert.deepEqual(
+    d.checks?.map((c) => [c.name, c.ok]),
+    [
+      ["test", true],
+      ["lint", false],
+    ],
+    "the committed recipe's checks are recorded",
+  );
   assert.equal(d.run, undefined);
   assert.equal(builder.terminated, true);
   assert.equal(fake.images.get(d.image!.id)?.has(GITHUB_TOKEN_PATH), false, "the image holds no GitHub token");
-  assert.ok(builder.execs.some((e) => e.argv.join(" ") === `rm -rf /work/onboarding ${GITHUB_TOKEN_PATH}`), "nor the build's files");
+  assert.ok(
+    builder.execs.some((e) => e.argv.join(" ") === `rm -rf /work/onboarding ${GITHUB_TOKEN_PATH}`),
+    "nor the build's files",
+  );
   assert.equal(fake.snapshots.at(-1)!.ttlMs, null, "and is kept for good");
 
   // A push: unrelated files leave it; a lockfile rebuilds with the old image serving; a recipe change takes main's recipe.
@@ -281,7 +370,11 @@ try {
   await runner.repoPushed({ repo: COMMITTED.toUpperCase(), files: ["bun.lock"] });
   assert.equal((await row(COMMITTED)).onboarding_state, "rebuilding", "a lockfile change rebuilds");
   d = await detail(COMMITTED);
-  assert.deepEqual([d.image?.id, d.run?.kind, d.run?.checks], [firstImage, "build", false], "the old image serves, and an unchanged recipe is not checked again");
+  assert.deepEqual(
+    [d.image?.id, d.run?.kind, d.run?.checks],
+    [firstImage, "build", false],
+    "the old image serves, and an unchanged recipe is not checked again",
+  );
   assert.equal(onboarding.repoImage(await row(COMMITTED), base).kind, "warm");
   await runner.repoPushed({ repo: COMMITTED, files: ["bun.lock"] });
   assert.ok((await detail(COMMITTED)).rebuild, "a push during a build wants another one after it");
@@ -297,7 +390,11 @@ try {
   committed[COMMITTED] = JSON.stringify({ ...valid, setup: ["bun install"] });
   await runner.repoPushed({ repo: COMMITTED, files: [".factory/setup.json"] });
   d = await detail(COMMITTED);
-  assert.deepEqual([d.recipe?.setup, d.run?.reason, (await row(COMMITTED)).onboarding_state], [["bun install"], "the recipe changed on main", "rebuilding"], "a merged recipe change rebuilds from main's recipe");
+  assert.deepEqual(
+    [d.recipe?.setup, d.run?.reason, (await row(COMMITTED)).onboarding_state],
+    [["bun install"], "the recipe changed on main", "rebuilding"],
+    "a merged recipe change rebuilds from main's recipe",
+  );
   assert.equal(d.run?.checks, true, "and a changed committed recipe is checked again");
   await finishBuild(COMMITTED, 20, "== setup 1: bun install\nDATABASE_URL=postgres://u:pw@h/db\nerror: lockfile had changes");
   await runner.advanceOnboarding({ only: await ours() });
@@ -327,7 +424,13 @@ try {
   const { leaseSlot } = await import("../runner/lifecycle");
   const raceKey = `ONBR-${stamp % 100000}`;
   await db.insert(jobs).values(linearJob(jobIds[3]!, raceKey, { repo: LAUNCH }));
-  const leases = async () => (await db.select().from(codexSlotLeases).where(inArray(codexSlotLeases.slot, [slotA, slotB]))).map((l) => [l.slot, l.holder_kind, l.holder_id]);
+  const leases = async () =>
+    (
+      await db
+        .select()
+        .from(codexSlotLeases)
+        .where(inArray(codexSlotLeases.slot, [slotA, slotB]))
+    ).map((l) => [l.slot, l.holder_kind, l.holder_id]);
   await insert(AGENT, "analyzing");
   let raced: string | undefined = "not tried";
   let recordedWhileCreating: unknown;
@@ -344,9 +447,17 @@ try {
   modal.api = fakeModal;
   assert.deepEqual(agentStart, { repo: AGENT, agent: "thread-onb" });
   assert.equal(raced, undefined, "a job cannot lease the slot an onboarding run took while its sandbox is created");
-  assert.deepEqual(recordedWhileCreating, ["agent", slotA, undefined, [[slotA, "onboarding", AGENT]]], "the lease and the run holding it are written together, before the sandbox");
+  assert.deepEqual(
+    recordedWhileCreating,
+    ["agent", slotA, undefined, [[slotA, "onboarding", AGENT]]],
+    "the lease and the run holding it are written together, before the sandbox",
+  );
   assert.deepEqual(await leases(), [[slotA, "onboarding", AGENT]], "the run holds the slot's lease");
-  await assert.rejects(db.update(jobs).set({ codex_slot: slotA }).where(eq(jobs.key, raceKey)), (e: { cause?: { code?: string } }) => e.cause?.code === "23505", "nor can a job be written onto it");
+  await assert.rejects(
+    db.update(jobs).set({ codex_slot: slotA }).where(eq(jobs.key, raceKey)),
+    (e: { cause?: { code?: string } }) => e.cause?.code === "23505",
+    "nor can a job be written onto it",
+  );
   d = await detail(AGENT);
   assert.deepEqual([d.run?.kind, d.run?.threadId, d.run?.slot], ["agent", "thread-onb", slotA]);
   const agentBox = sandboxOf(d.run?.sandboxId);
@@ -361,12 +472,23 @@ try {
   assert.equal((await detail(AGENT)).run?.kind, "agent", "a running thread is left alone");
   threadState = "stopped";
   const agentRecipe = { ...valid, env: [{ name: "API_KEY", purpose: "the payments sandbox", required: true }] };
-  agentBox.files.set(runner.ONBOARDING_RESULT, JSON.stringify({ recipe: agentRecipe, prUrl: `https://github.com/${AGENT}/pull/7`, checks: [{ name: "test", command: "bun test", ok: true }], summary: "Installs with bun." }));
+  agentBox.files.set(
+    runner.ONBOARDING_RESULT,
+    JSON.stringify({
+      recipe: agentRecipe,
+      prUrl: `https://github.com/${AGENT}/pull/7`,
+      checks: [{ name: "test", command: "bun test", ok: true }],
+      summary: "Installs with bun.",
+    }),
+  );
   await runner.advanceOnboarding({ only: await ours() });
   const agentRow = await row(AGENT);
   d = onboarding.parseDetail(agentRow.onboarding_detail);
   assert.equal(agentRow.onboarding_state, "needs_input", "a required env var without a value waits for the owner");
-  assert.deepEqual([d.recipeSource, d.recipePr, d.missingSecrets, d.run, d.checks?.length], ["agent", `https://github.com/${AGENT}/pull/7`, ["API_KEY"], undefined, 1]);
+  assert.deepEqual(
+    [d.recipeSource, d.recipePr, d.missingSecrets, d.run, d.checks?.length],
+    ["agent", `https://github.com/${AGENT}/pull/7`, ["API_KEY"], undefined, 1],
+  );
   assert.equal(agentBox.terminated, true, "the onboarding sandbox is torn down");
   assert.deepEqual(await leases(), [], "and its slot's lease is released");
   threadState = "running";
@@ -380,15 +502,27 @@ try {
   runner.onboardingRuntime.now = () => new Date(Date.now() + 6 * 60_000);
   await runner.advanceOnboarding({ only: await ours() });
   runner.onboardingRuntime.now = realNow;
-  assert.deepEqual([(await row(AGENT)).require_bugbot, (await detail(AGENT)).bugbotProbe], [false, undefined], "no Bugbot run on the recipe PR within the grace period: Bugbot isn't required");
-  assert.deepEqual([(await detail(AGENT)).recipePr, (await row(AGENT)).onboarding_state], [`https://github.com/${AGENT}/pull/7`, "needs_input"], "and the rest of onboarding is left as it was");
+  assert.deepEqual(
+    [(await row(AGENT)).require_bugbot, (await detail(AGENT)).bugbotProbe],
+    [false, undefined],
+    "no Bugbot run on the recipe PR within the grace period: Bugbot isn't required",
+  );
+  assert.deepEqual(
+    [(await detail(AGENT)).recipePr, (await row(AGENT)).onboarding_state],
+    [`https://github.com/${AGENT}/pull/7`, "needs_input"],
+    "and the rest of onboarding is left as it was",
+  );
   const BUGBOT = `${NS}/bugbot`;
   const bugbotPr = `https://github.com/${BUGBOT}/pull/3`;
   await insert(BUGBOT, "needs_input", { bugbotProbe: { pr: bugbotPr, since: new Date().toISOString() } });
   await db.update(repoSettings).set({ require_bugbot: false }).where(eq(repoSettings.repo, BUGBOT));
   bugbotOn.add(bugbotPr);
   await runner.advanceOnboarding({ only: await ours() });
-  assert.deepEqual([(await row(BUGBOT)).require_bugbot, (await detail(BUGBOT)).bugbotProbe], [true, undefined], "a Bugbot run on the recipe PR makes Bugbot required at once");
+  assert.deepEqual(
+    [(await row(BUGBOT)).require_bugbot, (await detail(BUGBOT)).bugbotProbe],
+    [true, undefined],
+    "a Bugbot run on the recipe PR makes Bugbot required at once",
+  );
   assert.equal(onboarding.bugbotVerdict(false, new Date(0).toISOString(), 5 * 60_000 - 1, 5 * 60_000), undefined);
   assert.equal(onboarding.bugbotVerdict(false, new Date(0).toISOString(), 5 * 60_000, 5 * 60_000), false);
 
@@ -421,7 +555,11 @@ try {
   await assert.rejects(runner.onboardRepo(SLOW), /Modal did not create sandbox onboard-agent-.+ within 0.05 s/);
   assert.ok(Date.now() - slowStarted < 1_000, "the intent step returns at the create timeout");
   d = await detail(SLOW);
-  assert.deepEqual([(await row(SLOW)).onboarding_state, d.run, d.failure, await leases()], ["analyzing", undefined, undefined, []], "a timed-out create leaves the row to its intent's retry");
+  assert.deepEqual(
+    [(await row(SLOW)).onboarding_state, d.run, d.failure, await leases()],
+    ["analyzing", undefined, undefined, []],
+    "a timed-out create leaves the row to its intent's retry",
+  );
   await new Promise((resolve) => setTimeout(resolve, 300));
   assert.equal(late?.terminated, true, "the sandbox the abandoned create returned is ended");
   modal.api = fakeModal;
@@ -438,9 +576,16 @@ try {
   assert.deepEqual(await leases(), [[slotA, "onboarding", DIED]]);
   await runner.advanceOnboarding({ only: await ours() });
   d = await detail(DIED);
-  assert.deepEqual([(await row(DIED)).onboarding_state, d.run, d.failure, await leases()], ["analyzing", undefined, undefined, []], "the abandoned run is cleared and its lease released");
+  assert.deepEqual(
+    [(await row(DIED)).onboarding_state, d.run, d.failure, await leases()],
+    ["analyzing", undefined, undefined, []],
+    "the abandoned run is cleared and its lease released",
+  );
   // The retry can come first: it clears the run itself instead of waiting on it.
-  await db.update(repoSettings).set({ onboarding_detail: { run: leftRun } }).where(eq(repoSettings.repo, DIED));
+  await db
+    .update(repoSettings)
+    .set({ onboarding_detail: { run: leftRun } })
+    .where(eq(repoSettings.repo, DIED));
   assert.deepEqual(await runner.onboardRepo(DIED), { repo: DIED, agent: "thread-onb" }, "an onboard retry starts over from this runner's abandoned run");
   await db.update(repoSettings).set({ enabled: false, onboarding_detail: {} }).where(eq(repoSettings.repo, DIED));
   await db.delete(codexSlotLeases).where(eq(codexSlotLeases.slot, slotA));
@@ -451,7 +596,10 @@ try {
   assert.match(JSON.stringify(await runner.onboardRepo(GONE)), /an agent run is in flight/, "another runner's run is waited for");
   await runner.advanceOnboarding({ only: await ours() });
   assert.deepEqual((await detail(GONE)).run, goneRun);
-  await db.update(repoSettings).set({ onboarding_detail: { run: { ...goneRun, startedAt: new Date(Date.now() - 31 * 60_000).toISOString() } } }).where(eq(repoSettings.repo, GONE));
+  await db
+    .update(repoSettings)
+    .set({ onboarding_detail: { run: { ...goneRun, startedAt: new Date(Date.now() - 31 * 60_000).toISOString() } } })
+    .where(eq(repoSettings.repo, GONE));
   await runner.advanceOnboarding({ only: await ours() });
   d = await detail(GONE);
   assert.deepEqual([(await row(GONE)).onboarding_state, d.run, await leases()], ["failed", undefined, []]);
@@ -497,7 +645,11 @@ try {
     recordNames: (repo: string, names: string[]) => actions.recordSecretNames(db, repo, names, new Date()),
   });
   assert.equal((await actions.saveRepoSecrets(secretDeps(true, null), { repo: AGENT, values: { API_KEY: VALUE } })).ok, false, "only the owner saves secrets");
-  assert.match(JSON.stringify(await actions.saveRepoSecrets(secretDeps(false), { repo: AGENT, values: { API_KEY: VALUE } })), /bun scripts\/repo-secret.ts .+ API_KEY/, "without a Modal token the panel points to the CLI");
+  assert.match(
+    JSON.stringify(await actions.saveRepoSecrets(secretDeps(false), { repo: AGENT, values: { API_KEY: VALUE } })),
+    /bun scripts\/repo-secret.ts .+ API_KEY/,
+    "without a Modal token the panel points to the CLI",
+  );
   assert.match(JSON.stringify(await actions.saveRepoSecrets(secretDeps(), { repo: AGENT, values: { OTHER: VALUE } })), /names no env var OTHER/);
   upsertFails = true;
   const refused = await actions.saveRepoSecrets(secretDeps(), { repo: AGENT, values: { API_KEY: VALUE } });
@@ -534,13 +686,19 @@ try {
   threadState = "stopped";
   await runner.advanceOnboarding({ only: await ours() });
   d = await detail(BROKEN);
-  assert.deepEqual([(await row(BROKEN)).onboarding_state, d.failure?.reason, d.failure?.log], ["failed", "The onboarding agent ended without writing its result.", "I wrote the recipe."]);
+  assert.deepEqual(
+    [(await row(BROKEN)).onboarding_state, d.failure?.reason, d.failure?.log],
+    ["failed", "The onboarding agent ended without writing its result.", "I wrote the recipe."],
+  );
   threadState = "running";
   await actions.writeRepoRequest(db, "onboard_repo", BROKEN, new Date());
   assert.deepEqual([(await row(BROKEN)).onboarding_state, (await detail(BROKEN)).failure], ["analyzing", undefined], "Retry onboarding starts over");
   await runner.onboardRepo(BROKEN);
   threadState = "stopped";
-  sandboxOf((await detail(BROKEN)).run?.sandboxId).files.set(runner.ONBOARDING_RESULT, JSON.stringify({ failed: "the repo needs a running Postgres for every check" }));
+  sandboxOf((await detail(BROKEN)).run?.sandboxId).files.set(
+    runner.ONBOARDING_RESULT,
+    JSON.stringify({ failed: "the repo needs a running Postgres for every check" }),
+  );
   await runner.advanceOnboarding({ only: await ours() });
   assert.equal((await detail(BROKEN)).failure?.reason, "The onboarding agent could not write a recipe: the repo needs a running Postgres for every check");
   threadState = "running";
@@ -559,12 +717,27 @@ try {
   const slot = { id: TEST_MACHINE_ID, repos: [LAUNCH], maxInFlight: 1000 };
   sandboxRuntime.slots = () => [slotA, slotB];
   config.factory.sandbox.maxParallel = 100;
-  const entry = (i: number) => ({ key: `ONB${i}-${stamp % 100000}`, sandbox_id: null, attempt: 1, source: "linear" as const, repo: LAUNCH, branch: `hive/ONB${i}`, threadTitle: "t", message: "Work it", harness: { provider: "codex", model: "gpt-6-astra" }, ticket: null });
-  fake.answer = (_sandbox, argv) => (argv.slice(0, 3).join(" ") === "t3 thread start" ? { stdout: '{"threadId":"thread-warm"}' } : argv[0] === "claude" ? { stdout: "[]" } : {});
+  const entry = (i: number) => ({
+    key: `ONB${i}-${stamp % 100000}`,
+    sandbox_id: null,
+    attempt: 1,
+    source: "linear" as const,
+    repo: LAUNCH,
+    branch: `hive/ONB${i}`,
+    threadTitle: "t",
+    message: "Work it",
+    harness: { provider: "codex", model: "gpt-6-astra" },
+    ticket: null,
+  });
+  fake.answer = (_sandbox, argv) =>
+    argv.slice(0, 3).join(" ") === "t3 thread start" ? { stdout: '{"threadId":"thread-warm"}' } : argv[0] === "claude" ? { stdout: "[]" } : {};
   const registryNow = async () => db.select().from(repoSettings).where(eq(repoSettings.repo, LAUNCH));
   const [warmLaunch] = await launchInSandboxes([entry(0)], slot, async () => {}, await registryNow());
   assert.equal(warmLaunch!.threadId, "thread-warm", JSON.stringify(warmLaunch));
-  const [warmJob] = await db.select().from(jobs).where(eq(jobs.id, jobId("linear", jobIds[0]!)));
+  const [warmJob] = await db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.id, jobId("linear", jobIds[0]!)));
   const warmBox = sandboxOf(warmJob!.sandbox_id!);
   assert.equal(warmBox.spec!.imageId, "im-warm-launch", "the job starts from the warm image");
   assert.deepEqual(warmBox.spec!.namedSecrets, [onboarding.modalSecretName(LAUNCH)], "with the repo's secret");
@@ -579,20 +752,37 @@ try {
   await db.update(repoSettings).set({ onboarding_detail: prDetail }).where(eq(repoSettings.repo, LAUNCH));
   sandboxRuntime.image = () => ({ ...baseImage, builtAt: "2026-10-29T00:00:00.000Z" });
   await launchInSandboxes([entry(1)], slot, async () => {}, await registryNow());
-  const [oldJob] = await db.select().from(jobs).where(eq(jobs.id, jobId("linear", jobIds[1]!)));
+  const [oldJob] = await db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.id, jobId("linear", jobIds[1]!)));
   const oldBox = sandboxOf(oldJob!.sandbox_id!);
   const prMessage = oldBox.execs.find((e) => e.argv[2] === "start")!.input;
   assert.doesNotMatch(prMessage, /setup recipe is \.factory\/setup\.json/, "the thread is not sent to a recipe its worktree lacks");
   assert.match(prMessage, /not on main yet \(it waits in https:\/\/github\.com\/.+\/pull\/3\)/);
-  assert.ok(prMessage.includes(`    ${recipe.setup[0]}`) && prMessage.includes(`    test: ${recipe.checks!.test}`), "it gets the setup and check commands inline");
+  assert.ok(
+    prMessage.includes(`    ${recipe.setup[0]}`) && prMessage.includes(`    test: ${recipe.checks!.test}`),
+    "it gets the setup and check commands inline",
+  );
   assert.deepEqual(JSON.parse(oldBox.files.get(recipes.UNMERGED_RECIPE_PATH)!), recipe, "and factory-verify gets the recipe in the sandbox");
   assert.equal(oldBox.spec!.imageId, "im-base", "an outdated warm image falls back to the base image");
-  assert.ok(oldBox.execs.some((e) => e.argv[0] === "git" && e.argv[1] === "clone"), "which clones as before");
+  assert.ok(
+    oldBox.execs.some((e) => e.argv[0] === "git" && e.argv[1] === "clone"),
+    "which clones as before",
+  );
   assert.ok(events.some((e) => e.event === "sandbox:warm-image-outdated"));
   sandboxRuntime.image = () => baseImage;
   await db.update(repoSettings).set({ onboarding_state: "analyzing", onboarding_detail: {} }).where(eq(repoSettings.repo, LAUNCH));
   assert.deepEqual(await launchInSandboxes([entry(2)], slot, async () => {}, await registryNow()), [], "a repo still onboarding launches nothing on Modal");
-  assert.equal((await db.select().from(jobs).where(eq(jobs.id, jobId("linear", jobIds[2]!))))[0]!.t3_thread_id, null);
+  assert.equal(
+    (
+      await db
+        .select()
+        .from(jobs)
+        .where(eq(jobs.id, jobId("linear", jobIds[2]!)))
+    )[0]!.t3_thread_id,
+    null,
+  );
 
   console.log("onboarding regressions passed");
 } catch (error) {
@@ -603,7 +793,12 @@ try {
 } finally {
   console.log = realLog;
   console.error = realError;
-  await db.delete(jobs).where(inArray(jobs.id, jobIds.map((id) => jobId("linear", id))));
+  await db.delete(jobs).where(
+    inArray(
+      jobs.id,
+      jobIds.map((id) => jobId("linear", id)),
+    ),
+  );
   await db.delete(intents).where(like(intents.detail, `${NS}/%`));
   await db.delete(repoSettings).where(like(repoSettings.repo, `${NS}/%`));
   await db.delete(codexSlotLeases).where(inArray(codexSlotLeases.slot, [slotA, slotB]));

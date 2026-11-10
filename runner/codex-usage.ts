@@ -87,7 +87,10 @@ export async function recordCodexUsage(run: RunRow, host: JobHost, { final = fal
  */
 export async function recordJobCodexUsage(key: string, host: JobHost) {
   try {
-    const codexRuns = await db.select().from(runs).where(and(eq(runs.job_key, key), like(runs.session_id, "mcp:%")));
+    const codexRuns = await db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.job_key, key), like(runs.session_id, "mcp:%")));
     // The thread is settled or about to end, so no subagent of it runs any more.
     for (const run of codexRuns) await recordCodexUsage(run, host, { final: true });
   } catch (error) {

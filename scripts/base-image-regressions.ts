@@ -10,7 +10,9 @@ const { factorySchema } = await import("../lib/config");
 const { sandboxReadinessSchema } = await import("../lib/machine");
 const { pinnedVersions, PSTACK_PLUGIN, readSandboxImage } = await import("../lib/sandbox");
 const { buildLockPath, buildSandboxImage, BuildLockedError } = await import("../lib/sandbox-image-build");
-const { baseImageBuild, baseImageIdle, baseImageRuntime, rebuildBaseImage, resetBaseImage, RETRY_AFTER_MS, stopBaseImage } = await import("../runner/base-image");
+const { baseImageBuild, baseImageIdle, baseImageRuntime, rebuildBaseImage, resetBaseImage, RETRY_AFTER_MS, stopBaseImage } = await import(
+  "../runner/base-image"
+);
 
 const limits = factorySchema.parse({}).sandbox;
 const pinned = pinnedVersions(limits);
@@ -35,9 +37,11 @@ function buildBox(overrides: { claudeCode?: string; verifyExit?: number } = {}) 
     if (script === "claude --version") return { stdout: `${overrides.claudeCode ?? limits.claudeCodeVersion} (Claude Code)` };
     if (script === "codex --version") return { stdout: `codex-cli ${limits.codexVersion}` };
     if (script === "playwright-mcp --version") return { stdout: `Version ${limits.playwrightMcpVersion}` };
-    if (script === "claude plugin list --json") return { stdout: JSON.stringify([{ id: PSTACK_PLUGIN, version: limits.pstack.version, enabled: true, installPath: "/root/pstack" }]) };
+    if (script === "claude plugin list --json")
+      return { stdout: JSON.stringify([{ id: PSTACK_PLUGIN, version: limits.pstack.version, enabled: true, installPath: "/root/pstack" }]) };
     if (script.startsWith("git -C /opt/pstack rev-parse")) return { stdout: limits.pstack.commit };
-    if (script === "codex plugin list --json") return { stdout: JSON.stringify({ installed: [{ pluginId: PSTACK_PLUGIN, version: limits.pstack.version, enabled: true }] }) };
+    if (script === "codex plugin list --json")
+      return { stdout: JSON.stringify({ installed: [{ pluginId: PSTACK_PLUGIN, version: limits.pstack.version, enabled: true }] }) };
     if (script.startsWith("ls /root/pstack/skills")) return { stdout: "40" };
     if (script === "bun --version") return { stdout: "1.3.1" };
     if (script.includes("factory-verify")) return { code: overrides.verifyExit ?? 0 };
@@ -56,7 +60,10 @@ function buildBox(overrides: { claudeCode?: string; verifyExit?: number } = {}) 
   assert.equal(built.imageId, fake.snapshots.at(-1)!.imageId);
   assert.deepEqual(built.versions, pinned, "with the versions it was checked against");
   assert.equal(fake.snapshots.at(-1)!.ttlMs, null, "and a snapshot Modal keeps");
-  assert.ok(box.files.has("/opt/marshal-factory/hooks/verify.ts") && box.files.has("/opt/marshal-factory/playbooks/factory.md"), "the bundles and playbooks went in");
+  assert.ok(
+    box.files.has("/opt/marshal-factory/hooks/verify.ts") && box.files.has("/opt/marshal-factory/playbooks/factory.md"),
+    "the bundles and playbooks went in",
+  );
   assert.equal(box.terminated, true);
   assert.equal(existsSync(buildLockPath(path)), false, "the lock goes with the build");
 }

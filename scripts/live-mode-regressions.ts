@@ -2,9 +2,6 @@ import "./test-guard";
 import assert from "node:assert/strict";
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
-process.env.NEON_AUTH_BASE_URL ??= "https://auth.invalid/neondb/auth";
-process.env.NEON_AUTH_COOKIE_SECRET ??= "x".repeat(32);
 
 async function liveUpdatesFor(vercelEnv: string | undefined) {
   if (vercelEnv === undefined) delete process.env.VERCEL_ENV;
@@ -18,20 +15,13 @@ assert.equal(await liveUpdatesFor(undefined), "on", "a local build keeps live up
 delete process.env.VERCEL_ENV;
 
 process.env.NEXT_PUBLIC_LIVE_UPDATES = "off";
-// Preview deployments carry no Realtime config, so the panel must load without it.
-delete process.env.NEON_REALTIME_SECRET;
-const { auth } = await import("../lib/auth/server");
-Object.assign(auth, {
-  getSession: async () => ({ data: { user: { email: OWNER, emailVerified: true } }, error: null }),
-});
-const { load, runsQuery, sealedResponse } = await import("../lib/live-queries");
-
+const { liveUpdates } = await import("../lib/live-mode");
+assert.equal(liveUpdates, false, "the panel reads the build's switch");
+const { session } = await import("../lib/auth/server");
+Object.assign(session, { read: async () => ({ user: { email: OWNER, role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() } }) });
+const { load, runsQuery } = await import("../lib/live-queries");
 const feed = await load(runsQuery());
-assert.equal(feed.sealedQuery, null, "a preview page hands the browser no sealed query");
-assert.ok(Array.isArray(feed.initialData), "a preview page still shows the rows");
-
-const renewal = await sealedResponse(runsQuery());
-assert.equal(renewal.status, 404, "a preview live route seals nothing");
-assert.deepEqual(await renewal.json(), { error: "Live updates are off" });
+assert.ok(Array.isArray(feed.initialData), "with live updates off, a page still shows the rows");
 
 console.log("live mode regressions passed");
+process.exit(0);

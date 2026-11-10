@@ -10,12 +10,7 @@ const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0
 
 const confidenceSchema = z.object({
   confident: z.boolean().describe("True when you are confident you built what the issue asked for and that it works."),
-  reason: z
-    .string()
-    .min(1)
-    .max(REASON_MAX)
-    .optional()
-    .describe("Required when not confident: why, in one or two sentences, so the owner knows what to check."),
+  reason: z.string().min(1).max(REASON_MAX).optional().describe("Required when not confident: why, in one or two sentences, so the owner knows what to check."),
 });
 
 const LEGACY_CHECKS = ["interpretation", "proven", "contained", "reversible", "noTasteCalls", "noSurprises"] as const;
@@ -29,7 +24,9 @@ const LEGACY_LABELS: Record<(typeof LEGACY_CHECKS)[number], string> = {
 };
 const legacyCheck = z.object({ ok: z.boolean(), note: z.string().min(1).max(500) });
 /** The six checks agents reported before the assessment came down to confidence; still accepted and mapped. */
-const legacyChecksSchema = z.object(Object.fromEntries(LEGACY_CHECKS.map((c) => [c, legacyCheck])) as Record<(typeof LEGACY_CHECKS)[number], typeof legacyCheck>);
+const legacyChecksSchema = z.object(
+  Object.fromEntries(LEGACY_CHECKS.map((c) => [c, legacyCheck])) as Record<(typeof LEGACY_CHECKS)[number], typeof legacyCheck>,
+);
 const legacyFieldsSchema = z.object({ checks: legacyChecksSchema, reviewFocus: z.string().min(1).max(1000).optional() });
 
 /**
@@ -45,10 +42,15 @@ export const assessmentInputSchema = z
     notes: z.string().min(1).max(2000).optional().describe("Anything else the owner should know."),
     screenshots: screenshotsInputSchema
       .optional()
-      .describe("Browser screenshots of every page or screen you changed, as the playwright server saved them, each with a caption. Required when the change shows on a page."),
+      .describe(
+        "Browser screenshots of every page or screen you changed, as the playwright server saved them, each with a caption. Required when the change shows on a page.",
+      ),
   })
   .refine((a) => a.confidence !== undefined || legacyFieldsSchema.safeParse(a).success, { message: "the assessment needs confidence", path: ["confidence"] })
-  .refine((a) => a.confidence?.confident !== false || a.confidence.reason, { message: "say why you aren't confident in confidence.reason", path: ["confidence", "reason"] })
+  .refine((a) => a.confidence?.confident !== false || a.confidence.reason, {
+    message: "say why you aren't confident in confidence.reason",
+    path: ["confidence", "reason"],
+  })
   .refine((a) => !a.confidence || a.confidence.confident === (a.recommendation === "merge"), {
     message: "recommend merge when confident and handover when not",
     path: ["recommendation"],
@@ -75,7 +77,12 @@ function fromLegacy(a: AssessmentInput, { checks, reviewFocus }: z.infer<typeof 
 
 /** A validated report in either shape, in the current one. */
 export function normalizeAssessment(a: AssessmentInput): MergeAssessment {
-  const base = { recommendation: a.recommendation, interpretation: a.interpretation, assumptions: a.assumptions, ...(a.screenshots?.length && { screenshots: a.screenshots }) };
+  const base = {
+    recommendation: a.recommendation,
+    interpretation: a.interpretation,
+    assumptions: a.assumptions,
+    ...(a.screenshots?.length && { screenshots: a.screenshots }),
+  };
   if (a.confidence) return { ...base, confidence: a.confidence, ...(a.notes && { notes: a.notes }) };
   return { ...base, ...fromLegacy(a, legacyFieldsSchema.parse(a)) };
 }

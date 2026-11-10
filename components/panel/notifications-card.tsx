@@ -26,7 +26,11 @@ const Cmd = ({ children }: { children: string }) => <code className="rounded bg-
 
 function Status({ slack, target }: { slack: SlackReadiness | null; target: SlackTarget }) {
   const [icon, label, howTo]: [ReactNode, ReactNode, ReactNode] = !slack
-    ? [<TriangleAlertIcon key="i" className="mt-0.5 size-4 shrink-0 text-warning" />, "No online runner reports Slack yet", "Runners report it with their inventory, at startup and every few minutes."]
+    ? [
+        <TriangleAlertIcon key="i" className="mt-0.5 size-4 shrink-0 text-warning" />,
+        "No online runner reports Slack yet",
+        "Runners report it with their inventory, at startup and every few minutes.",
+      ]
     : !slack.configured
       ? [
           <XIcon key="i" className="mt-0.5 size-4 shrink-0 text-destructive" />,
@@ -80,10 +84,12 @@ export function NotificationsCard({ saved, slack }: { saved: NotificationSetting
     quietHours: quietOn ? { start: start.slice(0, 5), end: end.slice(0, 5), timeZone: (zone ?? browserZone).trim() } : null,
   };
   const unchanged = saved !== null && JSON.stringify(config) === JSON.stringify(current);
-  const edit = <T,>(set: (value: T) => void) => (value: T) => {
-    set(value);
-    setSavedNow(null);
-  };
+  const edit =
+    <T,>(set: (value: T) => void) =>
+    (value: T) => {
+      set(value);
+      setSavedNow(null);
+    };
 
   const submit = () => {
     setFailure(null);
@@ -127,7 +133,11 @@ export function NotificationsCard({ saved, slack }: { saved: NotificationSetting
           <Status slack={slack} target={target} />
           <Field>
             <FieldLabel htmlFor="notify-target">Send to</FieldLabel>
-            <Select items={SLACK_TARGETS.map((t) => ({ value: t, label: TARGET_LABELS[t] }))} value={target} onValueChange={(value) => value && edit(setTarget)(value)}>
+            <Select
+              items={SLACK_TARGETS.map((t) => ({ value: t, label: TARGET_LABELS[t] }))}
+              value={target}
+              onValueChange={(value) => value && edit(setTarget)(value)}
+            >
               <SelectTrigger id="notify-target" className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -144,8 +154,16 @@ export function NotificationsCard({ saved, slack }: { saved: NotificationSetting
           {target === "channel" && (
             <Field>
               <FieldLabel htmlFor="notify-channel">Channel id</FieldLabel>
-              <Input id="notify-channel" value={channelId} placeholder="C0123456789" onChange={(e) => edit(setChannelId)(e.target.value)} className="font-mono" />
-              <FieldDescription>In Slack, open the channel&apos;s details; the id is at the bottom. Invite the app first if the channel is private.</FieldDescription>
+              <Input
+                id="notify-channel"
+                value={channelId}
+                placeholder="C0123456789"
+                onChange={(e) => edit(setChannelId)(e.target.value)}
+                className="font-mono"
+              />
+              <FieldDescription>
+                In Slack, open the channel&apos;s details; the id is at the bottom. Invite the app first if the channel is private.
+              </FieldDescription>
             </Field>
           )}
           <div className="flex flex-col gap-3">
@@ -179,8 +197,8 @@ export function NotificationsCard({ saved, slack }: { saved: NotificationSetting
               </div>
             )}
             <p className="text-sm text-muted-foreground">
-              During quiet hours only failed reverts and stops that couldn&apos;t be confirmed are sent. Anything else that still needs you when they
-              end is sent then; what was resolved in the meantime is not sent at all.
+              During quiet hours only failed reverts and stops that couldn&apos;t be confirmed are sent. Anything else that still needs you when they end is
+              sent then; what was resolved in the meantime is not sent at all.
             </p>
           </div>
           {failure && (

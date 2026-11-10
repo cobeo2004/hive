@@ -281,6 +281,20 @@
       "when": 1793310218530,
       "tag": "0039_failed_job_retry",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794234279072,
+      "tag": "0040_live_notify",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794235365120,
+      "tag": "0041_auth",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,3 @@
+# Formatting-only commits; git blame skips them with blame.ignoreRevsFile (GitHub does this on its own).
+# Format the code with Biome
+ae9396f842c925a8e625bd6be91aa3cf6ae56f68

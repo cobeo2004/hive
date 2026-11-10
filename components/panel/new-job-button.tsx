@@ -52,13 +52,16 @@ async function uploadImage(file: File): Promise<ImageUploadOutcome> {
 
 const SETTINGS_DEFAULT = "settings-default";
 
-const runsOnItems = [
-  { value: SETTINGS_DEFAULT, label: "Settings default" },
-  ...EXECUTIONS.map((e) => ({ value: e, label: RUNS_ON_LABELS[e] })),
-];
+const runsOnItems = [{ value: SETTINGS_DEFAULT, label: "Settings default" }, ...EXECUTIONS.map((e) => ({ value: e, label: RUNS_ON_LABELS[e] }))];
 
 /** Starts a job by filing it in Linear, where the factory picks it up like any labeled issue. */
-export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness[]; repos: readonly Pick<RepoSettingsRow, "repo" | "display_name" | "enabled" | "is_default">[] }) {
+export function NewJobButton({
+  harnesses,
+  repos,
+}: {
+  harnesses: readonly Harness[];
+  repos: readonly Pick<RepoSettingsRow, "repo" | "display_name" | "enabled" | "is_default">[];
+}) {
   const [open, setOpen] = useState(false);
   const [created, setCreated] = useState<Extract<NewJobOutcome, { ok: true }> | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -97,7 +100,11 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
         }
         setImages((current) =>
           current.map((image) =>
-            image.id !== id ? image : outcome.ok ? { ...image, status: "done", markdown: outcome.markdown } : { ...image, status: "failed", message: outcome.message },
+            image.id !== id
+              ? image
+              : outcome.ok
+                ? { ...image, status: "done", markdown: outcome.markdown }
+                : { ...image, status: "failed", message: outcome.message },
           ),
         );
       });
@@ -105,7 +112,11 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
   };
   const removeImage = (image: JobImage) => {
     if (image.status === "done") {
-      const description = form.getValues("description").replace(image.markdown, "").replace(/\n{3,}/g, "\n\n").trim();
+      const description = form
+        .getValues("description")
+        .replace(image.markdown, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
       form.setValue("description", description, { shouldValidate: true });
     }
     URL.revokeObjectURL(image.preview);
@@ -151,9 +162,7 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
           <>
             <DialogHeader>
               <DialogTitle>{created.identifier} is filed</DialogTitle>
-              <DialogDescription>
-                The factory picks it up within a few seconds and it appears on the board in Queued.
-              </DialogDescription>
+              <DialogDescription>The factory picks it up within a few seconds and it appears on the board in Queued.</DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="outline" render={<a href={created.url} target="_blank" rel="noreferrer" />}>
@@ -168,8 +177,8 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
             <DialogHeader>
               <DialogTitle>New job</DialogTitle>
               <DialogDescription>
-                Files a Linear issue with the factory label. Questions and answers then happen on that issue. A harness or
-                place other than the Settings default goes on the issue as its Harness or Runs on label.
+                Files a Linear issue with the factory label. Questions and answers then happen on that issue. A harness or place other than the Settings default
+                goes on the issue as its Harness or Runs on label.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={submit} className="contents">
@@ -180,7 +189,13 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
                   render={({ field, fieldState }) => (
                     <Field invalid={fieldState.invalid}>
                       <FieldLabel htmlFor="new-job-title">Title</FieldLabel>
-                      <Input {...field} id="new-job-title" aria-invalid={fieldState.invalid} placeholder="Show the item count on the weight sort button" autoFocus />
+                      <Input
+                        {...field}
+                        id="new-job-title"
+                        aria-invalid={fieldState.invalid}
+                        placeholder="Show the item count on the weight sort button"
+                        autoFocus
+                      />
                       {fieldState.error && <FieldError match>{fieldState.error.message}</FieldError>}
                     </Field>
                   )}

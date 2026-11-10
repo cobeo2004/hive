@@ -16,7 +16,9 @@ if ("skipped" in result) {
   console.log(`Nothing synced: ${result.skipped}. Start a runner so it reports its harnesses, then run this again.`);
 } else {
   for (const [source, { team, created, problems }] of Object.entries(result.synced)) {
-    console.log(created.length > 0 ? `Created in ${source} ${team}:\n${created.map((c) => `  ${c}`).join("\n")}` : `${source} ${team} has every override label already.`);
+    console.log(
+      created.length > 0 ? `Created in ${source} ${team}:\n${created.map((c) => `  ${c}`).join("\n")}` : `${source} ${team} has every override label already.`,
+    );
     for (const problem of problems) console.log(`Not created: ${problem}`);
   }
 }

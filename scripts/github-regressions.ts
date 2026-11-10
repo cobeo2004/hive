@@ -27,15 +27,27 @@ function verifiedClaims(jwt: string) {
 const nowMs = 1_800_000_000_000;
 const { header, claims } = verifiedClaims(appJwt(app, nowMs));
 assert.deepEqual(header, { alg: "RS256", typ: "JWT" });
-assert.deepEqual(appCredentials({ GITHUB_APP_ID: "5459681", GITHUB_APP_PRIVATE_KEY: "pem" }), { client_id: "5459681", pem: "pem" }, "Vercel signs with the env key");
+assert.deepEqual(
+  appCredentials({ GITHUB_APP_ID: "5459681", GITHUB_APP_PRIVATE_KEY: "pem" }),
+  { client_id: "5459681", pem: "pem" },
+  "Vercel signs with the env key",
+);
 assert.throws(() => appCredentials({ GITHUB_APP_PRIVATE_KEY: "pem" }), /GITHUB_APP_ID is not/, "a key without an app id is refused");
 assert.deepEqual(claims, { iat: nowMs / 1000 - 60, exp: nowMs / 1000 + 540, iss: "Iv1.stub" }, "iat a minute back, exp inside ten minutes, iss the client id");
 
 assert.deepEqual(parsePullUrl("https://github.com/ski043/factory-demo/pull/12"), { repo: "ski043/factory-demo", number: 12 });
-assert.deepEqual(parsePullUrl("https://github.com/ski043/factory-demo/pull/12/files?w=1"), { repo: "ski043/factory-demo", number: 12 }, "a PR subpage still names the PR");
+assert.deepEqual(
+  parsePullUrl("https://github.com/ski043/factory-demo/pull/12/files?w=1"),
+  { repo: "ski043/factory-demo", number: 12 },
+  "a PR subpage still names the PR",
+);
 assert.throws(() => parsePullUrl("https://gitlab.com/a/b/pull/1"), /not a GitHub pull request URL/);
 
-assert.throws(() => installationTokens.get("ski043/factory-demo"), /the GitHub App was called during a regression run/, "the real token source throws in test mode");
+assert.throws(
+  () => installationTokens.get("ski043/factory-demo"),
+  /the GitHub App was called during a regression run/,
+  "the real token source throws in test mode",
+);
 await assert.rejects(github.pullRequest("https://github.com/ski043/factory-demo/pull/1"), /regression run/, "so does the real client");
 
 const corrupt = mkdtempSync(join(tmpdir(), "github-app-file-"));
@@ -60,55 +72,65 @@ const seen: { method: string; path: string; auth: string | null; version: string
 const pulls: Record<number, object> = {
   1: { state: "open", merged_at: null, closed_at: null, mergeable: null, head: { sha: "h1" }, title: "PR 1" },
   2: { state: "open", merged_at: null, closed_at: null, mergeable: false, head: { sha: "h2" }, title: "PR 2", html_url: "https://github.com/o/r/pull/2" },
-  3: { state: "closed", merged_at: "2026-10-24T10:00:00Z", closed_at: "2026-10-24T10:00:00Z", mergeable: null, head: { sha: "h3" }, title: "PR 3", html_url: "https://github.com/o/r/pull/3" },
+  3: {
+    state: "closed",
+    merged_at: "2026-10-24T10:00:00Z",
+    closed_at: "2026-10-24T10:00:00Z",
+    mergeable: null,
+    head: { sha: "h3" },
+    title: "PR 3",
+    html_url: "https://github.com/o/r/pull/3",
+  },
 };
 const stub = await serve(0, async (request) => {
-    const url = new URL(request.url);
-    const auth = request.headers.get("authorization");
-    const body = request.method === "GET" ? undefined : await request.json().catch(() => undefined);
-    seen.push({ method: request.method, path: url.pathname + url.search, auth, version: request.headers.get("x-github-api-version"), body });
-    const jwtOk = () => auth?.startsWith("Bearer ") && verifiedClaims(auth.slice(7)).claims.iss === app.client_id;
-    if (url.pathname === "/app-manifests/good-code/conversions" && request.method === "POST") {
-      return Response.json({ ...app, client_secret: "stub-client-secret", owner: { login: "ski043" } }, { status: 201 });
-    }
-    if (url.pathname === "/app/installations/7" && jwtOk()) return Response.json({ id: 7, app_id: app.id, account: { login: "ski043" } });
-    if (url.pathname === "/repos/o/flaky/installation" && flakyInstallation) {
-      flakyInstallation = false;
-      return Response.json({ message: "Server Error" }, { status: 500 });
-    }
-    if (/^\/repos\/o\/(r|s|flaky)\/installation$/.test(url.pathname) && jwtOk()) return Response.json({ id: 7 });
-    if (url.pathname === "/app/installations/7/access_tokens" && request.method === "POST" && jwtOk()) {
-      mints++;
-      return Response.json({ token: `ghs_stub${mints}`, expires_at: new Date(nowMs + 3_600_000).toISOString() }, { status: 201 });
-    }
-    if (url.pathname === "/repos/o/r/pulls" && url.searchParams.get("head") === "o:hive/FAC-1" && url.searchParams.get("state") === "all") {
-      return Response.json([pulls[3], { ...pulls[2], state: "closed", closed_at: "2026-10-23T09:00:00Z" }]);
-    }
-    if (url.pathname === "/repos/o/r/pulls" && url.searchParams.get("head") === "o:hive/FAC-2" && url.searchParams.get("state") === "all") {
-      return Response.json([pulls[3], pulls[2]]);
-    }
-    if (url.pathname === "/repos/o/r/pulls" && url.searchParams.get("head") === "o:hive/FAC-3") {
-      return Response.json([{ ...pulls[2], state: "closed", closed_at: "2026-10-23T09:00:00Z" }]);
-    }
-    if (url.pathname === "/repos/o/r/pulls/6" || (url.pathname === "/repos/o/r/pulls/5" && revoked.has(auth!.slice(7)))) {
-      return Response.json({ message: "Bad credentials" }, { status: 401 });
-    }
-    if (url.pathname === "/repos/o/r/pulls/5") return Response.json(pulls[1]);
-    const merging = { allow_merge_commit: true, allow_squash_merge: false, allow_rebase_merge: false };
-    if (url.pathname === "/repos/o/app-token") return Response.json({ ...merging, permissions: { admin: false, maintain: false, push: false, triage: false, pull: false } });
-    if (url.pathname === "/repos/o/read-only") return Response.json({ ...merging, permissions: { admin: false, maintain: false, push: false, triage: true, pull: true } });
-    if (url.pathname === "/repos/o/writer") return Response.json({ ...merging, permissions: { push: true, pull: true } });
-    if (url.pathname === "/repos/o/no-permissions") return Response.json(merging);
-    const pull = /^\/repos\/o\/r\/pulls\/(\d+)(\/merge)?$/.exec(url.pathname);
-    if (pull && !pull[2]) return pulls[Number(pull[1])] ? Response.json(pulls[Number(pull[1])]) : Response.json({ message: "Not Found" }, { status: 404 });
-    if (pull && request.method === "PUT") {
-      const n = Number(pull[1]);
-      if (n === 1) return Response.json({ sha: "merge-sha", merged: true, message: "Pull Request successfully merged" });
-      if (n === 2) return Response.json({ message: "Pull Request is not mergeable" }, { status: 405 });
-      if (n === 3) return Response.json({ message: "Head branch was modified. Review and try the merge again." }, { status: 409 });
-      return Response.json({ message: "Validation Failed" }, { status: 422 });
-    }
-    return Response.json({ message: "Not Found" }, { status: 404 });
+  const url = new URL(request.url);
+  const auth = request.headers.get("authorization");
+  const body = request.method === "GET" ? undefined : await request.json().catch(() => undefined);
+  seen.push({ method: request.method, path: url.pathname + url.search, auth, version: request.headers.get("x-github-api-version"), body });
+  const jwtOk = () => auth?.startsWith("Bearer ") && verifiedClaims(auth.slice(7)).claims.iss === app.client_id;
+  if (url.pathname === "/app-manifests/good-code/conversions" && request.method === "POST") {
+    return Response.json({ ...app, client_secret: "stub-client-secret", owner: { login: "ski043" } }, { status: 201 });
+  }
+  if (url.pathname === "/app/installations/7" && jwtOk()) return Response.json({ id: 7, app_id: app.id, account: { login: "ski043" } });
+  if (url.pathname === "/repos/o/flaky/installation" && flakyInstallation) {
+    flakyInstallation = false;
+    return Response.json({ message: "Server Error" }, { status: 500 });
+  }
+  if (/^\/repos\/o\/(r|s|flaky)\/installation$/.test(url.pathname) && jwtOk()) return Response.json({ id: 7 });
+  if (url.pathname === "/app/installations/7/access_tokens" && request.method === "POST" && jwtOk()) {
+    mints++;
+    return Response.json({ token: `ghs_stub${mints}`, expires_at: new Date(nowMs + 3_600_000).toISOString() }, { status: 201 });
+  }
+  if (url.pathname === "/repos/o/r/pulls" && url.searchParams.get("head") === "o:hive/FAC-1" && url.searchParams.get("state") === "all") {
+    return Response.json([pulls[3], { ...pulls[2], state: "closed", closed_at: "2026-10-23T09:00:00Z" }]);
+  }
+  if (url.pathname === "/repos/o/r/pulls" && url.searchParams.get("head") === "o:hive/FAC-2" && url.searchParams.get("state") === "all") {
+    return Response.json([pulls[3], pulls[2]]);
+  }
+  if (url.pathname === "/repos/o/r/pulls" && url.searchParams.get("head") === "o:hive/FAC-3") {
+    return Response.json([{ ...pulls[2], state: "closed", closed_at: "2026-10-23T09:00:00Z" }]);
+  }
+  if (url.pathname === "/repos/o/r/pulls/6" || (url.pathname === "/repos/o/r/pulls/5" && revoked.has(auth!.slice(7)))) {
+    return Response.json({ message: "Bad credentials" }, { status: 401 });
+  }
+  if (url.pathname === "/repos/o/r/pulls/5") return Response.json(pulls[1]);
+  const merging = { allow_merge_commit: true, allow_squash_merge: false, allow_rebase_merge: false };
+  if (url.pathname === "/repos/o/app-token")
+    return Response.json({ ...merging, permissions: { admin: false, maintain: false, push: false, triage: false, pull: false } });
+  if (url.pathname === "/repos/o/read-only")
+    return Response.json({ ...merging, permissions: { admin: false, maintain: false, push: false, triage: true, pull: true } });
+  if (url.pathname === "/repos/o/writer") return Response.json({ ...merging, permissions: { push: true, pull: true } });
+  if (url.pathname === "/repos/o/no-permissions") return Response.json(merging);
+  const pull = /^\/repos\/o\/r\/pulls\/(\d+)(\/merge)?$/.exec(url.pathname);
+  if (pull && !pull[2]) return pulls[Number(pull[1])] ? Response.json(pulls[Number(pull[1])]) : Response.json({ message: "Not Found" }, { status: 404 });
+  if (pull && request.method === "PUT") {
+    const n = Number(pull[1]);
+    if (n === 1) return Response.json({ sha: "merge-sha", merged: true, message: "Pull Request successfully merged" });
+    if (n === 2) return Response.json({ message: "Pull Request is not mergeable" }, { status: 405 });
+    if (n === 3) return Response.json({ message: "Head branch was modified. Review and try the merge again." }, { status: 409 });
+    return Response.json({ message: "Validation Failed" }, { status: 422 });
+  }
+  return Response.json({ message: "Not Found" }, { status: 404 });
 });
 const api = `http://localhost:${stub.port}`;
 
@@ -155,23 +177,32 @@ try {
   const client = pullsClient({ api, tokens: { get: async () => "ghs_stub", evict: () => {} } });
   const url = (n: number) => `https://github.com/o/r/pull/${n}`;
   assert.deepEqual(await client.pullRequest(url(1)), { state: "open", mergeable: "unknown", headSha: "h1", title: "PR 1" }, "null mergeable is unknown");
-  assert.deepEqual(await client.pullRequest(url(2)), { state: "open", mergeable: "conflicting", headSha: "h2", title: "PR 2" }, "false mergeable is conflicting");
+  assert.deepEqual(
+    await client.pullRequest(url(2)),
+    { state: "open", mergeable: "conflicting", headSha: "h2", title: "PR 2" },
+    "false mergeable is conflicting",
+  );
   assert.equal((await client.pullRequest(url(3))).state, "merged", "a closed PR with merged_at is merged");
   await assert.rejects(client.pullRequest(url(9)), /answered 404: Not Found/);
-  assert.deepEqual(await client.repoMerging("o/app-token"), { method: "merge", canPush: true }, "every permission false, pull included, says nothing about an App token, which just read the repo");
-  assert.deepEqual(await client.repoMerging("o/read-only"), { method: "merge", canPush: false }, "a token that reads but cannot push is refused before the merge");
+  assert.deepEqual(
+    await client.repoMerging("o/app-token"),
+    { method: "merge", canPush: true },
+    "every permission false, pull included, says nothing about an App token, which just read the repo",
+  );
+  assert.deepEqual(
+    await client.repoMerging("o/read-only"),
+    { method: "merge", canPush: false },
+    "a token that reads but cannot push is refused before the merge",
+  );
   assert.deepEqual(await client.repoMerging("o/writer"), { method: "merge", canPush: true });
   assert.deepEqual(await client.repoMerging("o/no-permissions"), { method: "merge", canPush: true }, "no permissions object is no reason to refuse");
   const read = seen.find((s) => s.path === "/repos/o/r/pulls/1")!;
   assert.deepEqual([read.auth, read.version], ["Bearer ghs_stub", "2026-03-10"], "calls carry the installation token and the API version");
 
-  assert.deepEqual(
-    await client.pullsForHead("o/r", "hive/FAC-1"),
-    [
-      { state: "merged", headSha: "h3", mergedAt: new Date("2026-10-24T10:00:00Z"), closedAt: new Date("2026-10-24T10:00:00Z") },
-      { state: "closed", headSha: "h2", mergedAt: null, closedAt: new Date("2026-10-23T09:00:00Z") },
-    ],
-  );
+  assert.deepEqual(await client.pullsForHead("o/r", "hive/FAC-1"), [
+    { state: "merged", headSha: "h3", mergedAt: new Date("2026-10-24T10:00:00Z"), closedAt: new Date("2026-10-24T10:00:00Z") },
+    { state: "closed", headSha: "h2", mergedAt: null, closedAt: new Date("2026-10-23T09:00:00Z") },
+  ]);
 
   assert.deepEqual(await client.pullRequestForBranch("o/r", "hive/FAC-2"), { url: url(2), state: "open" }, "an open PR wins over a merged one");
   assert.deepEqual(await client.pullRequestForBranch("o/r", "hive/FAC-1"), { url: url(3), state: "merged" }, "else the merged one; a closed one never counts");
@@ -203,7 +234,7 @@ async function setupScriptEndToEnd(api: string) {
       GITHUB_URL: api,
       GITHUB_API_URL: api,
       MARSHAL_FACTORY_GITHUB_APP: path,
-      NEON_FUNCTION_INGEST_BASE_URL: "https://ingest.invalid",
+      FACTORY_PANEL_URL: "https://panel.invalid/",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -219,13 +250,33 @@ async function setupScriptEndToEnd(api: string) {
     const state = new URL(action!).searchParams.get("state");
     assert.equal(new URL(action!).pathname, "/settings/apps/new", "the form posts to GitHub's new-app page");
     const manifest = JSON.parse(
-      /name="manifest" value="([^"]+)"/.exec(page)![1]!.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"),
+      /name="manifest" value="([^"]+)"/
+        .exec(page)![1]!
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&"),
     ) as Record<string, unknown>;
     assert.deepEqual(
       [manifest.name, manifest.public, manifest.hook_attributes, manifest.redirect_url, manifest.setup_url, manifest.default_events],
-      ["marshal-factory-ski043", false, { url: "https://ingest.invalid/webhooks/github", active: true }, `${base}/callback`, `${base}/installed`, ["pull_request", "pull_request_review", "push", "issues"]],
+      [
+        "marshal-factory-ski043",
+        false,
+        { url: "https://panel.invalid/api/webhooks/github", active: true },
+        `${base}/callback`,
+        `${base}/installed`,
+        ["pull_request", "pull_request_review", "push", "issues"],
+      ],
     );
-    assert.deepEqual(manifest.default_permissions, { metadata: "read", contents: "write", pull_requests: "write", checks: "write", issues: "write", statuses: "read" });
+    assert.deepEqual(manifest.default_permissions, {
+      metadata: "read",
+      contents: "write",
+      pull_requests: "write",
+      checks: "write",
+      issues: "write",
+      statuses: "read",
+    });
 
     assert.equal((await fetch(`${base}/callback?code=good-code&state=wrong`)).status, 400, "a wrong state is refused");
     assert.throws(() => statSync(path), "and stores nothing");

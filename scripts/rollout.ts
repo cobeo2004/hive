@@ -1,25 +1,37 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { loadLimits } from "../lib/config";
-import { readRollout, ROLLOUT_PATH, startupVerdict, touchedInputs } from "../lib/rollout";
+import { readRollout, ROLLOUT_PATH, startupVerdict, touchedInputs, waitForPanel } from "../lib/rollout";
 import { imageProblem, IMAGE_BUNDLES, readSandboxImage } from "../lib/sandbox";
 
 // Rolls merged main out to the live setup, in the order the parts depend on each other, and stops
 // at the first failure:
-//   1. wait for Vercel's production deploy of origin/main, which also migrates the database
-//   2. refuse while this machine's runner has jobs in flight (--wait waits for them instead)
-//   3. stop the runner, pull main and bun install in the checkout
-//   4. bun run db:migrate
-//   5. redeploy the ingest Function when its bundle's inputs changed since the last rollout
-//   6. rebuild the sandbox image when its pins drifted or its bundles' inputs changed since it was built
-//   7. reinstall the runner and wait for its first clean tick
+//   1. refuse while this machine's runner has jobs in flight (--wait waits for them instead)
+//   2. stop the runner, pull main and bun install in the checkout
+//   3. bun run db:migrate
+//   4. bun run build, then restart the panel and wait for it to answer 200
+//   5. rebuild the sandbox image when its pins drifted or its bundles' inputs changed since it was built
+//   6. reinstall the runner and wait for its first clean tick
 // Then it records the commit in ~/.config/marshal-factory/rollout.json for the next run.
 //   bun scripts/rollout.ts [--wait] [--canary] [--force] [--checkout <path>]
 // --canary runs scripts/canary.ts afterwards. --force rolls out even when the commit was rolled out
 // already. --checkout names the live checkout when this script runs from another one.
-// Steps 4 to 7 run in a fresh process from the pulled checkout's script, so they are the new code's.
+// Steps 4 to 6 run in a fresh process from the pulled checkout's script, so they are the new code's.
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -57,22 +69,6 @@ async function waitFor<T>(what: string, timeoutMs: number, everyMs: number, chec
   }
 }
 
-/** The Vercel commit status on main's head is the production deploy; it runs the migrations too. */
-async function waitForVercel(sha: string) {
-  log(`waiting for Vercel's production deploy of ${sha.slice(0, 7)}`);
-  let last = "";
-  await waitFor("the Vercel deploy", 30 * 60_000, 15_000, () => {
-    const statuses = JSON.parse(read("gh", ["api", `repos/{owner}/{repo}/commits/${sha}/statuses`])) as { context: string; state: string; description: string; target_url: string }[];
-    const vercel = statuses.find((s) => s.context === "Vercel");
-    if (!vercel) return undefined;
-    if (vercel.state !== last) log(`Vercel: ${vercel.state}, ${vercel.description}`);
-    last = vercel.state;
-    if (vercel.state === "success") return true;
-    if (vercel.state === "failure" || vercel.state === "error") throw new StepError(`the Vercel deploy of ${sha.slice(0, 7)} failed: ${vercel.target_url}`);
-    return undefined;
-  });
-}
-
 /** This machine's jobs whose thread is working or stopping, counted as the runner counts them. */
 async function inFlight() {
   const { machineInFlight } = await import(join(checkout, "runner/ops.ts"));
@@ -92,7 +88,6 @@ async function beforePull() {
     return false;
   }
   log(`rolling out ${target.slice(0, 7)} to ${checkout}; last rollout ${last ? `${last.commit.slice(0, 7)} at ${last.at}` : "none recorded"}`);
-  await waitForVercel(target);
 
   process.chdir(checkout);
   process.loadEnvFile(".env.local");
@@ -120,7 +115,10 @@ async function beforePull() {
 function bundleInputs(entries: readonly string[]) {
   const dir = mkdtempSync(join(tmpdir(), "rollout-bundle-"));
   try {
-    execFileSync("bun", ["build", ...entries, "--target=bun", "--root", ".", "--outdir", join(dir, "out"), `--metafile=${join(dir, "meta.json")}`], { cwd: checkout, stdio: "ignore" });
+    execFileSync("bun", ["build", ...entries, "--target=bun", "--root", ".", "--outdir", join(dir, "out"), `--metafile=${join(dir, "meta.json")}`], {
+      cwd: checkout,
+      stdio: "ignore",
+    });
     return Object.keys((JSON.parse(readFileSync(join(dir, "meta.json"), "utf8")) as { inputs: Record<string, unknown> }).inputs);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -141,24 +139,39 @@ async function afterPull() {
   process.chdir(checkout);
   process.loadEnvFile(".env.local");
   const head = git("rev-parse", "HEAD");
-  const last = readRollout();
 
   run("bun", ["run", "db:migrate"]);
 
-  const ingestChanged = changedSince(last?.commit);
-  const ingestTouched = ingestChanged && touchedInputs(ingestChanged, bundleInputs(["functions/ingest/index.ts"]));
-  if (ingestTouched === null) log("ingest: no earlier rollout to compare with, so it is deployed");
-  else if (ingestTouched.length > 0) log(`ingest: ${ingestTouched.join(", ")} changed`);
-  if (ingestTouched === null || ingestTouched.length > 0) run("neon", ["functions", "deploy", "ingest", "--branch", "main", "--src", "functions/ingest/index.ts"]);
-  else log("ingest: unchanged since the last rollout, not deployed");
+  // next build empties its output first, so build beside the .next the panel serves and swap it in. A failed
+  // build stops the rollout here, with the runner still stopped and the panel on its old build.
+  rmSync(join(checkout, ".next-rollout"), { recursive: true, force: true });
+  process.env.HIVE_BUILD_DIR = ".next-rollout";
+  run("bun", ["run", "build"]);
+  delete process.env.HIVE_BUILD_DIR;
+  rmSync(join(checkout, ".next-old"), { recursive: true, force: true });
+  if (existsSync(join(checkout, ".next"))) renameSync(join(checkout, ".next"), join(checkout, ".next-old"));
+  renameSync(join(checkout, ".next-rollout"), join(checkout, ".next"));
+  log("restarting the panel");
+  run("launchctl", ["kickstart", "-k", `gui/${userInfo().uid}/com.hive.panel`]);
+  const panel = (process.env.FACTORY_PANEL_URL?.trim() || `http://localhost:${process.env.PANEL_PORT?.trim() || "3000"}`).replace(/\/+$/, "");
+  log(`waiting for the panel at ${panel}`);
+  await waitForPanel(`${panel}/auth/sign-in`, { timeoutMs: 120_000, everyMs: 2_000 });
+  log("the panel answers 200");
+  rmSync(join(checkout, ".next-old"), { recursive: true, force: true });
 
   const image = readSandboxImage();
   if (!image) log("image: none was ever built on this machine (no Modal jobs), not built");
   else {
     const problem = imageProblem(image, loadLimits().sandbox);
     const imageChanged = changedSince(image.factoryCommit);
-    const imageTouched = imageChanged && touchedInputs(imageChanged, [...(bundleInputs(IMAGE_BUNDLES)), "scripts/sandbox-image.ts", "lib/sandbox-image-build.ts"]);
-    const why = [problem, imageTouched === null ? `its commit ${image.factoryCommit.slice(0, 7)} is not in this checkout` : imageTouched.length > 0 && `${imageTouched.join(", ")} changed`].filter(Boolean);
+    const imageTouched =
+      imageChanged && touchedInputs(imageChanged, [...bundleInputs(IMAGE_BUNDLES), "scripts/sandbox-image.ts", "lib/sandbox-image-build.ts"]);
+    const why = [
+      problem,
+      imageTouched === null
+        ? `its commit ${image.factoryCommit.slice(0, 7)} is not in this checkout`
+        : imageTouched.length > 0 && `${imageTouched.join(", ")} changed`,
+    ].filter(Boolean);
     if (why.length > 0) {
       log(`image: rebuilding, ${why.join("; ")}`);
       run("bun", ["scripts/sandbox-image.ts"]);
@@ -211,7 +224,8 @@ try {
   process.exit(0);
 } catch (error) {
   console.error(`rollout stopped: ${error instanceof Error ? error.message : String(error)}`);
-  if (runnerStopped) console.error("The runner is stopped. Fix the cause and run the rollout again, or start the runner as it is with bun scripts/install-runner.ts.");
+  if (runnerStopped)
+    console.error("The runner is stopped. Fix the cause and run the rollout again, or start the runner as it is with bun scripts/install-runner.ts.");
   if (!(error instanceof StepError) && error instanceof Error) console.error(error.stack);
   process.exit(1);
 }

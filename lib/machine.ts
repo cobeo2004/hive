@@ -34,7 +34,9 @@ export type Projects = z.infer<typeof projectsSchema>;
 /** What a sandbox image holds that the config pins; any difference means rebuilding it. */
 export const IMAGE_COMPONENTS = ["t3", "claudeCode", "codex", "playwrightMcp", "pstack", "playbooks"] as const;
 export type ImageComponent = (typeof IMAGE_COMPONENTS)[number];
-export const imageVersionsSchema = z.object({ t3: z.string(), claudeCode: z.string(), codex: z.string(), playwrightMcp: z.string(), pstack: z.string(), playbooks: z.string() }).partial();
+export const imageVersionsSchema = z
+  .object({ t3: z.string(), claudeCode: z.string(), codex: z.string(), playwrightMcp: z.string(), pstack: z.string(), playbooks: z.string() })
+  .partial();
 export type ImageVersions = z.infer<typeof imageVersionsSchema>;
 
 export function componentName(component: ImageComponent) {
@@ -206,7 +208,5 @@ export function reportedSlack(machines: readonly { last_seen_at: Date; inventory
  * an environment id `t3code://app` only brings T3 to the front.
  */
 export function t3ThreadLink(threadId: string, environmentId: string | null) {
-  return environmentId
-    ? `t3code://threads/${encodeURIComponent(environmentId)}/${encodeURIComponent(threadId)}`
-    : "t3code://app";
+  return environmentId ? `t3code://threads/${encodeURIComponent(environmentId)}/${encodeURIComponent(threadId)}` : "t3code://app";
 }

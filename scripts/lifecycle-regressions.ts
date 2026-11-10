@@ -56,7 +56,11 @@ let claudeOk = true;
 fake.answer = (_sandbox, argv) => {
   const line = argv.join(" ");
   if (line.startsWith("t3 thread show ")) {
-    return { stdout: JSON.stringify({ thread: { archived: archived.has(argv[3]!), worktreePath: null, activeRunId: running.has(argv[3]!) ? "run-1" : null, branch: null } }) };
+    return {
+      stdout: JSON.stringify({
+        thread: { archived: archived.has(argv[3]!), worktreePath: null, activeRunId: running.has(argv[3]!) ? "run-1" : null, branch: null },
+      }),
+    };
   }
   if (line === "codex login status") return { code: codexOk ? 0 : 1, stdout: codexOk ? "Logged in using ChatGPT" : "Not logged in" };
   if (line === "claude auth status") return { code: claudeOk ? 0 : 1 };
@@ -66,14 +70,28 @@ fake.answer = (_sandbox, argv) => {
 
 const key = (name: string) => `LC${name}-${stamp}`;
 // Only this script's jobs: the test branch copies a real database.
-const ours = async () => (await db.select({ key: jobs.key }).from(jobs).where(like(jobs.key, `LC%-${stamp}`))).map((j) => j.key);
+const ours = async () =>
+  (
+    await db
+      .select({ key: jobs.key })
+      .from(jobs)
+      .where(like(jobs.key, `LC%-${stamp}`))
+  ).map((j) => j.key);
 const ids: string[] = [];
 const runKeys: string[] = [];
 const row = async (k: string) => (await db.select().from(jobs).where(eq(jobs.key, k)))[0]!;
 const hourAgo = new Date(Date.now() - 3_600_000);
 
 async function sandboxFor(k: string, machine = TEST_MACHINE_ID) {
-  return (await fakeModal.create({ name: `job-${k}-a1`, tags: { job: k, attempt: "1", label, machine }, imageId: "im-test", secrets: {}, env: {}, encryptedPorts: [], limits })) as FakeSandbox;
+  return (await fakeModal.create({
+    name: `job-${k}-a1`,
+    tags: { job: k, attempt: "1", label, machine },
+    imageId: "im-test",
+    secrets: {},
+    env: {},
+    encryptedPorts: [],
+    limits,
+  })) as FakeSandbox;
 }
 
 async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
@@ -88,7 +106,13 @@ try {
   const sbH = await sandboxFor(key("H"));
   sbH.files.set(CODEX_AUTH, `{"slot":"${slotA}","v":2}`);
   sbH.files.set("/work/repo/marker.txt", "kept");
-  const H = await insert("H", { stage: "pr", t3_thread_id: "thread-H", sandbox_id: sbH.sandboxId, codex_slot: slotA, pr_url: `https://github.com/ski043/factory-demo/pull/${stamp}` });
+  const H = await insert("H", {
+    stage: "pr",
+    t3_thread_id: "thread-H",
+    sandbox_id: sbH.sandboxId,
+    codex_slot: slotA,
+    pr_url: `https://github.com/ski043/factory-demo/pull/${stamp}`,
+  });
   const sbRun = await sandboxFor(key("RUN"));
   const RUN = await insert("RUN", { stage: "pr", t3_thread_id: "thread-RUN", sandbox_id: sbRun.sandboxId, codex_slot: slotB });
   running.add("thread-RUN");
@@ -104,7 +128,10 @@ try {
   assert.ok(sbH.terminated, "the sandbox is terminated");
   const opsH = fake.ops.filter((o) => o.startsWith(`${sbH.sandboxId}:`));
   const at = (needle: string) => opsH.findIndex((o) => o.includes(needle));
-  assert.ok(at("pkill") >= 0 && at("pkill") < at("snapshot") && at("snapshot") < at("terminated"), `t3 serve stops, then snapshot, then terminate: ${opsH.join(" | ")}`);
+  assert.ok(
+    at("pkill") >= 0 && at("pkill") < at("snapshot") && at("snapshot") < at("terminated"),
+    `t3 serve stops, then snapshot, then terminate: ${opsH.join(" | ")}`,
+  );
   assert.equal(fake.snapshots[0]!.ttlMs, limits.snapshotTtlDays * 86_400_000, "the snapshot expires after snapshotTtlDays");
   assert.ok(!events.some((e) => JSON.stringify(e).includes('"v":2')), "no login contents are logged");
   assert.equal((await row(RUN)).sandbox_id, sbRun.sandboxId, "a running thread keeps its sandbox");
@@ -116,7 +143,10 @@ try {
   const createdBefore = fake.created;
   await db.update(jobs).set({ stage: "implementing" }).where(eq(jobs.key, H));
   assert.ok(!(await watchdog()).some((a) => a.startsWith(H)), "the watchdog skips a hibernated job");
-  await db.update(jobs).set({ stage: "pr", stop_event_id: `stop:${H}:1:x`, stop_sent_to: null }).where(eq(jobs.key, H));
+  await db
+    .update(jobs)
+    .set({ stage: "pr", stop_event_id: `stop:${H}:1:x`, stop_sent_to: null })
+    .where(eq(jobs.key, H));
   assert.deepEqual(await deliverStops(h.id), [H], "a stop owed to a hibernated thread is settled without waking it");
   assert.equal((await row(H)).stop_sent_to, "thread-H");
   await db.update(jobs).set({ stop_event_id: null, stop_sent_to: null }).where(eq(jobs.key, H));
@@ -132,14 +162,21 @@ try {
   assert.equal(sbW.spec!.imageId, "im-snap-1", "started from the snapshot");
   assert.match(sbW.spec!.name, new RegExp(`^job-${H}-a1-[0-9a-z]+$`));
   assert.deepEqual(sbW.spec!.tags, { job: H, attempt: "1", label, machine: TEST_MACHINE_ID });
-  assert.deepEqual([woken.sandbox_snapshot, woken.codex_slot, woken.conflict_head], [null, slotA, "head-1"], "snapshot cleared, the free slot leased, the conflict claimed");
+  assert.deepEqual(
+    [woken.sandbox_snapshot, woken.codex_slot, woken.conflict_head],
+    [null, slotA, "head-1"],
+    "snapshot cleared, the free slot leased, the conflict claimed",
+  );
   assert.ok(fake.deletedImages.includes("im-snap-1"), "the snapshot is deleted once the sandbox serves");
   assert.equal(sbW.files.get("/work/repo/marker.txt"), "kept", "the worktree survived");
   assert.equal(sbW.files.get(CODEX_AUTH), authOf(slotA), "the leased slot's login");
   assert.match(sbW.files.get(GITHUB_TOKEN_PATH)!, /^ghs_fake_\d+$/, "a fresh GitHub token");
   const argvW = sbW.execs.map((e) => e.argv.join(" "));
   const w = (needle: string) => argvW.findIndex((a) => a.includes(needle));
-  assert.ok(w("codex login status") >= 0 && w("codex login status") < w("t3 serve") && w("rm -rf /root/.t3/userdata/server-runtime.json") < w("t3 serve"), argvW.join(" | "));
+  assert.ok(
+    w("codex login status") >= 0 && w("codex login status") < w("t3 serve") && w("rm -rf /root/.t3/userdata/server-runtime.json") < w("t3 serve"),
+    argvW.join(" | "),
+  );
   assert.ok(w("t3 serve") < w("t3 thread send thread-H"), "serve before the message");
   assert.deepEqual(sbW.spec!.encryptedPorts, [3773], "a woken sandbox declares T3's port as an encrypted tunnel");
   assert.match(argvW[w("t3 serve")]!, /serve --host 0\.0\.0\.0 --port 3773 /, "and T3 listens where the tunnel reaches it");
@@ -159,10 +196,21 @@ try {
   // Teardown: a merged job writes its login back, ends its sandbox and frees its slot, once.
   sbW.files.set(CODEX_AUTH, `{"slot":"${slotA}","v":3}`);
   await db.update(jobs).set({ stage: "merged" }).where(eq(jobs.key, H));
-  const snapGone = await insert("GONE", { stage: "failed", t3_thread_id: "thread-GONE", sandbox_snapshot: "im-snap-expired", stop_event_id: `stop:${key("GONE")}:1:x` });
+  const snapGone = await insert("GONE", {
+    stage: "failed",
+    t3_thread_id: "thread-GONE",
+    sandbox_snapshot: "im-snap-expired",
+    stop_event_id: `stop:${key("GONE")}:1:x`,
+  });
   fake.images.set("im-snap-kept", new Map());
   const SNAP = await insert("SNAP", { stage: "failed", t3_thread_id: "thread-SNAP", sandbox_snapshot: "im-snap-kept" });
-  const sqlReclaims = async (k: string) => (await db.select({ ok: sql<boolean>`coalesce(${canReclaimSql}, false)` }).from(jobs).where(eq(jobs.key, k)))[0]!.ok;
+  const sqlReclaims = async (k: string) =>
+    (
+      await db
+        .select({ ok: sql<boolean>`coalesce(${canReclaimSql}, false)` })
+        .from(jobs)
+        .where(eq(jobs.key, k))
+    )[0]!.ok;
   assert.equal(canReclaim(await row(SNAP)), false, "a failed job holding a snapshot cannot start a new attempt yet");
   assert.equal(await sqlReclaims(SNAP), false, "SQL agrees");
   const torn = await teardownFinished();
@@ -181,10 +229,21 @@ try {
 
   // A Claude Code job holds no slot: it hibernates, wakes with no slot free, and tears down without one.
   const sbCl = await sandboxFor(key("CL"));
-  const CL = await insert("CL", { stage: "pr", t3_thread_id: "thread-CL", sandbox_id: sbCl.sandboxId, provider: "claudeAgent", model: "claude-opus-5-5", execution: "modal" });
+  const CL = await insert("CL", {
+    stage: "pr",
+    t3_thread_id: "thread-CL",
+    sandbox_id: sbCl.sandboxId,
+    provider: "claudeAgent",
+    model: "claude-opus-5-5",
+    execution: "modal",
+  });
   assert.deepEqual(await hibernateIdle(), [`${CL}:hibernated`]);
   const clAsleep = await row(CL);
-  assert.deepEqual([clAsleep.sandbox_id, clAsleep.codex_slot, Boolean(clAsleep.sandbox_snapshot), sbCl.terminated], [null, null, true, true], "hibernated with no slot to hand back");
+  assert.deepEqual(
+    [clAsleep.sandbox_id, clAsleep.codex_slot, Boolean(clAsleep.sandbox_snapshot), sbCl.terminated],
+    [null, null, true, true],
+    "hibernated with no slot to hand back",
+  );
   const allSlots = sandboxRuntime.slots;
   sandboxRuntime.slots = () => [];
   try {
@@ -211,26 +270,57 @@ try {
   const sbFailed = [...sandboxes.values()].find((s) => s.spec?.imageId === "im-snap-w")!;
   assert.ok(sbFailed.terminated, "the sandbox that could not log in is terminated");
   const marked = readSlotHealth(healthPath);
-  assert.deepEqual(marked.map((m) => [m.slot, m.status]), [[slotA, "unusable"]], "the slot is marked unusable");
+  assert.deepEqual(
+    marked.map((m) => [m.slot, m.status]),
+    [[slotA, "unusable"]],
+    "the slot is marked unusable",
+  );
   assert.ok(!readFileSync(healthPath, "utf8").includes('"v"'), "the health file holds no login");
   const audit = await db.select().from(auditLog).where(eq(auditLog.job_id, failedWake.id));
-  assert.deepEqual(audit.map((a) => [a.action, a.target, a.result]), [["sandbox_login_failed", slotA, "error"]], "the job's audit log says so");
+  assert.deepEqual(
+    audit.map((a) => [a.action, a.target, a.result]),
+    [["sandbox_login_failed", slotA, "error"]],
+    "the job's audit log says so",
+  );
   assert.deepEqual(usableSlots(limits).includes(slotA), false, "a marked slot is skipped");
   assert.deepEqual(sandboxReadiness({ codexSlots: [slotA, slotB, slotC] }, process.env, readSlotHealth(healthPath)).codexSlots, 2);
-  assert.deepEqual(sandboxReadiness({ codexSlots: [slotA, slotB, slotC] }, process.env, readSlotHealth(healthPath)).codexSlotsUnusable, 1, "the inventory counts it");
+  assert.deepEqual(
+    sandboxReadiness({ codexSlots: [slotA, slotB, slotC] }, process.env, readSlotHealth(healthPath)).codexSlotsUnusable,
+    1,
+    "the inventory counts it",
+  );
   const versions = { t3: "0.1.3", claudeCode: "2.1.310", codex: "0.164.0", playwrightMcp: "0.0.83", pstack: "0.9.69@614d2f9791dd" };
   const image = { imageId: "im-secretish", t3Version: "0.1.3", versions, factoryCommit: "abc1234", builtAt: "2026-10-26T10:00:00.000Z" };
-  const pins = { t3Version: "0.1.4", claudeCodeVersion: "2.1.311", codexVersion: "0.164.0", playwrightMcpVersion: "0.0.83", pstack: { repo: "o/r", commit: "a".repeat(40), version: "0.9.70" } };
+  const pins = {
+    t3Version: "0.1.4",
+    claudeCodeVersion: "2.1.311",
+    codexVersion: "0.164.0",
+    playwrightMcpVersion: "0.0.83",
+    pstack: { repo: "o/r", commit: "a".repeat(40), version: "0.9.70" },
+  };
   const reported = sandboxReadiness({ codexSlots: [], ...pins, maxParallel: 3 }, process.env, [], image);
   assert.deepEqual(
     [reported.image, reported.imageInfo, reported.pinnedT3Version, reported.pinnedVersions, reported.maxParallel],
-    [true, { t3Version: "0.1.3", factoryCommit: "abc1234", builtAt: image.builtAt, versions }, "0.1.4", { t3: "0.1.4", claudeCode: "2.1.311", codex: "0.164.0", playwrightMcp: "0.0.83", pstack: "0.9.70@aaaaaaaaaaaa", playbooks: playbooksVersion() }, 3],
+    [
+      true,
+      { t3Version: "0.1.3", factoryCommit: "abc1234", builtAt: image.builtAt, versions },
+      "0.1.4",
+      { t3: "0.1.4", claudeCode: "2.1.311", codex: "0.164.0", playwrightMcp: "0.0.83", pstack: "0.9.70@aaaaaaaaaaaa", playbooks: playbooksVersion() },
+      3,
+    ],
     "the inventory reports the image's versions, build time and commit, every pin and the cap",
   );
   const beforePins = { ...image, versions: undefined };
-  assert.deepEqual(sandboxReadiness({ codexSlots: [] }, process.env, [], beforePins).imageInfo?.versions, { t3: "0.1.3" }, "an image from before the other pins reports only T3");
+  assert.deepEqual(
+    sandboxReadiness({ codexSlots: [] }, process.env, [], beforePins).imageInfo?.versions,
+    { t3: "0.1.3" },
+    "an image from before the other pins reports only T3",
+  );
   assert.ok(!JSON.stringify(reported).includes("im-secretish"), "but not the image id");
-  assert.deepEqual([sandboxReadiness({ codexSlots: [] }, process.env, [], null).image, sandboxReadiness({ codexSlots: [] }, process.env, [], null).imageInfo], [false, null]);
+  assert.deepEqual(
+    [sandboxReadiness({ codexSlots: [] }, process.env, [], null).image, sandboxReadiness({ codexSlots: [] }, process.env, [], null).imageInfo],
+    [false, null],
+  );
   const later = new Date(Date.now() + 60_000);
   utimesSync(join(slotA, "auth.json"), later, later);
   assert.ok(usableSlots(limits).includes(slotA), "a fresh login makes the slot usable again");
@@ -245,7 +335,18 @@ try {
   const L = await insert("L", { stage: "queued", machine_id: null });
   const machine = { id: TEST_MACHINE_ID, repos: ["ski043/factory-demo"], maxInFlight: 1000 };
   const codex = { provider: "codex", model: "gpt-6-astra" };
-  const entry = (k: string, harness = codex) => ({ key: k, sandbox_id: null, attempt: 1, source: "linear" as const, repo: "ski043/factory-demo", branch: `hive/${k}`, threadTitle: k, message: `Work ${k}`, harness, ticket: null });
+  const entry = (k: string, harness = codex) => ({
+    key: k,
+    sandbox_id: null,
+    attempt: 1,
+    source: "linear" as const,
+    repo: "ski043/factory-demo",
+    branch: `hive/${k}`,
+    threadTitle: k,
+    message: `Work ${k}`,
+    harness,
+    ticket: null,
+  });
   sandboxRuntime.slots = () => [slotC];
   codexOk = false;
   const [loginless] = await launchInSandboxes([entry(L)], machine);
@@ -253,7 +354,10 @@ try {
   const l = await row(L);
   assert.deepEqual([l.stage, l.t3_thread_id, l.machine_id, l.sandbox_id, l.codex_slot], ["queued", null, null, null, null], "back to queued, holding nothing");
   assert.ok([...sandboxes.values()].filter((s) => s.spec?.tags.job === L).every((s) => s.terminated));
-  assert.ok(readSlotHealth(healthPath).some((m) => m.slot === slotC), "the slot is marked");
+  assert.ok(
+    readSlotHealth(healthPath).some((m) => m.slot === slotC),
+    "the slot is marked",
+  );
   assert.deepEqual(await launchInSandboxes([entry(L)], machine), [], "and not leased again while its login is unchanged");
   codexOk = true;
 
@@ -278,8 +382,16 @@ try {
   assert.equal(JSON.parse(sbL.files.get("/root/.t3/userdata/settings.json")!).defaultModelSelection.instanceId, "codex");
   assert.ok(sbL.execs.some((e) => e.argv.join(" ").includes(`--provider codex --model ${limits.codexModel}`)));
   const launched = sbL.execs.find((e) => e.argv[0] === "t3" && e.argv[2] === "start")!.input;
-  assert.ok(launched.startsWith(`Work ${L}\n`) && launched.includes("The factory playbook is /opt/marshal-factory/playbooks/factory.md."), "a sandbox thread follows the image's playbook");
-  assert.ok(launched.includes("This repository also has .agents/playbooks/factory.md. The factory playbook at /opt/marshal-factory/playbooks/factory.md is authoritative"), "over the repo's own copy");
+  assert.ok(
+    launched.startsWith(`Work ${L}\n`) && launched.includes("The factory playbook is /opt/marshal-factory/playbooks/factory.md."),
+    "a sandbox thread follows the image's playbook",
+  );
+  assert.ok(
+    launched.includes(
+      "This repository also has .agents/playbooks/factory.md. The factory playbook at /opt/marshal-factory/playbooks/factory.md is authoritative",
+    ),
+    "over the repo's own copy",
+  );
   assert.ok(events.some((e) => e.event === "sandbox:harness-fallback" && e.detail.key === L));
   claudeOk = true;
   claudeToken = undefined;
@@ -307,7 +419,9 @@ try {
   sandboxRuntime.slots = () => [slotD];
   const answered = new Set<string>();
   SOURCES.linear.replies = async (job) =>
-    answered.has(job.key) ? { kind: "resume", question: "Which?", replies: [{ id: `reply-${job.key}`, body: "This one", createdAt: new Date().toISOString() }], answer: "This one" } : { kind: "wait" };
+    answered.has(job.key)
+      ? { kind: "resume", question: "Which?", replies: [{ id: `reply-${job.key}`, body: "This one", createdAt: new Date().toISOString() }], answer: "This one" }
+      : { kind: "wait" };
   fake.images.set("im-snap-r2", new Map());
   const R2 = await insert("R2", { stage: "waiting", question: "Which?", t3_thread_id: "thread-R2", session_id: "session-R2", sandbox_snapshot: "im-snap-r2" });
   archived.add("thread-R2");
@@ -321,24 +435,46 @@ try {
     [null, null, null, null, null, true],
     "it holds nothing and is unlinked with the Q&A kept",
   );
-  assert.ok((await toLaunch()).some((e) => e.key === R2), "so it relaunches");
+  assert.ok(
+    (await toLaunch()).some((e) => e.key === R2),
+    "so it relaunches",
+  );
   answered.delete(R2);
 
   // An answer to a job whose sandbox timed out: its slot goes too, so it relaunches.
   const deadR1 = await sandboxFor(key("R1"));
   await deadR1.terminate();
-  const R1 = await insert("R1", { stage: "waiting", question: "Which?", t3_thread_id: "thread-R1", session_id: "session-R1", sandbox_id: deadR1.sandboxId, codex_slot: slotD });
+  const R1 = await insert("R1", {
+    stage: "waiting",
+    question: "Which?",
+    t3_thread_id: "thread-R1",
+    session_id: "session-R1",
+    sandbox_id: deadR1.sandboxId,
+    codex_slot: slotD,
+  });
   answered.add(R1);
   await assert.rejects(resumeAnswered(), /deployed ingest function/);
   const r1 = await row(R1);
   assert.deepEqual([r1.sandbox_id, r1.codex_slot, r1.t3_thread_id, r1.machine_id], [null, null, null, null], JSON.stringify(r1));
-  assert.ok((await toLaunch()).some((e) => e.key === R1), "so it relaunches");
+  assert.ok(
+    (await toLaunch()).some((e) => e.key === R1),
+    "so it relaunches",
+  );
   answered.clear();
 
   // maxParallel caps running sandboxes whatever their stage or slot: two answers to hibernated Claude Code jobs wake one at a time.
   const claudeAsleep = async (name: string) => {
     fake.images.set(`im-snap-${name}`, new Map());
-    return insert(name, { stage: "waiting", question: "Which?", t3_thread_id: `thread-${name}`, session_id: `session-${name}`, sandbox_snapshot: `im-snap-${name}`, provider: "claudeAgent", model: "claude-opus-5-5", execution: "modal" });
+    return insert(name, {
+      stage: "waiting",
+      question: "Which?",
+      t3_thread_id: `thread-${name}`,
+      session_id: `session-${name}`,
+      sandbox_snapshot: `im-snap-${name}`,
+      provider: "claudeAgent",
+      model: "claude-opus-5-5",
+      execution: "modal",
+    });
   };
   const [A1, A2] = [await claudeAsleep("A1"), await claudeAsleep("A2")];
   const posted: Record<string, unknown>[] = [];
@@ -360,7 +496,11 @@ try {
     const [woke, deferred] = [awake[0]!, waited[0]!];
     assert.ok((await row(woke)).sandbox_id && !(await row(woke)).sandbox_snapshot, "the first is awake");
     const asleepStill = await row(deferred);
-    assert.deepEqual([asleepStill.sandbox_id, asleepStill.sandbox_snapshot, asleepStill.delivered_reply_ids], [null, `im-snap-${deferred.slice(2, 4)}`, []], "the other stays hibernated with its answer unclaimed");
+    assert.deepEqual(
+      [asleepStill.sandbox_id, asleepStill.sandbox_snapshot, asleepStill.delivered_reply_ids],
+      [null, `im-snap-${deferred.slice(2, 4)}`, []],
+      "the other stays hibernated with its answer unclaimed",
+    );
     assert.deepEqual(await resumeAnswered(), [`${deferred}:wake-deferred`], "and keeps waiting while the cap is held");
 
     // A launch waits too while the woken sandbox holds the cap.
@@ -391,7 +531,13 @@ try {
   sbUsage.files.set("/root/.claude/projects/x/session-UL.jsonl", "");
   const UG = await insert("UG", { stage: "implementing", sandbox_id: "sb-reconcile-gone" });
   const UL = await insert("UL", { stage: "implementing", sandbox_id: sbUsage.sandboxId });
-  const runRow = (k: string, path: string) => ({ session_id: `session-${k}`, job_key: k, transcript_path: path, started_at: new Date(), last_event_at: new Date() });
+  const runRow = (k: string, path: string) => ({
+    session_id: `session-${k}`,
+    job_key: k,
+    transcript_path: path,
+    started_at: new Date(),
+    last_event_at: new Date(),
+  });
   await db.insert(runs).values([runRow(UG, "/root/.claude/projects/x/session-UG.jsonl"), runRow(UL, "/root/.claude/projects/x/session-UL.jsonl")]);
   runKeys.push(UG, UL);
   assert.deepEqual(await reconcileUsage({ only: [UG, UL] }), [], "a gone sandbox does not abort the pass");
@@ -409,7 +555,14 @@ try {
   limits.maxParallel = (await sandboxesInFlight(TEST_MACHINE_ID)) + 1;
   try {
     const batch = await launchInSandboxes([entry(P1), entry(P2)], machine);
-    assert.deepEqual(batch.map((r) => [r.key, r.retry ?? r.threadId]), [[P1, "next pass"], [P2, "thread-launched"]], JSON.stringify(batch));
+    assert.deepEqual(
+      batch.map((r) => [r.key, r.retry ?? r.threadId]),
+      [
+        [P1, "next pass"],
+        [P2, "thread-launched"],
+      ],
+      JSON.stringify(batch),
+    );
     assert.deepEqual([(await row(P1)).machine_id, (await row(P1)).codex_slot], [null, null], "the failed launch holds nothing");
   } finally {
     limits.maxParallel = maxParallel;
@@ -427,6 +580,11 @@ try {
 } finally {
   await db.delete(auditLog).where(like(auditLog.job_id, "linear:lifecycle-regress-%"));
   if (runKeys.length > 0) await db.delete(runs).where(inArray(runs.job_key, runKeys));
-  await db.delete(jobs).where(inArray(jobs.id, ids.map((id) => jobId("linear", id))));
+  await db.delete(jobs).where(
+    inArray(
+      jobs.id,
+      ids.map((id) => jobId("linear", id)),
+    ),
+  );
   process.exit(process.exitCode ?? 0);
 }

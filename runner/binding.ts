@@ -55,7 +55,10 @@ const stoppedSql = sql`${jobs.stop_event_id} like 'stop:%'`;
 const pendingSql = sql`${jobs.t3_thread_id} like 'pending:%'`;
 const boundSql = and(isNotNull(jobs.t3_thread_id), sql`${jobs.t3_thread_id} not like 'pending:%'`);
 const unsentSql = sql`${jobs.stop_sent_to} is distinct from ${jobs.t3_thread_id}`;
-const pendingStates = sql.join(PENDING_STOP_STATES.map((state) => sql`${state}`), sql`, `);
+const pendingStates = sql.join(
+  PENDING_STOP_STATES.map((state) => sql`${state}`),
+  sql`, `,
+);
 
 export const stopOwedSql = sql`(${stoppedSql} and (${pendingSql} or (${boundSql} and ${unsentSql})))`;
 export const stopDeliverableSql = and(stoppedSql, boundSql, unsentSql);

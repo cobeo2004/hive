@@ -62,11 +62,7 @@ export function prCommentBody(decision: MergeDecision, assessment: MergeAssessme
         return decision.autonomy === "trial" ? ["Would merge (trial)", evidenceLine(decision), ...assessmentBlock(assessment)] : null;
       case "handover":
         if (decision.autonomy === "trial") return [`Would hand over (trial) because:\n\n${bullets(decision.reasons)}`];
-        return [
-          "Ready for your review",
-          bullets(decision.reasons),
-          assessment?.notes ? `**Notes**\n\n${assessment.notes}` : "",
-        ];
+        return ["Ready for your review", bullets(decision.reasons), assessment?.notes ? `**Notes**\n\n${assessment.notes}` : ""];
       default: {
         const never: never = decision.outcome;
         throw new Error(`unknown merge outcome ${String(never)}`);
