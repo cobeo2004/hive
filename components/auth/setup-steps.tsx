@@ -1,7 +1,6 @@
 "use client";
 
 import { CheckIcon } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import QRCode from "react-qr-code";
 import { useState, type ReactNode } from "react";
@@ -58,7 +57,7 @@ export function SetupSteps({ user }: { user: SetupUser }) {
         ) : (
           <>
             <span className="flex-1" />
-            <GoToJobs />
+            <FinishTo label="Go to Jobs" pendingLabel="Opening Jobs" to="/" />
           </>
         )}
       </footer>
@@ -280,16 +279,15 @@ function Done({ user }: { user: SetupUser }) {
           <span className="flex-1 basis-80 text-sm text-muted-foreground">
             As the admin, connect GitHub and add your first repository next: Hive onboards it and opens a PR with the recipe.
           </span>
-          <Button render={<Link href="/repositories" />} variant="outline">
-            Add a repository
-          </Button>
+          <FinishTo label="Add a repository" pendingLabel="Opening Repositories" to="/repositories" variant="outline" />
         </div>
       )}
     </>
   );
 }
 
-function GoToJobs() {
+/** Finishing setup comes first: until setup_done_at is set, the proxy sends every other page back to /setup. */
+function FinishTo({ label, pendingLabel, to, variant }: { label: string; pendingLabel: string; to: string; variant?: "outline" }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -304,11 +302,12 @@ function GoToJobs() {
           const result = await finishSetup();
           setPending(false);
           if (!result.ok) return setError(result.message);
-          router.replace("/");
+          router.replace(to);
           router.refresh();
         }}
+        variant={variant}
       >
-        {pending ? "Opening Jobs" : "Go to Jobs"}
+        {pending ? pendingLabel : label}
       </Button>
     </>
   );
