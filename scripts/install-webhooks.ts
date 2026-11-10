@@ -1,9 +1,9 @@
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 import { CONFIG_PATH, loadConfig } from "../lib/config";
+import { publicUrl } from "../lib/slack";
 
 process.loadEnvFile(".env.local");
-const base = process.env.NEON_FUNCTION_INGEST_BASE_URL!.replace(/\/$/, "");
 const config = loadConfig();
 
 async function linear<T>(query: string, variables: object, schema: z.ZodType<T>) {
@@ -18,7 +18,7 @@ async function linear<T>(query: string, variables: object, schema: z.ZodType<T>)
 }
 
 async function linearWebhook() {
-  const url = `${base}/webhooks/linear`;
+  const url = `${publicUrl()}/api/webhooks/linear`;
   const { webhooks } = await linear(
     `{ webhooks(first: 100) { nodes { id url } } }`,
     {},
@@ -26,6 +26,10 @@ async function linearWebhook() {
   );
   const existing = webhooks.nodes.find((w) => w.url === url);
   if (existing) return existing.id;
+  // Matched by URL, so a webhook at an older URL (such as the retired ingest Function) stays and would deliver twice.
+  for (const old of webhooks.nodes.filter((w) => w.url.endsWith("/webhooks/linear"))) {
+    console.warn(`delete the old Linear webhook ${old.id} at ${old.url} in Linear's settings; it still delivers there`);
+  }
   const { teams } = await linear(
     `query($key: String!) { teams(filter: { key: { eq: $key } }) { nodes { id } } }`,
     { key: config.factory.teamKey },

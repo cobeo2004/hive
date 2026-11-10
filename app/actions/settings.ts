@@ -2,11 +2,11 @@
 
 import { db } from "@/db/client";
 import { machines } from "@/db/schema";
-import { auth } from "@/lib/auth/server";
+import { currentUser } from "@/lib/auth/server";
 import { reportedHarnesses } from "@/lib/machine";
 import { saveSettings as save, writeSettings, type SettingsInput } from "@/lib/settings";
 
-const user = async () => (await auth.getSession()).data?.user;
+const user = currentUser;
 
 export async function saveSettings(input: SettingsInput) {
   return save(

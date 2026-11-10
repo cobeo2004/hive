@@ -3,10 +3,19 @@
 import { CheckIcon, ShieldCheckIcon, ShieldAlertIcon, XIcon } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import type { JobEvidenceRow, JobRow } from "@/db/schema";
-import { CHECK_NAME_LABELS, formatDuration, parseSummary, PRODUCER_LABELS, shortSha, type EvidenceCheck, type EvidenceLine as Line, type EvidenceSummary } from "@/lib/evidence";
+import {
+  CHECK_NAME_LABELS,
+  formatDuration,
+  parseSummary,
+  PRODUCER_LABELS,
+  shortSha,
+  type EvidenceCheck,
+  type EvidenceLine as Line,
+  type EvidenceSummary,
+} from "@/lib/evidence";
 import { cn } from "@/lib/utils";
 import { jobEvidenceLine, shownDecision } from "./cards";
-import { useFeed, type Feed } from "./sealed";
+import { useFeed, type Feed } from "./live-refresh";
 import { Time } from "./time";
 
 const TONE: Record<Line["tone"], string> = {
@@ -30,10 +39,16 @@ export function EvidenceLine({ line, className }: { line: Line; className?: stri
 type CheckRow = Pick<EvidenceCheck, "name" | "passed" | "exitCode" | "durationMs"> & Partial<Pick<EvidenceCheck, "command" | "outputTail">>;
 
 function CheckItem({ check }: { check: CheckRow }) {
-  const meta = [formatDuration(check.durationMs), !check.passed && (check.exitCode === null ? "no exit code" : `exit ${check.exitCode}`)].filter(Boolean).join(" · ");
+  const meta = [formatDuration(check.durationMs), !check.passed && (check.exitCode === null ? "no exit code" : `exit ${check.exitCode}`)]
+    .filter(Boolean)
+    .join(" · ");
   const head = (
     <div className="flex min-w-0 items-baseline gap-2">
-      {check.passed ? <CheckIcon className="size-3.5 shrink-0 self-center text-success" /> : <XIcon className="size-3.5 shrink-0 self-center text-destructive" />}
+      {check.passed ? (
+        <CheckIcon className="size-3.5 shrink-0 self-center text-success" />
+      ) : (
+        <XIcon className="size-3.5 shrink-0 self-center text-destructive" />
+      )}
       <span className="font-medium">{CHECK_NAME_LABELS[check.name]}</span>
       {check.command && <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{check.command}</span>}
       <span className="ml-auto shrink-0 text-xs text-faint tabular-nums">{meta}</span>
@@ -44,21 +59,27 @@ function CheckItem({ check }: { check: CheckRow }) {
     <li>
       <details open={!check.passed} className="group">
         <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">{head}</summary>
-        <pre className="mt-1 max-h-64 overflow-auto rounded-md border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap text-muted-foreground">{check.outputTail}</pre>
+        <pre className="mt-1 max-h-64 overflow-auto rounded-md border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+          {check.outputTail}
+        </pre>
       </details>
     </li>
   );
 }
 
 function provenance(row: { producer: EvidenceSummary["producer"]; source: EvidenceSummary["source"]; clean: boolean }) {
-  return [`Run by ${PRODUCER_LABELS[row.producer]}`, row.source === "recipe" ? "recipe checks" : row.source === "package" ? "package.json scripts" : "no checks found", !row.clean && "uncommitted changes, so it proves nothing about the commit"]
+  return [
+    `Run by ${PRODUCER_LABELS[row.producer]}`,
+    row.source === "recipe" ? "recipe checks" : row.source === "package" ? "package.json scripts" : "no checks found",
+    !row.clean && "uncommitted changes, so it proves nothing about the commit",
+  ]
     .filter(Boolean)
     .join(" · ");
 }
 
 /** Run detail's evidence: every commit the job's checks ran at, newest first, with each check's output. */
-export function EvidenceSection({ feed, path, job }: { feed: Feed<JobEvidenceRow>; path: string; job: JobRow }) {
-  const { rows } = useFeed(feed, path);
+export function EvidenceSection({ feed, job }: { feed: Feed<JobEvidenceRow>; job: JobRow }) {
+  const { rows } = useFeed(feed);
   const line = jobEvidenceLine(job);
   const head = shownDecision(job)?.headSha ?? null;
   const attemptRows = rows.filter((r) => r.attempt === job.attempt);

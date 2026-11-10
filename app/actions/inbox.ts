@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@/lib/auth/server";
+import { currentUser } from "@/lib/auth/server";
 import {
   answerQuestion as answer,
   approveFromRunDetail as approveInRunDetail,
@@ -16,7 +16,7 @@ import {
 import { inboxDeps } from "@/lib/inbox-deps";
 import type { JobId } from "@/lib/sources/shapes";
 
-const deps = inboxDeps(async () => (await auth.getSession()).data?.user);
+const deps = inboxDeps(currentUser);
 
 export async function approveMerge(jobId: JobId, requestId: string, headSha: string | null) {
   return approve(deps, jobId, requestId, headSha);

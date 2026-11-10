@@ -9,7 +9,9 @@ const { db } = await import("../db/client");
 const { jobs, machines } = await import("../db/schema");
 const { isOnline, heartbeatSchema, inventorySchema, parseHeartbeat } = await import("../lib/machine");
 const { parseConnectStatus, readProjects } = await import("../lib/t3-state");
-const { collectHeartbeat, createBeat, identify, inventoryReporter, parseDf, parseOrigin, parseVmStat, writeHeartbeat, writeInventory } = await import("../runner/heartbeat");
+const { collectHeartbeat, createBeat, identify, inventoryReporter, parseDf, parseOrigin, parseVmStat, writeHeartbeat, writeInventory } = await import(
+  "../runner/heartbeat"
+);
 const { claimLaunch, releaseLaunch } = await import("../runner/ops");
 const { linearJob } = await import("./fixtures");
 
@@ -43,7 +45,11 @@ try {
   const { Database } = await import("bun:sqlite");
   const state = new Database(join(stateDir, "state.sqlite"));
   state.query("create table projection_projects (project_id text, title text, workspace_root text, deleted_at text)").all();
-  state.query("insert into projection_projects values ('p2', 'Zed', '/work/zed', null), ('p1', 'Demo', '/work/demo', null), ('p3', 'Gone', '/work/gone', '2026-10-01')").all();
+  state
+    .query(
+      "insert into projection_projects values ('p2', 'Zed', '/work/zed', null), ('p1', 'Demo', '/work/demo', null), ('p3', 'Gone', '/work/gone', '2026-10-01')",
+    )
+    .all();
   state.close();
   assert.deepEqual(
     await readProjects({ statePath: join(stateDir, "state.sqlite"), repos: [] }),

@@ -2,7 +2,17 @@
 
 import { FilePlusIcon, GitMergeIcon, MessageSquareReplyIcon, OctagonXIcon, RotateCcwIcon, SendIcon, XIcon } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { answerQuestion, approveMerge, closeJob, dismissJob, fileFollowUp, inboxIntentOutcome, requestChanges, retryFailed, retryStop } from "@/app/actions/inbox";
+import {
+  answerQuestion,
+  approveMerge,
+  closeJob,
+  dismissJob,
+  fileFollowUp,
+  inboxIntentOutcome,
+  requestChanges,
+  retryFailed,
+  retryStop,
+} from "@/app/actions/inbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -59,7 +69,10 @@ export function useInboxAction() {
       const outcome = await inboxIntentOutcome(intentId).catch((): IntentOutcome => ({ status: "pending" }));
       if (outcome.status !== "pending") return outcome;
       if (Date.now() - started > GIVE_UP_MS) {
-        return { status: "failed", message: "The runner hasn't picked this up yet. Check that it is online on the Machines page; it acts on the request once it is." };
+        return {
+          status: "failed",
+          message: "The runner hasn't picked this up yet. Check that it is online on the Machines page; it acts on the request once it is.",
+        };
       }
       if (mounted.current && Date.now() - started > SLOW_MS) setBusy((b) => b && { ...b, slow: true });
     }
@@ -171,7 +184,19 @@ function Compose({
   );
 }
 
-function ApproveButton({ job, headSha, disabled, loading, onApprove }: { job: JobRow; headSha: string | null; disabled: boolean; loading: boolean; onApprove: () => void }) {
+function ApproveButton({
+  job,
+  headSha,
+  disabled,
+  loading,
+  onApprove,
+}: {
+  job: JobRow;
+  headSha: string | null;
+  disabled: boolean;
+  loading: boolean;
+  onApprove: () => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
@@ -186,8 +211,8 @@ function ApproveButton({ job, headSha, disabled, loading, onApprove }: { job: Jo
             <span className="font-medium text-foreground">{job.title}</span>
             <span>
               The factory merges {headSha ? <span className="font-mono">{headSha.slice(0, 7)}</span> : "the latest commit"} into{" "}
-              <span className="font-mono">{job.repo}</span> the way it merges on its own, then watches main. A newer push, a red or running check, a conflict, or
-              GitHub refusing the merge still stops it.
+              <span className="font-mono">{job.repo}</span> the way it merges on its own, then watches main. A newer push, a red or running check, a conflict,
+              or GitHub refusing the merge still stops it.
             </span>
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -207,7 +232,19 @@ function ApproveButton({ job, headSha, disabled, loading, onApprove }: { job: Jo
   );
 }
 
-function CloseButton({ job, kind, disabled, loading, onClose }: { job: JobRow; kind: InboxKind; disabled: boolean; loading: boolean; onClose: (reason: string) => void }) {
+function CloseButton({
+  job,
+  kind,
+  disabled,
+  loading,
+  onClose,
+}: {
+  job: JobRow;
+  kind: InboxKind;
+  disabled: boolean;
+  loading: boolean;
+  onClose: (reason: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const failing = kind !== "failed";
@@ -282,16 +319,34 @@ export function InboxActions({
         />
       )}
       {has("close") && (
-        <CloseButton job={job} kind={kind} disabled={disabled} loading={loading("close")} onClose={(reason) => void run("close", () => closeJob(job.id, requestId(), reason), "Closed.")} />
+        <CloseButton
+          job={job}
+          kind={kind}
+          disabled={disabled}
+          loading={loading("close")}
+          onClose={(reason) => void run("close", () => closeJob(job.id, requestId(), reason), "Closed.")}
+        />
       )}
       {has("retry_stop") && (
-        <Button size="sm" variant="outline" disabled={disabled} loading={loading("retry_stop")} onClick={() => void run("retry_stop", () => retryStop(job.id, requestId()), "Interrupting again.")}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={disabled}
+          loading={loading("retry_stop")}
+          onClick={() => void run("retry_stop", () => retryStop(job.id, requestId()), "Interrupting again.")}
+        >
           <OctagonXIcon data-icon="inline-start" />
           Retry stop
         </Button>
       )}
       {has("dismiss") && (
-        <Button size="sm" variant="ghost" disabled={disabled} loading={loading("dismiss")} onClick={() => void run("dismiss", () => dismissJob(job.id), "Dismissed from the inbox.")}>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={disabled}
+          loading={loading("dismiss")}
+          onClick={() => void run("dismiss", () => dismissJob(job.id), "Dismissed from the inbox.")}
+        >
           Dismiss
         </Button>
       )}

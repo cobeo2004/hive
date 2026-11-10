@@ -25,11 +25,7 @@ const job = {
 };
 const open = { name: "In Progress", type: "started" };
 
-assert.deepEqual(
-  planResume(job, { state: open, comments: [claim, early] }),
-  { kind: "wait" },
-  "no question comment yet means wait",
-);
+assert.deepEqual(planResume(job, { state: open, comments: [claim, early] }), { kind: "wait" }, "no question comment yet means wait");
 assert.deepEqual(planResume(job, { state: open, comments: [claim, early, question] }), { kind: "wait" });
 
 const both = planResume(job, { state: open, comments: [reply2, question, claim, reply1, early] });

@@ -5,8 +5,8 @@ export const metadata: Metadata = { title: "Sign in · Hive" };
 
 export default function SignInPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
-      <CredentialsForm mode="sign-in" />
+    <main className="flex min-h-svh items-center justify-center p-6">
+      <CredentialsForm />
     </main>
   );
 }

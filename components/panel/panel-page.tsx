@@ -20,7 +20,7 @@ import {
   sessionStagesQuery,
 } from "@/lib/live-queries";
 import { REPO_FILTER_COOKIE, repoFilter } from "@/lib/repo-filter";
-import { parseSessionId, runFeedPath } from "@/lib/run-links";
+import { parseSessionId } from "@/lib/run-links";
 import { readRegistry } from "@/lib/repositories";
 
 async function loadDetail(sessionId: string): Promise<DetailProps> {
@@ -32,12 +32,7 @@ async function loadDetail(sessionId: string): Promise<DetailProps> {
     jobId ? load(jobAuditQuery(jobId)) : undefined,
     jobId && jobKey ? load(jobEvidenceQuery(jobKey)) : undefined,
   ]);
-  const stagesPath = jobKey
-    ? `/api/live/jobs/${encodeURIComponent(jobKey)}/stages`
-    : runFeedPath("stages", sessionId);
-  const auditFeed = audit && jobKey ? { feed: audit, path: `/api/live/jobs/${encodeURIComponent(jobKey)}/audit` } : undefined;
-  const evidenceFeed = evidence && jobKey ? { feed: evidence, path: `/api/live/jobs/${encodeURIComponent(jobKey)}/evidence` } : undefined;
-  return { sessionId, agents, events, stages, stagesPath, audit: auditFeed, evidence: evidenceFeed };
+  return { sessionId, agents, events, stages, audit: jobKey ? audit : undefined, evidence };
 }
 
 async function Panel({ view, searchParams }: { view: PanelView; searchParams: Promise<Record<string, string | string[] | undefined>> }) {

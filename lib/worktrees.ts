@@ -17,9 +17,7 @@ type Thread = { threadId: string; branch: string | null; archived: boolean; runn
 
 /** Every T3 thread of the project, newest first, with the branch and worktree it is bound to. */
 async function projectThreads(repo: string, host: JobHost): Promise<Thread[]> {
-  const list = z
-    .array(z.object({ threadId: z.string() }))
-    .parse(await listThreads(host, repo, { timeoutMs: 60_000, maxBuffer: 16 * 1024 * 1024 }));
+  const list = z.array(z.object({ threadId: z.string() })).parse(await listThreads(host, repo, { timeoutMs: 60_000, maxBuffer: 16 * 1024 * 1024 }));
   return Promise.all(
     list.map(async ({ threadId }) => {
       const { thread } = z
@@ -127,9 +125,7 @@ export async function cleanupRepo(
         continue;
       }
       const worktreePath = trees.get(branch) ?? null;
-      const branchThreads = threads.filter(
-        (t) => t.branch === branch || (worktreePath !== null && t.worktreePath === worktreePath),
-      );
+      const branchThreads = threads.filter((t) => t.branch === branch || (worktreePath !== null && t.worktreePath === worktreePath));
       const local = localBranches.has(branch);
       const head = local ? await sh(host, "git", ["rev-parse", branch], repo) : null;
       const state: BranchState = {

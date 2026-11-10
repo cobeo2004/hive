@@ -32,9 +32,7 @@ export type Capabilities = {
   codexModel: string;
 };
 
-export type LaunchPlan =
-  | { kind: "launch"; execution: Execution; harness: HarnessChoice; ticket: TicketRecord | null }
-  | { kind: "wait"; reason: string };
+export type LaunchPlan = { kind: "launch"; execution: Execution; harness: HarnessChoice; ticket: TicketRecord | null } | { kind: "wait"; reason: string };
 
 /**
  * `settings` are the Settings with the job's repo defaults over them (lib/repositories.ts), so a
@@ -122,8 +120,7 @@ export const overrideRuntime = {
 /** What this runner can launch on, before a job's repo is known; launchQueued sets checkout per job. */
 export function capabilities(): Omit<Capabilities, "checkout"> {
   const limits = config.factory.sandbox;
-  const modal =
-    imageProblem(sandboxRuntime.image(), limits) ?? (!sandboxRuntime.modalToken() ? "there is no cloud sandbox token" : null);
+  const modal = imageProblem(sandboxRuntime.image(), limits) ?? (!sandboxRuntime.modalToken() ? "there is no cloud sandbox token" : null);
   return {
     local: overrideRuntime.localT3(),
     modal,

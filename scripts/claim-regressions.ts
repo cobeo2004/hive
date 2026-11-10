@@ -17,7 +17,13 @@ type Adapter = NonNullable<NonNullable<Parameters<typeof claim>[0]>["sources"]>[
 
 const prefix = `claim-regress-${Date.now()}`;
 // Only this script's jobs: the test branch copies a real database.
-const ours = async () => (await db.select({ key: jobs.key }).from(jobs).where(like(jobs.key, `${prefix}-%`))).map((j) => j.key);
+const ours = async () =>
+  (
+    await db
+      .select({ key: jobs.key })
+      .from(jobs)
+      .where(like(jobs.key, `${prefix}-%`))
+  ).map((j) => j.key);
 const REPO = "ski043/factory-demo";
 const slot = (id: string, over: Partial<{ repos: string[]; maxInFlight: number }> = {}) => ({ id, repos: [REPO], maxInFlight: 1, ...over });
 const ownerOf = async (key: string) => (await db.select().from(jobs).where(eq(jobs.key, key)))[0]!.machine_id;
@@ -70,36 +76,53 @@ try {
   assert.ok(claims.p75 <= floor.p75 + 25, "three in four racing claims cost one round trip, as select 1 does; the numbers are printed above");
 
   const full = `${prefix}-full`;
-  await db.insert(jobs).values([
-    linearJob(`${full}-busy`, `${full}-busy`, { stage: "implementing", machine_id: full, t3_thread_id: "thread-busy" }),
-    linearJob(`${full}-next`, `${full}-next`),
-  ]);
+  await db
+    .insert(jobs)
+    .values([
+      linearJob(`${full}-busy`, `${full}-busy`, { stage: "implementing", machine_id: full, t3_thread_id: "thread-busy" }),
+      linearJob(`${full}-next`, `${full}-next`),
+    ]);
   assert.equal(await claimLaunch(`${full}-next`, "pending:1", slot(full)), false, "a machine at maxInFlight claims nothing");
   assert.equal(await ownerOf(`${full}-next`), null, "and the job stays free");
   assert.equal(await claimLaunch(`${full}-next`, "pending:1", slot(full, { maxInFlight: 2 })), true, "the same machine with room claims it");
-  await db.update(jobs).set({ stage: "pr" }).where(eq(jobs.key, `${full}-busy`));
+  await db
+    .update(jobs)
+    .set({ stage: "pr" })
+    .where(eq(jobs.key, `${full}-busy`));
   await db.insert(jobs).values(linearJob(`${full}-after`, `${full}-after`));
   assert.equal(await claimLaunch(`${full}-after`, "pending:2", slot(full, { maxInFlight: 2 })), true, "a job in pr frees its slot");
 
   const elsewhere = `${prefix}-elsewhere`;
   await db.insert(jobs).values(linearJob(elsewhere, elsewhere, { repo: "ski043/other-repo" }));
   assert.equal(await claimLaunch(elsewhere, "pending:1", slot(`${prefix}-a`)), false, "a machine without the job's repo skips it");
-  assert.equal(await claimLaunch(elsewhere, "pending:1", slot(`${prefix}-b`, { repos: [REPO, "ski043/other-repo"] })), true, "a machine with the repo claims it");
+  assert.equal(
+    await claimLaunch(elsewhere, "pending:1", slot(`${prefix}-b`, { repos: [REPO, "ski043/other-repo"] })),
+    true,
+    "a machine with the repo claims it",
+  );
   assert.equal(await claimLaunch(elsewhere, "pending:2", slot(`${prefix}-c`, { repos: [] })), false, "a machine with no repos claims nothing");
 
   const theirs = `${prefix}-theirs`;
   await db.insert(jobs).values(
-    linearJob(theirs, theirs, { stage: "failed", stage_event_id: `stop:${theirs}:1:x`, stage_summary: "Stopped.", t3_thread_id: "their-thread", machine_id: `${prefix}-other` }),
+    linearJob(theirs, theirs, {
+      stage: "failed",
+      stage_event_id: `stop:${theirs}:1:x`,
+      stage_summary: "Stopped.",
+      t3_thread_id: "their-thread",
+      machine_id: `${prefix}-other`,
+    }),
   );
   assert.deepEqual(await deliverStops(), [], "a stop owed to another machine's thread is left to that machine");
   assert.deepEqual(sent, [], "and nothing is sent from here");
 
   const pr = (n: number) => `https://github.com/ski043/factory-demo/pull/${900_000 + n}`;
-  await db.insert(jobs).values([
-    linearJob(`${prefix}-resume`, `${prefix}-resume`, { stage: "queued", pr_url: pr(1) }),
-    linearJob(`${prefix}-their-pr`, `${prefix}-their-pr`, { stage: "pr", pr_url: pr(2), machine_id: `${prefix}-other`, t3_thread_id: "their-pr-thread" }),
-    linearJob(`${prefix}-free-pr`, `${prefix}-free-pr`, { stage: "pr", pr_url: pr(3) }),
-  ]);
+  await db
+    .insert(jobs)
+    .values([
+      linearJob(`${prefix}-resume`, `${prefix}-resume`, { stage: "queued", pr_url: pr(1) }),
+      linearJob(`${prefix}-their-pr`, `${prefix}-their-pr`, { stage: "pr", pr_url: pr(2), machine_id: `${prefix}-other`, t3_thread_id: "their-pr-thread" }),
+      linearJob(`${prefix}-free-pr`, `${prefix}-free-pr`, { stage: "pr", pr_url: pr(3) }),
+    ]);
   github.pullRequest = async (url) =>
     url === pr(3) ? { state: "open", mergeable: "conflicting", headSha: "h", title: "t" } : { state: "merged", mergeable: "unknown", headSha: "h", title: "t" };
   const checked = await checkPullRequests({ only: await ours() });
@@ -112,16 +135,24 @@ try {
   const written: string[] = [];
   const linear = sourceFor("linear");
   linear.writeBack = async (job, transition) => (written.push(`${job.key}:${transition.stage}`), true);
-  await db.update(jobs).set({ stage: "merged", stage_event_id: "e-merged" }).where(eq(jobs.key, `${prefix}-resume`));
-  await db.update(jobs).set({ stage_event_id: "e-theirs" }).where(eq(jobs.key, `${prefix}-their-pr`));
+  await db
+    .update(jobs)
+    .set({ stage: "merged", stage_event_id: "e-merged" })
+    .where(eq(jobs.key, `${prefix}-resume`));
+  await db
+    .update(jobs)
+    .set({ stage_event_id: "e-theirs" })
+    .where(eq(jobs.key, `${prefix}-their-pr`));
   await writeBack({ only: await ours() });
   assert.ok(written.includes(`${prefix}-resume:merged`), "the merge of a job no machine holds reaches its source");
   assert.ok(!written.some((w) => w.startsWith(`${prefix}-their-pr:`)), "another machine's job is written back by that machine");
 
-  await db.insert(jobs).values([
-    linearJob(`${prefix}-wb-bad`, `${prefix}-wb-bad`, { stage: "failed", stage_event_id: "e-bad", machine_id: TEST_MACHINE_ID }),
-    linearJob(`${prefix}-wb-good`, `${prefix}-wb-good`, { stage: "failed", stage_event_id: "e-good", machine_id: TEST_MACHINE_ID }),
-  ]);
+  await db
+    .insert(jobs)
+    .values([
+      linearJob(`${prefix}-wb-bad`, `${prefix}-wb-bad`, { stage: "failed", stage_event_id: "e-bad", machine_id: TEST_MACHINE_ID }),
+      linearJob(`${prefix}-wb-good`, `${prefix}-wb-good`, { stage: "failed", stage_event_id: "e-good", machine_id: TEST_MACHINE_ID }),
+    ]);
   linear.writeBack = async (job) => {
     if (job.key === `${prefix}-wb-bad`) throw new Error("Linear says the issue is gone");
     return true;
@@ -138,17 +169,23 @@ try {
     return true;
   };
   const gonePass = await writeBack({ only: await ours() });
-  assert.deepEqual(gonePass.gaveUp, [{ key: `${prefix}-wb-bad`, reason: "Could not find referenced Issue." }], "a transient error retried next pass, and a gone issue is given up on");
+  assert.deepEqual(
+    gonePass.gaveUp,
+    [{ key: `${prefix}-wb-bad`, reason: "Could not find referenced Issue." }],
+    "a transient error retried next pass, and a gone issue is given up on",
+  );
   assert.deepEqual(gonePass.errors, []);
   attempts.length = 0;
   const afterPass = await writeBack({ only: await ours() });
   assert.deepEqual([attempts, afterPass.gaveUp, afterPass.errors], [[], [], []], "a given-up job is not attempted again");
   assert.equal(await synced(`${prefix}-wb-bad`), "e-bad", "its event is recorded as synced");
 
-  await db.insert(jobs).values([
-    linearJob(`${prefix}-an-bad`, `${prefix}-an-bad`, { stage: "queued", machine_id: TEST_MACHINE_ID }),
-    linearJob(`${prefix}-an-good`, `${prefix}-an-good`, { stage: "queued", machine_id: TEST_MACHINE_ID }),
-  ]);
+  await db
+    .insert(jobs)
+    .values([
+      linearJob(`${prefix}-an-bad`, `${prefix}-an-bad`, { stage: "queued", machine_id: TEST_MACHINE_ID }),
+      linearJob(`${prefix}-an-good`, `${prefix}-an-good`, { stage: "queued", machine_id: TEST_MACHINE_ID }),
+    ]);
   const announced: string[] = [];
   linear.announceClaim = async (job) => {
     if (job.key === `${prefix}-an-bad`) throw new Error("no access");
@@ -158,10 +195,12 @@ try {
   assert.ok(announced.includes(`${prefix}-an-good`), "and the job after it is still announced");
 
   await db.delete(jobs).where(eq(jobs.repo, REPO));
-  await db.insert(jobs).values([
-    linearJob(`${prefix}-queued`, `${prefix}-queued`),
-    linearJob(`${prefix}-other-busy`, `${prefix}-other-busy`, { stage: "implementing", machine_id: `${prefix}-other` }),
-  ]);
+  await db
+    .insert(jobs)
+    .values([
+      linearJob(`${prefix}-queued`, `${prefix}-queued`),
+      linearJob(`${prefix}-other-busy`, `${prefix}-other-busy`, { stage: "implementing", machine_id: `${prefix}-other` }),
+    ]);
   const drafts = ["1", "2", "3"].map((d) => ({
     externalId: `${prefix}-${d}`,
     key: `${prefix}-${d}`,
@@ -174,7 +213,9 @@ try {
   const source = { source: "linear", ready: async () => drafts, overrides: () => NO_OVERRIDES } as unknown as Adapter;
   const maxInFlight = config.factory.maxInFlight;
   config.factory.maxInFlight = 2;
-  const claimed = await claim({ sources: [source], repos: async () => [REPO], registry: async () => [] }).finally(() => (config.factory.maxInFlight = maxInFlight));
+  const claimed = await claim({ sources: [source], repos: async () => [REPO], registry: async () => [] }).finally(
+    () => (config.factory.maxInFlight = maxInFlight),
+  );
   assert.deepEqual(
     claimed.claimed,
     [`${prefix}-1`],
@@ -207,7 +248,9 @@ try {
   await db.delete(machines);
   const now = new Date();
   const machineRow = (id: string, lastSeen: Date) => ({ id, name: id, last_seen_at: lastSeen, heartbeat: {} });
-  await db.insert(machines).values([machineRow(`${prefix}-a`, now), machineRow(`${prefix}-b`, now), machineRow(`${prefix}-gone`, new Date(Date.now() - 3_600_000))]);
+  await db
+    .insert(machines)
+    .values([machineRow(`${prefix}-a`, now), machineRow(`${prefix}-b`, now), machineRow(`${prefix}-gone`, new Date(Date.now() - 3_600_000))]);
   const broadcast = `${prefix}-broadcast`;
   await db.insert(intents).values({ id: broadcast, kind: "recheck_conflicts", created_at: now });
   const isOpen = async () => (await db.select().from(intents).where(eq(intents.id, broadcast)))[0]!.handled_at === null;

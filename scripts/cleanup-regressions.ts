@@ -50,8 +50,10 @@ assert.equal(parseBranch("worktree-agent-abc")?.key, undefined);
 // Resolved, as git reports worktree paths: tmpdir is a symlink on macOS.
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "cleanup-")));
 try {
-  const gitIn = (repo: string) => (...args: string[]) =>
-    execFileSync("git", ["-C", repo, "-c", "user.email=t@t", "-c", "user.name=t", ...args], { stdio: "pipe", encoding: "utf8" }).trim();
+  const gitIn =
+    (repo: string) =>
+    (...args: string[]) =>
+      execFileSync("git", ["-C", repo, "-c", "user.email=t@t", "-c", "user.name=t", ...args], { stdio: "pipe", encoding: "utf8" }).trim();
   const git = gitIn(join(dir, "main"));
   execFileSync("git", ["init", "-q", "-b", "hive/TST-1", join(dir, "main")]);
   git("commit", "-q", "--allow-empty", "-m", "init");
@@ -76,7 +78,11 @@ try {
     return [{ state: "merged", headSha: mergedHead, mergedAt: now, closedAt: now }];
   };
   const report = await cleanupRepo(repo, new Map(), 3, { now });
-  assert.deepEqual(report.removed.map((r) => r.key), ["TST-4"], "a branch GitHub fails for does not stop the next one from being cleaned");
+  assert.deepEqual(
+    report.removed.map((r) => r.key),
+    ["TST-4"],
+    "a branch GitHub fails for does not stop the next one from being cleaned",
+  );
   assert.deepEqual(report.held, [{ key: "TST-3", reason: "cleanup failed: GitHub GET /repos/o/r/pulls answered 502" }], "it is held with the error");
   assert.equal(inRepo("branch", "--list", "hive/*", "--format=%(refname:short)"), "hive/TST-3", "only the merged branch is deleted");
 
@@ -90,7 +96,11 @@ try {
   ops.config.factory.repos = [other];
   const cleaned = await ops.cleanup(true);
   assert.deepEqual(cleaned.errors, [{ repo: other, step: "factory", error: `${other} has no GitHub origin` }], "the factory cleanup's error is reported");
-  assert.deepEqual(cleaned.held, [{ key: "agent-1", reason: "touched within the idle window; a subagent may still use it" }], "and the subagent cleanup still ran");
+  assert.deepEqual(
+    cleaned.held,
+    [{ key: "agent-1", reason: "touched within the idle window; a subagent may still use it" }],
+    "and the subagent cleanup still ran",
+  );
 
   let launched = false;
   const started = await reconcile({

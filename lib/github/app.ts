@@ -65,13 +65,7 @@ export class GitHubError extends Error {
   }
 }
 
-export async function githubRequest(
-  api: string,
-  auth: string,
-  method: string,
-  path: string,
-  { body, allow = [] }: { body?: unknown; allow?: number[] } = {},
-) {
+export async function githubRequest(api: string, auth: string, method: string, path: string, { body, allow = [] }: { body?: unknown; allow?: number[] } = {}) {
   const res = await fetch(`${api}${path}`, {
     method,
     headers: {

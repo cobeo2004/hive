@@ -1,8 +1,8 @@
 import { parse } from "pg-connection-string";
 
-export const TEST_BRANCH_ENV = "FACTORY_TEST_BRANCH_ID";
+export const TEST_DB_ENV = "FACTORY_TEST_DB";
 
-export const TEST_ENDPOINT_ENV = "FACTORY_TEST_ENDPOINT_ID";
+export const TEST_IDENTITY_ENV = "FACTORY_TEST_IDENTITY";
 
 // Neon reads an endpoint from `options` or from an `endpoint=<id>;` password prefix when SNI does not name one.
 const OPTION_ENDPOINT = /(?:^|\s)(?:--)?(?:endpoint|project)=(\S+)/gi;
@@ -38,7 +38,28 @@ export function endpointOf(url: string): string {
   return [...named][0]!;
 }
 
-export const inTestMode = () => Boolean(process.env[TEST_BRANCH_ENV]);
+const LOOPBACK = new Set(["", "localhost", "127.0.0.1", "::1"]);
+
+/**
+ * The database a `pg` connection to `url` reaches: `endpoint/dbname` for a Neon host, otherwise `host:port/dbname`.
+ * Aliases collapse conservatively (loopback names and unix sockets, a missing port), so two URLs for one
+ * database never look different. Throws on `hostaddr` or a host list, which could reach somewhere else.
+ */
+export function identityOf(url: string): string {
+  const config = parseUrl(url);
+  const host = (config.host ?? "").toLowerCase().replace(/\.$/, "");
+  if (config.hostaddr) throw new Error("sets hostaddr, which hides its host");
+  if (host.includes(",")) throw new Error("names more than one host");
+  const database = (config.database || config.user || "").toLowerCase();
+  if (!database) throw new Error("names no database");
+  // One Neon endpoint holds many databases; the pooled and direct hosts are the same endpoint.
+  if (host.split(".")[0]!.startsWith("ep-") || host.endsWith(".neon.tech")) return `${endpointOf(url)}/${database}`;
+  const port = Number(config.port || 5432);
+  if (!Number.isInteger(port)) throw new Error(`has a bad port ${config.port}`);
+  return `${LOOPBACK.has(host) || host.startsWith("/") ? "loopback" : host}:${port}/${database}`;
+}
+
+export const inTestMode = () => Boolean(process.env[TEST_DB_ENV]);
 
 export function forbidInTest(service: string) {
   if (inTestMode()) throw new Error(`${service} was called during a regression run; give the test a fake`);

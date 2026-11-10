@@ -268,10 +268,13 @@ export type MessageFacts = {
 const usd = (spend: NonNullable<MessageFacts["spend"]>) => `$${spend.usd.toFixed(2)}${spend.known ? "" : "+"}`;
 
 export const panelUrl = () => (process.env.FACTORY_PANEL_URL ?? "https://marshal-factory.vercel.app").replace(/\/+$/, "");
+/** Where Linear, GitHub and Slack reach the public routes; differs from the panel when only those are public (Tailscale Funnel). */
+export const publicUrl = () => (process.env.FACTORY_PUBLIC_URL?.trim() || panelUrl()).replace(/\/+$/, "");
 
 /** Environment variables whose values must never reach Slack, whatever an agent writes. */
 const SECRET_NAME = /(TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY|DATABASE_URL)/i;
-export const secretValues = (env: Record<string, string | undefined>) => Object.entries(env).flatMap(([name, value]) => (value && SECRET_NAME.test(name) ? [value] : []));
+export const secretValues = (env: Record<string, string | undefined>) =>
+  Object.entries(env).flatMap(([name, value]) => (value && SECRET_NAME.test(name) ? [value] : []));
 
 function actionButton(action: InboxAction, job: NotifyJob): ActionButton {
   const button: ActionButton = { type: "button", text: { type: "plain_text", text: ACTION_LABELS[action] }, action_id: SLACK_ACTION_IDS[action] };
@@ -283,7 +286,10 @@ function actionButton(action: InboxAction, job: NotifyJob): ActionButton {
       title: { type: "plain_text", text: "Approve and merge?" },
       text: {
         type: "mrkdwn",
-        text: clip(`The factory merges ${escape(job.key)} into ${escape(job.repo)} the way it merges on its own, then watches main. A newer push, a red or running check, a conflict, or GitHub refusing the merge still stops it.`, TEXT_MAX),
+        text: clip(
+          `The factory merges ${escape(job.key)} into ${escape(job.repo)} the way it merges on its own, then watches main. A newer push, a red or running check, a conflict, or GitHub refusing the merge still stops it.`,
+          TEXT_MAX,
+        ),
       },
       confirm: { type: "plain_text", text: "Approve and merge" },
       deny: { type: "plain_text", text: "Cancel" },
@@ -311,10 +317,24 @@ export function renderMessage(
   const meta = [job.repo, ...(job.provider ? [harnessLabel(job.provider)] : []), ...(facts.spend ? [usd(facts.spend)] : [])];
   const source = sourceLink(job);
   const links: LinkButton[] = [
-    { type: "button", text: { type: "plain_text", text: "Open in panel" }, url: `${facts.panelUrl}/inbox?job=${encodeURIComponent(job.key)}`, action_id: SLACK_LINK_ACTION_IDS.panel },
-    ...(job.pr_url ? [{ type: "button" as const, text: { type: "plain_text" as const, text: "Pull request" }, url: job.pr_url, action_id: SLACK_LINK_ACTION_IDS.pr }] : []),
+    {
+      type: "button",
+      text: { type: "plain_text", text: "Open in panel" },
+      url: `${facts.panelUrl}/inbox?job=${encodeURIComponent(job.key)}`,
+      action_id: SLACK_LINK_ACTION_IDS.panel,
+    },
+    ...(job.pr_url
+      ? [{ type: "button" as const, text: { type: "plain_text" as const, text: "Pull request" }, url: job.pr_url, action_id: SLACK_LINK_ACTION_IDS.pr }]
+      : []),
     ...(/^https?:\/\//.test(source.href)
-      ? [{ type: "button" as const, text: { type: "plain_text" as const, text: `${source.label} issue` }, url: source.href, action_id: SLACK_LINK_ACTION_IDS.source }]
+      ? [
+          {
+            type: "button" as const,
+            text: { type: "plain_text" as const, text: `${source.label} issue` },
+            url: source.href,
+            action_id: SLACK_LINK_ACTION_IDS.source,
+          },
+        ]
       : []),
   ];
   return {

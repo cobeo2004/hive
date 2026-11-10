@@ -120,10 +120,7 @@ export function imageOutdated(image: RepoImage, base: BaseImage | null) {
   return undefined;
 }
 
-export type RepoImageChoice =
-  | { kind: "warm"; imageId: string }
-  | { kind: "base"; outdated?: string }
-  | { kind: "blocked"; reason: string };
+export type RepoImageChoice = { kind: "warm"; imageId: string } | { kind: "base"; outdated?: string } | { kind: "blocked"; reason: string };
 
 type OnboardingRow = { repo: string; onboarding_state: OnboardingState | null; onboarding_detail: unknown };
 
@@ -167,8 +164,7 @@ export function stateLine(state: OnboardingState, detail: OnboardingDetail) {
       return "Building the warm image";
     case "ready":
       return detail.image ? "Warm image ready" : "Ready";
-    case "rebuilding":
-    {
+    case "rebuilding": {
       const reason = detail.run?.reason ?? detail.rebuild?.reason;
       return `Rebuilding${reason ? ` because ${reason}` : ""}; the current image serves meanwhile`;
     }

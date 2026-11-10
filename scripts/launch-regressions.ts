@@ -32,7 +32,10 @@ await db.insert(jobs).values(linearJob(id, id));
 try {
   assert.equal(await claimLaunch(id, "pending:1", slot), true, "the first launch claims the job");
   assert.equal(await claimLaunch(id, "pending:2", slot), false, "a second launch, after a crash or timeout, does not");
-  assert.deepEqual((await pendingLaunches()).find((p) => p.key === id), { key: id, repo: "ski043/factory-demo", marker: "pending:1", branch: `hive/${id}`, stage: "queued", execution: null, sandbox_id: null, codex_slot: null });
+  assert.deepEqual(
+    (await pendingLaunches()).find((p) => p.key === id),
+    { key: id, repo: "ski043/factory-demo", marker: "pending:1", branch: `hive/${id}`, stage: "queued", execution: null, sandbox_id: null, codex_slot: null },
+  );
   await releaseLaunch(id, "pending:2");
   assert.equal((await db.select().from(jobs).where(eq(jobs.key, id)))[0]!.t3_thread_id, "pending:1", "only the holder's marker is released");
   await releaseLaunch(id, "pending:1");
@@ -50,14 +53,44 @@ try {
     { name: "bound, not stopped", row: { ...watchdogFail, t3_thread_id: "mcp:regress-a", stop_sent_to: null }, delivers: false, reclaim: true },
     { name: "bound, stopped, not sent", row: { ...stop, t3_thread_id: "mcp:regress-a", stop_sent_to: null }, delivers: true, reclaim: false },
     { name: "bound, stopped, sent", row: { ...stop, t3_thread_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" }, delivers: false, reclaim: true },
-    { name: "bound, stopped, sent to an older thread", row: { ...stop, t3_thread_id: "mcp:regress-b", stop_sent_to: "mcp:regress-a" }, delivers: true, reclaim: false },
-    { name: "bound, still working", row: { stage: "implementing" as const, stage_event_id: "e", stop_event_id: null, stage_summary: "s", t3_thread_id: "mcp:regress-a", stop_sent_to: null }, delivers: false, reclaim: false },
-    { name: "bound, stopped, merged before the stop was sent", row: { ...mergedAfterStop, t3_thread_id: "mcp:regress-a", stop_sent_to: null }, delivers: true, reclaim: false },
-    { name: "pending, stopped, merged before the thread was known", row: { ...mergedAfterStop, t3_thread_id: "pending:6", stop_sent_to: null }, delivers: false, reclaim: false },
-    { name: "bound, stopped, merged, sent", row: { ...mergedAfterStop, t3_thread_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" }, delivers: false, reclaim: false },
+    {
+      name: "bound, stopped, sent to an older thread",
+      row: { ...stop, t3_thread_id: "mcp:regress-b", stop_sent_to: "mcp:regress-a" },
+      delivers: true,
+      reclaim: false,
+    },
+    {
+      name: "bound, still working",
+      row: { stage: "implementing" as const, stage_event_id: "e", stop_event_id: null, stage_summary: "s", t3_thread_id: "mcp:regress-a", stop_sent_to: null },
+      delivers: false,
+      reclaim: false,
+    },
+    {
+      name: "bound, stopped, merged before the stop was sent",
+      row: { ...mergedAfterStop, t3_thread_id: "mcp:regress-a", stop_sent_to: null },
+      delivers: true,
+      reclaim: false,
+    },
+    {
+      name: "pending, stopped, merged before the thread was known",
+      row: { ...mergedAfterStop, t3_thread_id: "pending:6", stop_sent_to: null },
+      delivers: false,
+      reclaim: false,
+    },
+    {
+      name: "bound, stopped, merged, sent",
+      row: { ...mergedAfterStop, t3_thread_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" },
+      delivers: false,
+      reclaim: false,
+    },
   ];
   const sqlSays = async (condition: ReturnType<typeof sql> | undefined) =>
-    (await db.select({ key: jobs.key }).from(jobs).where(and(eq(jobs.id, jid), condition))).length > 0;
+    (
+      await db
+        .select({ key: jobs.key })
+        .from(jobs)
+        .where(and(eq(jobs.id, jid), condition))
+    ).length > 0;
   for (const cell of cells) {
     await db.update(jobs).set(cell.row).where(eq(jobs.id, jid));
     const [row] = await db.select().from(jobs).where(eq(jobs.id, jid));
@@ -82,24 +115,53 @@ try {
       .values(linearJob(id, id))
       .onConflictDoUpdate({ target: jobs.id, set: { attempt: sql`${jobs.attempt} + 1` }, setWhere: canReclaimSql })
       .returning({ attempt: jobs.attempt });
-  await db.update(jobs).set({ ...stop, t3_thread_id: "pending:8", stop_sent_to: null }).where(eq(jobs.id, jid));
+  await db
+    .update(jobs)
+    .set({ ...stop, t3_thread_id: "pending:8", stop_sent_to: null })
+    .where(eq(jobs.id, jid));
   assert.deepEqual(await retryClaim(), [], "a retry claim is refused while a stopped launch is pending");
-  await db.update(jobs).set({ ...stop, t3_thread_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" }).where(eq(jobs.id, jid));
+  await db
+    .update(jobs)
+    .set({ ...stop, t3_thread_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" })
+    .where(eq(jobs.id, jid));
   assert.equal((await retryClaim()).length, 1, "and allowed once the stop reached the thread");
 
   // Transitions out of "pending, stopped": the thread appears, or recovery finds none.
-  await db.update(jobs).set({ ...stop, t3_thread_id: "pending:6", stop_sent_to: null }).where(eq(jobs.id, jid));
+  await db
+    .update(jobs)
+    .set({ ...stop, t3_thread_id: "pending:6", stop_sent_to: null })
+    .where(eq(jobs.id, jid));
   sent.length = 0;
-  assert.deepEqual(await bindThread(id, "mcp:regress-late"), { bound: id, threadId: "mcp:regress-late", stopped: true }, "binding delivers the owed stop at once");
-  assert.deepEqual(sent.map((m) => m.threadId), ["mcp:regress-late"], "to the thread it just bound");
+  assert.deepEqual(
+    await bindThread(id, "mcp:regress-late"),
+    { bound: id, threadId: "mcp:regress-late", stopped: true },
+    "binding delivers the owed stop at once",
+  );
+  assert.deepEqual(
+    sent.map((m) => m.threadId),
+    ["mcp:regress-late"],
+    "to the thread it just bound",
+  );
   assert.equal(canReclaim((await db.select().from(jobs).where(eq(jobs.id, jid)))[0]!), true, "and then a retry may claim");
-  await db.update(jobs).set({ ...stop, t3_thread_id: "pending:9", stop_sent_to: null }).where(eq(jobs.id, jid));
-  await db.update(jobs).set({ stage: "merged", stage_event_id: `merged:${id}:late`, stage_summary: "Merged." }).where(eq(jobs.id, jid));
+  await db
+    .update(jobs)
+    .set({ ...stop, t3_thread_id: "pending:9", stop_sent_to: null })
+    .where(eq(jobs.id, jid));
+  await db
+    .update(jobs)
+    .set({ stage: "merged", stage_event_id: `merged:${id}:late`, stage_summary: "Merged." })
+    .where(eq(jobs.id, jid));
   sent.length = 0;
   assert.equal((await bindThread(id, "mcp:regress-merged")).stopped, true, "a PR that merged before the stop reached its thread still gets the stop");
-  assert.deepEqual(sent.map((m) => m.threadId), ["mcp:regress-merged"]);
+  assert.deepEqual(
+    sent.map((m) => m.threadId),
+    ["mcp:regress-merged"],
+  );
   assert.match(sent[0]!.message, /^Stop working on .+\. The factory stopped this run\./, "and the message does not quote the merge as the reason");
-  await db.update(jobs).set({ ...stop, t3_thread_id: "pending:7", stop_sent_to: null }).where(eq(jobs.id, jid));
+  await db
+    .update(jobs)
+    .set({ ...stop, t3_thread_id: "pending:7", stop_sent_to: null })
+    .where(eq(jobs.id, jid));
   await releaseLaunch(id, "pending:7");
   const [cleared] = await db.select().from(jobs).where(eq(jobs.id, jid));
   assert.equal(stopDeliverable(cleared!), false, "recovery that finds no thread leaves nothing to deliver");
@@ -122,7 +184,10 @@ try {
     // Never touch a live job, whatever the scoping above does.
     assert.equal(stopped, jid, "the regression only stops its own job");
     stops.push(detail);
-    await db.update(jobs).set({ stage: "failed", stage_event_id: `stop:${id}:x` }).where(eq(jobs.id, jid));
+    await db
+      .update(jobs)
+      .set({ stage: "failed", stage_event_id: `stop:${id}:x` })
+      .where(eq(jobs.id, jid));
     return "stopped";
   };
   const working = () => db.update(jobs).set({ stage: "implementing", stage_event_id: "e" }).where(eq(jobs.id, jid));
@@ -165,7 +230,8 @@ try {
     run: async (command, args, options) => {
       calls.push({ command, args, options });
       if (args[1] === "start") return { stdout: '{"threadId":"mcp:fake"}', stderr: "" };
-      if (args[1] === "show" && args[2] === "mcp:gone") throw Object.assign(new Error("exit 1"), { code: 1, stdout: "", stderr: "Thread mcp:gone is no longer available" });
+      if (args[1] === "show" && args[2] === "mcp:gone")
+        throw Object.assign(new Error("exit 1"), { code: 1, stdout: "", stderr: "Thread mcp:gone is no longer available" });
       if (args[1] === "show") return { stdout: JSON.stringify({ thread: shown }), stderr: "" };
       return { stdout: "", stderr: "" };
     },
@@ -183,7 +249,23 @@ try {
     [
       {
         command: "/sandbox/t3",
-        args: ["thread", "start", "/sandbox/repo", "-", "--worktree", "origin/main", "--branch", "hive/FAC-1", "--title", "FAC-1 Title", "--provider", "codex", "--model", "gpt-5.5", "--json"],
+        args: [
+          "thread",
+          "start",
+          "/sandbox/repo",
+          "-",
+          "--worktree",
+          "origin/main",
+          "--branch",
+          "hive/FAC-1",
+          "--title",
+          "FAC-1 Title",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.5",
+          "--json",
+        ],
         options: { input: "Work FAC-1", timeoutMs: 60_000, maxBuffer: 16 * 1024 * 1024 },
       },
     ],
@@ -215,7 +297,11 @@ try {
   calls.length = 0;
   assert.equal(await realThreads.state("pending:1", fake), "running", "a pending launch asks no host");
   assert.equal(calls.length, 0);
-  await assert.rejects(realThreads.state("mcp:real", localHost), /t3 thread show was called during a regression run/, "the local host still refuses T3 in a regression");
+  await assert.rejects(
+    realThreads.state("mcp:real", localHost),
+    /t3 thread show was called during a regression run/,
+    "the local host still refuses T3 in a regression",
+  );
   await assert.rejects(startThread(localHost, "/repo", "hive/X", "X", "m", harness), /t3 thread start was called during a regression run/);
   await assert.rejects(realThreads.send("mcp:real", "m", localHost), /t3 thread send was called during a regression run/);
 
@@ -226,20 +312,40 @@ try {
   const resolve = hosts.forJob;
   hosts.forJob = (job) => (job.key === id ? fake : localHost);
   try {
-    await db.update(jobs).set({ ...stop, t3_thread_id: "mcp:fake", stop_sent_to: null, machine_id: TEST_MACHINE_ID }).where(eq(jobs.id, jid));
+    await db
+      .update(jobs)
+      .set({ ...stop, t3_thread_id: "mcp:fake", stop_sent_to: null, machine_id: TEST_MACHINE_ID })
+      .where(eq(jobs.id, jid));
     assert.deepEqual(await deliverStops(jid), [id]);
   } finally {
     hosts.forJob = resolve;
     threads.state = async () => "running";
     threads.send = async (threadId, message) => void sent.push({ threadId, message });
   }
-  assert.deepEqual(calls.map((c) => c.args.slice(0, 3)), [["thread", "show", "mcp:fake"], ["thread", "send", "mcp:fake"]]);
+  assert.deepEqual(
+    calls.map((c) => c.args.slice(0, 3)),
+    [
+      ["thread", "show", "mcp:fake"],
+      ["thread", "send", "mcp:fake"],
+    ],
+  );
   assert.match(calls[1]!.options!.input!, /^Stop working on /, "the stop message goes to the fake host's stdin");
 
   // One failed start does not stop the batch; a clear failure frees its marker, a timeout keeps it.
   const markers = new Map<string, string>();
   const released: string[] = [];
-  const entry = (key: string) => ({ key, sandbox_id: null, attempt: 1, source: "linear" as const, repo: "ski043/factory-demo", branch: `hive/${key}`, threadTitle: key, message: "m", harness, ticket: null });
+  const entry = (key: string) => ({
+    key,
+    sandbox_id: null,
+    attempt: 1,
+    source: "linear" as const,
+    repo: "ski043/factory-demo",
+    branch: `hive/${key}`,
+    threadTitle: key,
+    message: "m",
+    harness,
+    ticket: null,
+  });
   const results = await launchEntries([entry("A"), entry("B"), entry("C")], {
     claim: async (key, marker) => (markers.set(key, marker), true),
     start: async ({ key }) => {
@@ -251,11 +357,15 @@ try {
     release: async (key) => void released.push(key),
     now: () => 1,
   });
-  assert.deepEqual(results.map((r) => [r.key, r.threadId ?? r.retry]), [
-    ["A", "next pass"],
-    ["B", "after launch recovery"],
-    ["C", "thread-C"],
-  ], "every entry is tried");
+  assert.deepEqual(
+    results.map((r) => [r.key, r.threadId ?? r.retry]),
+    [
+      ["A", "next pass"],
+      ["B", "after launch recovery"],
+      ["C", "thread-C"],
+    ],
+    "every entry is tried",
+  );
   assert.deepEqual(released, ["A"], "only the clearly failed start releases its marker");
 
   // A recheck answers at once and runs the check on later queued steps, once GitHub settles.
@@ -382,12 +492,16 @@ try {
   let runs = 0;
   let fail = true;
   let release: () => void = () => {};
-  const hourly = everyAtMost(100, async () => {
-    runs++;
-    if (fail) throw new Error("cleanup failed");
-    await new Promise<void>((resolve) => (release = resolve));
-    return "cleaned";
-  }, () => t);
+  const hourly = everyAtMost(
+    100,
+    async () => {
+      runs++;
+      if (fail) throw new Error("cleanup failed");
+      await new Promise<void>((resolve) => (release = resolve));
+      return "cleaned";
+    },
+    () => t,
+  );
   assert.equal(await hourly(), undefined, "not due before the interval");
   t = 100;
   assert.deepEqual(await hourly(), { error: "cleanup failed" });

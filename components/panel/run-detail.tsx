@@ -15,7 +15,6 @@ import { harnessLabel, type Harness } from "@/lib/harness";
 import { parseInventory, t3ThreadLink, UNKNOWN } from "@/lib/machine";
 import { sourceLink } from "@/lib/sources/shapes";
 import { parseStop, stopLine, stopView } from "@/lib/stop";
-import { runFeedPath } from "@/lib/run-links";
 import { RUNS_ON_LABELS, ticketRecordSchema } from "@/lib/ticket-overrides";
 import { runsOn } from "./cards";
 import { AgentTree } from "./agent-tree";
@@ -30,14 +29,14 @@ import { MergeDecisionSection } from "./merge-decision";
 import { ModelChip } from "./model-chip";
 import { OpenSandboxT3, useSandboxT3 } from "./open-sandbox-t3";
 import { SandboxSection } from "./sandbox-section";
-import { useFeed, type Feed } from "./sealed";
+import { useFeed, type Feed } from "./live-refresh";
 import { StageTimeline } from "./stage-timeline";
 import { Time } from "./time";
 import { STAGE_META } from "./stages";
 
 /** The job's audit feed, read once for both the sandbox's last login check and the audit log. */
-function JobRecords({ feed, path, job }: { feed: Feed<AuditRow>; path: string; job: JobRow | undefined }) {
-  const { rows } = useFeed(feed, path);
+function JobRecords({ feed, job }: { feed: Feed<AuditRow>; job: JobRow | undefined }) {
+  const { rows } = useFeed(feed);
   return (
     <>
       {job && <SandboxSection job={job} audit={rows} />}
@@ -177,7 +176,6 @@ export function RunDetail({
   agents,
   events,
   stages,
-  stagesPath,
   audit,
   evidence,
   job,
@@ -192,10 +190,9 @@ export function RunDetail({
   closeHref: string;
   /** Whether the run fills the page, and the link back to the side panel or out to full view. */
   fullView: FullView;
-  audit: { feed: Feed<AuditRow>; path: string } | undefined;
-  evidence: { feed: Feed<JobEvidenceRow>; path: string } | undefined;
+  audit: Feed<AuditRow> | undefined;
+  evidence: Feed<JobEvidenceRow> | undefined;
   jobSpend: { usd: number; attempt: number } | undefined;
-  stagesPath: string;
   job: JobRow | undefined;
   machine: MachineRow | undefined;
   run: RunRow;
@@ -203,9 +200,9 @@ export function RunDetail({
   events: Feed<EventRow>;
   stages: Feed<EventRow>;
 }) {
-  const { rows: agentRows } = useFeed(agents, runFeedPath("agents", run.session_id));
-  const { rows: eventRows } = useFeed(events, runFeedPath("events", run.session_id));
-  const { rows: stageRows } = useFeed(stages, stagesPath);
+  const { rows: agentRows } = useFeed(agents);
+  const { rows: eventRows } = useFeed(events);
+  const { rows: stageRows } = useFeed(stages);
   const stage = job?.stage ?? run.stage;
   const link = job && sourceLink(job);
   const machineName = machine?.name ?? job?.machine_id ?? null;
@@ -286,8 +283,7 @@ export function RunDetail({
       {job && <StopBanner job={job} t3Href={stopThread ? t3ThreadLink(stopThread, environmentId) : null} />}
       {job?.nudged_at && job.nudged_stage === job.stage && (
         <div className="mx-4.5 mb-3.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs">
-          <span className="font-semibold text-warning">Stuck</span> · the
-          watchdog nudged this run at <Time date={job.nudged_at} /> in{" "}
+          <span className="font-semibold text-warning">Stuck</span> · the watchdog nudged this run at <Time date={job.nudged_at} /> in{" "}
           {STAGE_META[job.stage].label}. It fails if nothing moves.
         </div>
       )}
@@ -301,47 +297,37 @@ export function RunDetail({
       )}
       {job?.stage === "waiting" && job.question ? (
         <div className="mx-4.5 mb-3.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5">
-          <div className="text-xs font-semibold text-warning">
-            Question for you
-          </div>
+          <div className="text-xs font-semibold text-warning">Question for you</div>
           <p className="mt-1 whitespace-pre-wrap">{job.question}</p>
         </div>
       ) : null}
       {!job && run.stage === "waiting" && run.question && (
         <div className="mx-4.5 mb-3.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5">
-          <div className="text-xs font-semibold text-warning">
-            Question for you
-          </div>
+          <div className="text-xs font-semibold text-warning">Question for you</div>
           <p className="mt-1 whitespace-pre-wrap">{run.question}</p>
         </div>
       )}
       {job && <MergeDecisionSection job={job} />}
-      {job && evidence && <EvidenceSection feed={evidence.feed} path={evidence.path} job={job} />}
+      {job && evidence && <EvidenceSection feed={evidence} job={job} />}
     </>
   );
   const timeline = (
     <section className="flex flex-col gap-2.5 px-4.5 py-3.5">
-      <h3 className="text-sm font-medium text-muted-foreground">
-        Timeline
-      </h3>
+      <h3 className="text-sm font-medium text-muted-foreground">Timeline</h3>
       <StageTimeline events={stageRows} />
     </section>
   );
-  const records = audit ? <JobRecords feed={audit.feed} path={audit.path} job={job} /> : job && <SandboxSection job={job} audit={[]} />;
+  const records = audit ? <JobRecords feed={audit} job={job} /> : job && <SandboxSection job={job} audit={[]} />;
   const activity = (
     <>
       <Separator />
       <section className="flex flex-col gap-2.5 px-4.5 py-3.5">
-        <h3 className="text-sm font-medium text-muted-foreground">
-          Agents · {agentRows.length}
-        </h3>
+        <h3 className="text-sm font-medium text-muted-foreground">Agents · {agentRows.length}</h3>
         <AgentTree run={run} agents={agentRows} />
       </section>
       <Separator />
       <section className="flex flex-col gap-2.5 px-4.5 py-3.5">
-        <h3 className="text-sm font-medium text-muted-foreground">
-          Live events
-        </h3>
+        <h3 className="text-sm font-medium text-muted-foreground">Live events</h3>
         <EventFeed events={eventRows} />
       </section>
     </>

@@ -4,7 +4,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type * as schema from "@/db/schema";
 import { intents, repoSettings, type IntentKind } from "@/db/schema";
-import { isOwner, type SessionUser } from "@/lib/auth/owner";
+import { isAdmin, type SessionUser } from "@/lib/auth/owner";
 import type { Installable } from "@/lib/github/installation";
 import { scrubbed } from "@/lib/modal-secrets";
 import { afterRecipe, modalSecretName, parseDetail, type OnboardingState } from "@/lib/onboarding";
@@ -20,9 +20,10 @@ import type { LabelGroupSpec } from "@/lib/sources/types";
 
 type Db = NodePgDatabase<typeof schema>;
 
-const FORBIDDEN = { ok: false, status: 403, message: "Only the factory owner can change repositories." } as const;
+const FORBIDDEN = { ok: false, status: 403, message: "Only an admin can change repositories." } as const;
 const invalid = (message: string) => ({ ok: false, status: 400, message }) as const;
-const failed = (what: string, error: unknown) => ({ ok: false, status: 502, message: `Could not ${what}: ${error instanceof Error ? error.message : String(error)}` }) as const;
+const failed = (what: string, error: unknown) =>
+  ({ ok: false, status: 502, message: `Could not ${what}: ${error instanceof Error ? error.message : String(error)}` }) as const;
 
 const repoInput = z.object({ repo: z.string().regex(REPO_NAME, "Name the repo as owner/name.") });
 
@@ -40,7 +41,7 @@ export type AddRepositoryDeps = {
 /** The repos the App can reach that are not registered yet, and where to grant it more. */
 export async function listAddable(deps: Pick<AddRepositoryDeps, "user" | "registry" | "installable">): Promise<AddableOutcome> {
   const user = await deps.user();
-  if (!user || !isOwner(user)) return FORBIDDEN;
+  if (!user || !isAdmin(user)) return FORBIDDEN;
   try {
     const [installable, registry] = await Promise.all([deps.installable(), deps.registry()]);
     const known = new Set(registry.map((r) => r.repo.toLowerCase()));
@@ -58,7 +59,7 @@ export type AddOutcome = { ok: true; labelNote?: string } | { ok: false; status:
  */
 export async function addRepository(deps: AddRepositoryDeps, input: unknown): Promise<AddOutcome> {
   const user = await deps.user();
-  if (!user || !isOwner(user)) return FORBIDDEN;
+  if (!user || !isAdmin(user)) return FORBIDDEN;
   const parsed = repoInput.safeParse(input);
   if (!parsed.success) return invalid(parsed.error.issues[0]?.message ?? "The repository is not valid.");
   const { repo } = parsed.data;
@@ -73,7 +74,8 @@ export async function addRepository(deps: AddRepositoryDeps, input: unknown): Pr
   } catch (error) {
     return failed("list the GitHub App's repositories", error);
   }
-  if (!installable.repos.some((r) => r.repo.toLowerCase() === repo.toLowerCase())) return invalid(`The GitHub App cannot reach ${repo}. Grant it access first.`);
+  if (!installable.repos.some((r) => r.repo.toLowerCase() === repo.toLowerCase()))
+    return invalid(`The GitHub App cannot reach ${repo}. Grant it access first.`);
   try {
     await deps.create(repo, user.email);
   } catch (error) {
@@ -130,7 +132,7 @@ export const secretCommand = (repo: string, name: string) => `bun scripts/repo-s
  */
 export async function saveRepoSecrets(deps: SecretsDeps, input: unknown): Promise<SettingsOutcome> {
   const user = await deps.user();
-  if (!user || !isOwner(user)) return FORBIDDEN;
+  if (!user || !isAdmin(user)) return FORBIDDEN;
   const parsed = secretsInputSchema.safeParse(input);
   if (!parsed.success) return invalid("Name each secret with letters, digits and underscores.");
   const { repo } = parsed.data;
@@ -143,7 +145,8 @@ export async function saveRepoSecrets(deps: SecretsDeps, input: unknown): Promis
   const known = new Set((recipe?.env ?? []).map((e) => e.name));
   const unknown = names.filter((n) => !known.has(n));
   if (unknown.length > 0) return invalid(`The recipe names no env var ${unknown.join(", ")}.`);
-  if (!deps.modalConfigured()) return invalid(`This panel has no cloud sandbox token. On the runner Mac, run ${secretCommand(repo, names[0]!)} for each secret.`);
+  if (!deps.modalConfigured())
+    return invalid(`This panel has no cloud sandbox token. On the runner Mac, run ${secretCommand(repo, names[0]!)} for each secret.`);
   const secret = modalSecretName(repo);
   try {
     await deps.upsert(secret, values);
@@ -170,7 +173,9 @@ export async function recordSecretNames(database: Db, repo: string, names: reado
     const secretsSet = [...new Set([...(detail.secretsSet ?? []), ...names])].sort();
     const missing = missingEnv(detail.recipe, secretsSet);
     const next: OnboardingState | null =
-      row.onboarding_state === "needs_input" && detail.recipe && missing.length === 0 ? afterRecipe(detail.recipe, { ...detail, secretsSet }).state : row.onboarding_state;
+      row.onboarding_state === "needs_input" && detail.recipe && missing.length === 0
+        ? afterRecipe(detail.recipe, { ...detail, secretsSet }).state
+        : row.onboarding_state;
     await tx
       .update(repoSettings)
       .set({
@@ -192,7 +197,7 @@ export type RepoActionDeps = {
 /** Starts onboarding again from the recipe: the committed one if main has it now, else an agent writes one. */
 export async function retryOnboarding(deps: RepoActionDeps, input: unknown): Promise<SettingsOutcome> {
   const user = await deps.user();
-  if (!user || !isOwner(user)) return FORBIDDEN;
+  if (!user || !isAdmin(user)) return FORBIDDEN;
   const parsed = repoInput.safeParse(input);
   if (!parsed.success) return invalid("Name the repo as owner/name.");
   const row = (await deps.registry()).find((r) => r.repo === parsed.data.repo);
@@ -209,7 +214,7 @@ export async function retryOnboarding(deps: RepoActionDeps, input: unknown): Pro
 /** Builds the warm image again from the recipe on the row; the current image serves until it is ready. */
 export async function rebuildRepoImage(deps: RepoActionDeps, input: unknown): Promise<SettingsOutcome> {
   const user = await deps.user();
-  if (!user || !isOwner(user)) return FORBIDDEN;
+  if (!user || !isAdmin(user)) return FORBIDDEN;
   const parsed = repoInput.safeParse(input);
   if (!parsed.success) return invalid("Name the repo as owner/name.");
   const row = (await deps.registry()).find((r) => r.repo === parsed.data.repo);

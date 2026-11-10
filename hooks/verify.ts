@@ -4,7 +4,18 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import { eventSchema, type FactoryEvent } from "../lib/events";
-import { combined, CHECK_TIMEOUT_MS, formatDuration, OUTPUT_KEEP_CHARS, planChecks, runChecks, SECRET_ENV, shortSha, type CheckRunner, type EvidenceCheck } from "../lib/evidence";
+import {
+  combined,
+  CHECK_TIMEOUT_MS,
+  formatDuration,
+  OUTPUT_KEEP_CHARS,
+  planChecks,
+  runChecks,
+  SECRET_ENV,
+  shortSha,
+  type CheckRunner,
+  type EvidenceCheck,
+} from "../lib/evidence";
 import { parseBranch } from "../lib/factory";
 import { readIngestTarget, reportEvents } from "../lib/outbox";
 import { parseRecipe, RECIPE_PATH, UNMERGED_RECIPE_PATH } from "../lib/recipe";
@@ -76,7 +87,10 @@ function readRecipe(top: string) {
 }
 
 function printResults(checks: readonly EvidenceCheck[]) {
-  for (const check of checks) say(`${check.passed ? "passed" : "failed"} ${check.name} · ${check.command} · ${formatDuration(check.durationMs)}${check.passed ? "" : ` · exit ${check.exitCode ?? "none"}`}`);
+  for (const check of checks)
+    say(
+      `${check.passed ? "passed" : "failed"} ${check.name} · ${check.command} · ${formatDuration(check.durationMs)}${check.passed ? "" : ` · exit ${check.exitCode ?? "none"}`}`,
+    );
   for (const check of checks.filter((c) => !c.passed)) process.stderr.write(`\n--- ${check.name}: ${check.command}\n${check.outputTail}\n`);
 }
 
@@ -89,10 +103,17 @@ async function main() {
   }
   const sha = await git(top, "rev-parse", "HEAD");
   const dirty = (await git(top, "status", "--porcelain")) !== "";
-  const plan = planChecks({ recipe: readRecipe(top), packageJson: existsSync(join(top, "package.json")) ? readFileSync(join(top, "package.json"), "utf8") : null, files: readdirSync(top) });
+  const plan = planChecks({
+    recipe: readRecipe(top),
+    packageJson: existsSync(join(top, "package.json")) ? readFileSync(join(top, "package.json"), "utf8") : null,
+    files: readdirSync(top),
+  });
   if (dirty) say("the tree has uncommitted changes, so this run can't prove the commit; commit first and run again");
   if (plan.checks.length === 0) say(`no checks defined: ${RECIPE_PATH} names none and package.json has no test, lint, typecheck or build script`);
-  else say(`running ${plan.checks.length} check${plan.checks.length === 1 ? "" : "s"} from the ${plan.source === "recipe" ? "recipe" : "package.json scripts"} at ${shortSha(sha)}`);
+  else
+    say(
+      `running ${plan.checks.length} check${plan.checks.length === 1 ? "" : "s"} from the ${plan.source === "recipe" ? "recipe" : "package.json scripts"} at ${shortSha(sha)}`,
+    );
 
   const secrets = [...plan.envNames, ...SECRET_ENV].map((name) => process.env[name] ?? "").concat(readIngestTarget()?.secret ?? "");
   const checks = await runChecks({ checks: plan.checks, envNames: plan.envNames }, localRunner(top), { secrets, timeoutMs });
@@ -102,7 +123,11 @@ async function main() {
   printResults(checks);
   const passed = checks.filter((c) => c.passed).length;
   const ok = clean && checks.length > 0 && passed === checks.length;
-  say(ok ? `verified at ${shortSha(sha)} · ${passed}/${checks.length} checks` : `not verified at ${shortSha(sha)} · ${passed}/${checks.length} checks passed${clean ? "" : " · uncommitted changes"}`);
+  say(
+    ok
+      ? `verified at ${shortSha(sha)} · ${passed}/${checks.length} checks`
+      : `not verified at ${shortSha(sha)} · ${passed}/${checks.length} checks passed${clean ? "" : " · uncommitted changes"}`,
+  );
 
   const identity = mcpIdentity(process.env, top);
   const attempt = parseBranch(identity?.branch)?.attempt;

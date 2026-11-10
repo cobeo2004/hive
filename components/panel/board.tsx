@@ -26,23 +26,15 @@ export function Board({
   /** Each repo's short name, while more than one repo has jobs; undefined shows no repo. */
   repoLabels?: ReadonlyMap<string, string>;
 }) {
-  const agentsOf = (runs: readonly RunRow[]) =>
-    runs.flatMap((r) => agentsBySession.get(r.session_id) ?? []);
-  const columns = STAGES.filter(
-    (stage) => stage !== "failed" || cards.some((c) => c.stage === "failed"),
-  );
+  const agentsOf = (runs: readonly RunRow[]) => runs.flatMap((r) => agentsBySession.get(r.session_id) ?? []);
+  const columns = STAGES.filter((stage) => stage !== "failed" || cards.some((c) => c.stage === "failed"));
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 divide-x overflow-x-auto overflow-y-hidden">
       {columns.map((stage) => {
         const items = cards.filter((c) => c.stage === stage);
         return (
-          <section
-            key={stage}
-            data-stage={stage}
-            aria-label={STAGE_META[stage].label}
-            className="flex h-full w-80 shrink-0 flex-col last:border-e"
-          >
+          <section key={stage} data-stage={stage} aria-label={STAGE_META[stage].label} className="flex h-full w-80 shrink-0 flex-col last:border-e">
             <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-muted/72 px-3 font-medium">
               <span className={cn("size-2 rounded-full", STAGE_META[stage].dot)} />
               {STAGE_META[stage].label}

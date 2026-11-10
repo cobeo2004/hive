@@ -2,10 +2,10 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
+import type { SessionUser } from "../lib/auth/owner";
 import type { Harness } from "../lib/harness";
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 
 const { db } = await import("../db/client");
 const { jobs, settings } = await import("../db/schema");
@@ -42,7 +42,16 @@ assert.deepEqual(
         { slug: "codex-unnamed", name: "codex-unnamed" },
       ],
     },
-    { id: "work-claude", driver: "claudeAgent", name: "Claude (work)", enabled: true, models: [{ slug: "model-a", name: "Model A" }, { slug: "model-b", name: "Model B" }] },
+    {
+      id: "work-claude",
+      driver: "claudeAgent",
+      name: "Claude (work)",
+      enabled: true,
+      models: [
+        { slug: "model-a", name: "Model A" },
+        { slug: "model-b", name: "Model B" },
+      ],
+    },
     { id: "antigravity", driver: "antigravity", name: "Gravity", enabled: true, models: [{ slug: "grav-1", name: "Gravity One" }] },
     { id: "mystery", driver: "mystery-cli", name: "mystery", enabled: true, models: [] },
   ],
@@ -76,7 +85,13 @@ const inventory = (harnesses: Harness[] | "unknown" | undefined) => ({
 });
 assert.equal(reportedHarnesses([], now), null, "no machines, no harnesses");
 assert.equal(
-  reportedHarnesses([{ last_seen_at: online, inventory: inventory(undefined) }, { last_seen_at: online, inventory: inventory("unknown") }], now),
+  reportedHarnesses(
+    [
+      { last_seen_at: online, inventory: inventory(undefined) },
+      { last_seen_at: online, inventory: inventory("unknown") },
+    ],
+    now,
+  ),
   null,
   "an inventory from before harnesses, or one that could not read them, reports none",
 );
@@ -139,21 +154,28 @@ const noLogin = { ...currentImage, claude: false, codexSlots: 0 };
 assert.equal(sandboxLogin(claudeOnly), true, "a Claude token alone makes the cloud ready, with no Codex login slot");
 assert.equal(sandboxLogin(noLogin), false, "with neither, nothing can log in");
 assert.deepEqual(
-  reportedSandbox([noLogin, claudeOnly].map((s) => ({ last_seen_at: online, inventory: { ...inventory(undefined), sandbox: s } })), now),
+  reportedSandbox(
+    [noLogin, claudeOnly].map((s) => ({ last_seen_at: online, inventory: { ...inventory(undefined), sandbox: s } })),
+    now,
+  ),
   claudeOnly,
   "a runner that can log in outranks one that cannot",
 );
 
-const owner = { email: OWNER, emailVerified: true };
+const owner = { email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
 const reported = [harness("claudeAgent", true, ["model-a"]), harness("codex", true, ["codex-one"]), harness("cursor", false)];
 const choices: { provider: string; model: string; execution: string; by: string }[] = [];
-const deps = (user: { email: string; emailVerified: boolean } | null, harnesses: Harness[] | null = reported) => ({
+const deps = (user: SessionUser | null, harnesses: Harness[] | null = reported) => ({
   user: async () => user,
   harnesses: async () => harnesses,
   save: async (choice: { provider: string; model: string; execution: string }, by: string) => void choices.push({ ...choice, by }),
 });
 
-for (const user of [null, { email: "someone@example.com", emailVerified: true }, { email: OWNER, emailVerified: false }]) {
+for (const user of [
+  null,
+  { email: "someone@example.com", role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() },
+  { email: OWNER, role: "admin", twoFactorEnabled: false },
+]) {
   const outcome = await saveSettings(deps(user), { provider: "codex", model: "codex-one" });
   assert.equal(!outcome.ok && outcome.status, 403, `a non-owner (${user?.email ?? "signed out"}) cannot change settings`);
 }
@@ -171,7 +193,11 @@ for (const [input, why] of [
 }
 assert.deepEqual(choices, [], "and nothing is saved");
 assert.deepEqual(await saveSettings(deps(owner), { provider: " codex ", model: "codex-one" }), { ok: true }, "the owner saves a reported pair");
-assert.deepEqual(await saveSettings(deps(owner, null), { provider: "anything", model: "goes" }), { ok: true }, "before any machine reports harnesses, any pair is taken");
+assert.deepEqual(
+  await saveSettings(deps(owner, null), { provider: "anything", model: "goes" }),
+  { ok: true },
+  "before any machine reports harnesses, any pair is taken",
+);
 assert.deepEqual(await saveSettings(deps(owner), { provider: "codex", model: "codex-one", execution: "modal" }), { ok: true }, "the owner moves jobs to Modal");
 assert.deepEqual(
   choices,

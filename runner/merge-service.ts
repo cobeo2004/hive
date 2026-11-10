@@ -48,8 +48,19 @@ function auditDetail({ outcome, reasons, autonomy }: MergeDecision) {
 
 type Tx = Pick<typeof db, "insert">;
 
-export const auditFactory = (tx: Tx, job: Job, at: Date, action: AuditRow["action"], headSha: string, detail: string, result: AuditRow["result"] = null, actor = "factory") =>
-  tx.insert(auditLog).values({ id: randomUUID(), at, actor, action, job_id: job.id, target: job.pr_url!, head_sha: headSha, result, detail: detail.slice(0, 2000) });
+export const auditFactory = (
+  tx: Tx,
+  job: Job,
+  at: Date,
+  action: AuditRow["action"],
+  headSha: string,
+  detail: string,
+  result: AuditRow["result"] = null,
+  actor = "factory",
+) =>
+  tx
+    .insert(auditLog)
+    .values({ id: randomUUID(), at, actor, action, job_id: job.id, target: job.pr_url!, head_sha: headSha, result, detail: detail.slice(0, 2000) });
 
 /** Who a merge is audited for: the factory for its own, the owner who approved it otherwise. */
 const actorOf = (via: MergeVia, decision: MergeDecision) => (via === "auto" ? "factory" : (decision.approvedBy ?? "factory"));
@@ -94,7 +105,8 @@ export async function syncComments(job: Job, decision: MergeDecision): Promise<M
   return { ...decision, comments };
 }
 
-const commitMessage = (job: Job) => [(job.stage_summary ?? parseAssessment(job.merge_assessment)?.interpretation ?? "").slice(0, 1000), "Merged by the factory"].filter(Boolean).join("\n\n");
+const commitMessage = (job: Job) =>
+  [(job.stage_summary ?? parseAssessment(job.merge_assessment)?.interpretation ?? "").slice(0, 1000), "Merged by the factory"].filter(Boolean).join("\n\n");
 
 function mergeSnapshot(decision: MergeDecision, sha: string, method: MergeMethod, via: MergeVia, job: Job) {
   const a = parseAssessment(job.merge_assessment);
@@ -120,7 +132,11 @@ async function recordMerge(job: Job, decision: MergeDecision, pull: MergeCandida
     watch: { state: "watching", until: new Date(now + config.factory.postMergeWatchMinutes * 60_000).toISOString(), failed: [], revertPr: null, reason: null },
   };
   const recorded = await db.transaction(async (tx) => {
-    const updated = await tx.update(jobs).set({ merge_decision: next }).where(and(eq(jobs.id, job.id), notMerged)).returning({ id: jobs.id });
+    const updated = await tx
+      .update(jobs)
+      .set({ merge_decision: next })
+      .where(and(eq(jobs.id, job.id), notMerged))
+      .returning({ id: jobs.id });
     if (updated.length === 0) return false;
     await auditFactory(tx, job, at, "merge_succeeded", pull.headSha, mergeSnapshot(decision, sha, method, via, job), "ok", actorOf(via, decision));
     return true;
@@ -169,7 +185,8 @@ export async function mergeNow(job: Job, evaluated: MergeDecision, via: MergeVia
     case "head_moved": {
       const after = await github.mergeCandidate(url);
       // A merge that already went through, such as a replay after a crash, counts as this one.
-      if (after.state === "merged" && after.headSha === pull.headSha && after.mergeCommitSha) return recordMerge(job, decision, pull, method, after.mergeCommitSha, via, now);
+      if (after.state === "merged" && after.headSha === pull.headSha && after.mergeCommitSha)
+        return recordMerge(job, decision, pull, method, after.mergeCommitSha, via, now);
       if (after.state !== "open" || after.headSha !== pull.headSha) return null;
       return block(job, decision, result.message || `GitHub refused the merge (${result.kind === "head_moved" ? 409 : 405}).`);
     }
@@ -225,4 +242,5 @@ export async function recoverMerges(machineId: string, only: string[] | undefine
 }
 
 /** Merges the factory's own revert PR at the head it pushed; the post-merge watch's way back to green. */
-export const mergeRevert = (url: string, head: string, method: MergeMethod, title: string) => github.mergePull(url, head, { method, title, message: "Reverted by the factory" });
+export const mergeRevert = (url: string, head: string, method: MergeMethod, title: string) =>
+  github.mergePull(url, head, { method, title, message: "Reverted by the factory" });

@@ -10,10 +10,13 @@ import type { Job } from "../lib/sources/types";
 // and response_url on localhost, and the panel's own inbox actions behind them.
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 const TOKEN = "xoxb-regression-token-0123456789";
 const SIGNING = "regression-signing-secret-abcdef";
 const OWNER_SLACK = "U0OWNER";
+const ENGINEER = "eng@example.com";
+const ENGINEER_SLACK = "U0ENG";
+/** The emails users.info gives; the stranger's Slack email has no Hive account. */
+const SLACK_EMAILS: Record<string, string> = { [OWNER_SLACK]: OWNER, [ENGINEER_SLACK]: ENGINEER, U0STRANGER: "stranger@example.com" };
 
 const { db } = await import("../db/client");
 const { auditLog, intents, jobs, slackMessages } = await import("../db/schema");
@@ -22,8 +25,14 @@ const { approveDetailSchema, feedbackDetailSchema } = await import("../lib/inbox
 const inbox = await import("../lib/inbox-actions");
 const { notifyEvents, renderMessage, SLACK_ACTION_IDS, SLACK_LINK_ACTION_IDS } = await import("../lib/slack");
 const { postResponse, slackClient } = await import("../lib/slack-api");
-const { ALREADY_RESOLVED, handleInteraction, LOADING, MAX_SKEW_SECONDS, NOT_OWNER, ownerFromAllowlist, slackRequestId, TEXT_BLOCK } = await import("../lib/slack-interactions");
+const { ALREADY_RESOLVED, handleInteraction, LOADING, MAX_SKEW_SECONDS, NOT_MEMBER, slackRequestId, TEXT_BLOCK } = await import("../lib/slack-interactions");
 const { serve } = await import("./serve");
+const { memberByEmail } = await import("../lib/members");
+const { user: users } = await import("../db/schema");
+const { inArray: within } = await import("drizzle-orm");
+const hiveUser = (id: string, email: string, role: string) => ({ id, name: email, email, role, twoFactorEnabled: true, setupDoneAt: new Date() });
+await db.delete(users).where(within(users.email, [OWNER, ENGINEER]));
+await db.insert(users).values([hiveUser(`slack-owner-${Date.now()}`, OWNER, "admin"), hiveUser(`slack-eng-${Date.now()}`, ENGINEER, "engineer")]);
 
 // --- the fake Slack: Web API calls under /api/, response_url posts under /response/
 type Call = { method: string; params: Record<string, string> };
@@ -42,6 +51,7 @@ const server = await serve(0, async (request) => {
   calls.push({ method, params });
   timeline.push(method);
   if (request.headers.get("authorization") !== `Bearer ${TOKEN}`) return Response.json({ ok: false, error: "invalid_auth" });
+  if (method === "users.info") return Response.json({ ok: true, user: { id: params.user, profile: { email: SLACK_EMAILS[params.user!] } } });
   if (method === "views.open") return Response.json({ ok: true, view: { id: `V${calls.length}`, hash: `hash-${calls.length}` } });
   if (method === "views.update") return Response.json({ ok: true, view: { id: params.view_id, hash: `hash-${calls.length}` } });
   return Response.json({ ok: true, channel: params.channel, ts: params.ts });
@@ -64,11 +74,13 @@ const tasks: Promise<void>[] = [];
 const drain = async () => {
   while (tasks.length > 0) await Promise.all(tasks.splice(0));
 };
-const owner = async () => ownerFromAllowlist();
+const owner = async () => ({ email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() });
+const slack = slackClient({ token: TOKEN, baseUrl: `${base}/api/`, minGapMs: 0 });
 const deps = {
   signingSecret: SIGNING,
   ownerSlackId: OWNER_SLACK,
-  slack: slackClient({ token: TOKEN, baseUrl: `${base}/api/`, minGapMs: 0 }),
+  member: async (id: string) => memberByEmail(await slack.userEmail(id)),
+  slack,
   respond: postResponse,
   inbox: {
     db: trackedDb,
@@ -101,20 +113,42 @@ const sign = (body: string, ts = Math.floor(Date.now() / 1000), secret = SIGNING
 const send = (payload: object, headers?: Record<string, string>) => {
   const body = new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
   return handleInteraction(
-    new Request("http://localhost/api/slack/interactions", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...(headers ?? sign(body)) }, body }),
+    new Request("http://localhost/api/slack/interactions", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...(headers ?? sign(body)) },
+      body,
+    }),
     deps,
   );
 };
 let urls = 0;
 const click = (eventId: string, actionId: string, user = OWNER_SLACK) => {
   const response_url = `${base}/response/${++urls}`;
-  return { response_url, sent: send({ type: "block_actions", user: { id: user }, trigger_id: `trigger-${urls}`, response_url, actions: [{ action_id: actionId, block_id: `item:${eventId}` }] }) };
+  return {
+    response_url,
+    sent: send({
+      type: "block_actions",
+      user: { id: user },
+      trigger_id: `trigger-${urls}`,
+      response_url,
+      actions: [{ action_id: actionId, block_id: `item:${eventId}` }],
+    }),
+  };
 };
 const submit = (view: { callback_id: string; private_metadata: string }, text: string, user = OWNER_SLACK) =>
-  send({ type: "view_submission", user: { id: user }, view: { ...view, state: { values: { [TEXT_BLOCK]: { text: { type: "plain_text_input", value: text } } } } } });
+  send({
+    type: "view_submission",
+    user: { id: user },
+    view: { ...view, state: { values: { [TEXT_BLOCK]: { text: { type: "plain_text_input", value: text } } } } },
+  });
 /** The modal as the last views.update left it. */
 const modalView = () =>
-  JSON.parse(calls.filter((c) => c.method === "views.update").at(-1)!.params.view!) as { callback_id: string; private_metadata: string; submit?: unknown; blocks: { type: string; optional?: boolean }[] };
+  JSON.parse(calls.filter((c) => c.method === "views.update").at(-1)!.params.view!) as {
+    callback_id: string;
+    private_metadata: string;
+    submit?: unknown;
+    blocks: { type: string; optional?: boolean }[];
+  };
 const repliesTo = (url: string) => responses.filter((r) => url.endsWith(r.path)).map((r) => r.body.text);
 
 const decision = (over: Partial<MergeDecision> = {}): MergeDecision => ({
@@ -130,19 +164,33 @@ const decision = (over: Partial<MergeDecision> = {}): MergeDecision => ({
 
 /** A job with its open Slack message, as the notifier leaves it. */
 async function item(n: string, over: Partial<typeof jobs.$inferInsert>) {
-  const row = linearJob(`${prefix}-${n}`, `${prefix}-${n}`, { title: `Job ${n}`, url: `https://linear.app/x/issue/${prefix}-${n}`, stage_at: new Date(), ...over });
+  const row = linearJob(`${prefix}-${n}`, `${prefix}-${n}`, {
+    title: `Job ${n}`,
+    url: `https://linear.app/x/issue/${prefix}-${n}`,
+    stage_at: new Date(),
+    ...over,
+  });
   await db.insert(jobs).values(row);
   created.push(row.id!);
   const [job] = await db.select().from(jobs).where(eq(jobs.id, row.id!));
   const [event] = notifyEvents([job!]).filter((e) => e.open);
   assert.ok(event, `job ${n} is an inbox item`);
   const now = new Date();
-  await db.insert(slackMessages).values({ id: event.id, job_id: job!.id, kind: event.kind, state: "open", channel: "DU0OWNER", ts: `${n}.0001`, created_at: now, updated_at: now });
+  await db
+    .insert(slackMessages)
+    .values({ id: event.id, job_id: job!.id, kind: event.kind, state: "open", channel: "DU0OWNER", ts: `${n}.0001`, created_at: now, updated_at: now });
   return { id: job!.id, eventId: event.id, ts: `${n}.0001` };
 }
-const intentsFor = (id: string) => db.select().from(intents).where(eq(intents.job_id, id as JobRow["id"]));
+const intentsFor = (id: string) =>
+  db
+    .select()
+    .from(intents)
+    .where(eq(intents.job_id, id as JobRow["id"]));
 const updatesOf = (ts: string) => calls.filter((c) => c.method === "chat.update" && c.params.ts === ts);
-const actionIds = (blocks: string) => (JSON.parse(blocks) as { type: string; elements?: { action_id: string }[] }[]).flatMap((b) => (b.type === "actions" ? b.elements!.map((e) => e.action_id) : []));
+const actionIds = (blocks: string) =>
+  (JSON.parse(blocks) as { type: string; elements?: { action_id: string }[] }[]).flatMap((b) =>
+    b.type === "actions" ? b.elements!.map((e) => e.action_id) : [],
+  );
 const INBOX_IDS = Object.values(SLACK_ACTION_IDS) as string[];
 
 try {
@@ -150,7 +198,9 @@ try {
   const facts = { panelUrl: "https://panel.test", spend: null, secrets: [TOKEN] };
   const pureJob = { ...linearJob("pure", "PURE-1", { title: "t", stage: "pr", pr_url: "https://github.com/o/r/pull/7" }), attempt: 1 } as JobRow;
   const buttons = (kind: Parameters<typeof renderMessage>[0]["kind"], resolved: string | null = null, pending: string | null = null) =>
-    actionIds(JSON.stringify(renderMessage({ id: "e", kind, job: pureJob, reason: "r" }, facts, resolved, pending).blocks)).filter((id) => INBOX_IDS.includes(id));
+    actionIds(JSON.stringify(renderMessage({ id: "e", kind, job: pureJob, reason: "r" }, facts, resolved, pending).blocks)).filter((id) =>
+      INBOX_IDS.includes(id),
+    );
   assert.deepEqual(buttons("handover"), [SLACK_ACTION_IDS.approve, SLACK_ACTION_IDS.request_changes, SLACK_ACTION_IDS.close]);
   assert.deepEqual(buttons("question"), [SLACK_ACTION_IDS.answer]);
   assert.deepEqual(buttons("failed"), [SLACK_ACTION_IDS.retry, SLACK_ACTION_IDS.close, SLACK_ACTION_IDS.dismiss]);
@@ -162,7 +212,12 @@ try {
   const open = renderMessage({ id: "e", kind: "handover", job: pureJob, reason: "r" }, facts);
   const approveButton = (open.blocks.at(-1) as { elements: { action_id: string; confirm?: { title: { text: string } } }[] }).elements[0]!;
   assert.equal(approveButton.confirm?.title.text, "Approve and merge?", "approving asks first");
-  assert.ok(actionIds(JSON.stringify(renderMessage({ id: "e", kind: "handover", job: pureJob, reason: "r" }, facts, "✅ Merged").blocks)).includes(SLACK_LINK_ACTION_IDS.panel), "the links stay");
+  assert.ok(
+    actionIds(JSON.stringify(renderMessage({ id: "e", kind: "handover", job: pureJob, reason: "r" }, facts, "✅ Merged").blocks)).includes(
+      SLACK_LINK_ACTION_IDS.panel,
+    ),
+    "the links stay",
+  );
   assert.notEqual(slackRequestId("a", "approve"), slackRequestId("b", "approve"));
   assert.equal(slackRequestId("a", "approve"), slackRequestId("a", "approve"), "one action on one event is one request");
 
@@ -174,28 +229,49 @@ try {
   const body = new URLSearchParams({ payload: JSON.stringify({ type: "block_actions" }) }).toString();
   assert.equal((await send({ type: "block_actions" }, sign(body, undefined, "wrong-secret"))).status, 401, "a wrong secret");
   assert.equal((await send({ type: "block_actions" }, sign(body))).status, 200, "the same body signed right");
-  assert.equal((await send({ type: "block_actions" }, sign(body, Math.floor(Date.now() / 1000) - MAX_SKEW_SECONDS - 5))).status, 401, "a replay older than five minutes");
+  assert.equal(
+    (await send({ type: "block_actions" }, sign(body, Math.floor(Date.now() / 1000) - MAX_SKEW_SECONDS - 5))).status,
+    401,
+    "a replay older than five minutes",
+  );
   const tampered = sign(body);
   assert.equal(
-    (await handleInteraction(new Request("http://localhost/", { method: "POST", headers: tampered, body: body.replace("block_actions", "block_actionz") }), deps)).status,
+    (
+      await handleInteraction(
+        new Request("http://localhost/", { method: "POST", headers: tampered, body: body.replace("block_actions", "block_actionz") }),
+        deps,
+      )
+    ).status,
     401,
     "a body changed after signing",
   );
-  assert.equal((await handleInteraction(new Request("http://localhost/", { method: "POST", headers: sign(body), body }), { ...deps, signingSecret: undefined })).status, 401, "no signing secret, no actions");
+  assert.equal(
+    (await handleInteraction(new Request("http://localhost/", { method: "POST", headers: sign(body), body }), { ...deps, signingSecret: undefined })).status,
+    401,
+    "no signing secret, no actions",
+  );
 
-  // --- only the owner acts
+  // --- a Slack user with no Hive account acts on nothing
   const stranger = click(hand.eventId, SLACK_ACTION_IDS.approve, "U0STRANGER");
   assert.equal((await stranger.sent).status, 200, "acked");
   await drain();
-  assert.deepEqual(repliesTo(stranger.response_url), [NOT_OWNER]);
+  assert.deepEqual(repliesTo(stranger.response_url), [NOT_MEMBER]);
   assert.equal(responses.at(-1)!.body.response_type, "ephemeral");
   assert.equal((await intentsFor(hand.id)).length, 0, "nothing recorded for a stranger");
   assert.equal(updatesOf(hand.ts).length, 0);
   const strangerModal = click(hand.eventId, SLACK_ACTION_IDS.request_changes, "U0STRANGER");
   await strangerModal.sent;
   await drain();
-  assert.deepEqual(repliesTo(strangerModal.response_url), [NOT_OWNER]);
+  assert.deepEqual(repliesTo(strangerModal.response_url), [NOT_MEMBER]);
   assert.equal(calls.filter((c) => c.method === "views.open").length, 0, "no modal for a stranger");
+
+  // --- an engineer's Approve runs as the engineer (R6)
+  const engHand = await item("E", { stage: "pr", pr_url: "https://github.com/o/r/pull/2", merge_decision: decision() });
+  await click(engHand.eventId, SLACK_ACTION_IDS.approve, ENGINEER_SLACK).sent;
+  await drain();
+  const engApprovals = await intentsFor(engHand.id);
+  assert.equal(engApprovals.length, 1, "an engineer's Approve records the approval");
+  assert.equal(approveDetailSchema.parse(JSON.parse(engApprovals[0]!.detail!)).actor, ENGINEER, "the engineer is the approver");
 
   // --- link buttons are acked and ignored
   const mark = calls.length;
@@ -212,11 +288,23 @@ try {
   assert.equal(approvals.length, 1, "a double click records one intent");
   const requestId = slackRequestId(hand.eventId, "approve");
   assert.equal(approvals[0]!.id, `panel:approve_merge:${requestId}`);
-  assert.deepEqual(approveDetailSchema.parse(JSON.parse(approvals[0]!.detail!)), { actor: OWNER, headSha: "h1", via: "inbox" }, "the head the decision read, as the inbox's approval");
-  assert.deepEqual(await inbox.approveMerge(deps.inbox, hand.id, requestId, "h1"), { ok: true, intentId: approvals[0]!.id }, "the panel's own action finds the same intent");
+  assert.deepEqual(
+    approveDetailSchema.parse(JSON.parse(approvals[0]!.detail!)),
+    { actor: OWNER, headSha: "h1", via: "inbox" },
+    "the head the decision read, as the inbox's approval",
+  );
+  assert.deepEqual(
+    await inbox.approveMerge(deps.inbox, hand.id, requestId, "h1"),
+    { ok: true, intentId: approvals[0]!.id },
+    "the panel's own action finds the same intent",
+  );
   const pendingUpdate = updatesOf(hand.ts)[0]!;
   assert.match(pendingUpdate.params.text!, /⏳ Merging…/, "the message turns pending at once");
-  assert.deepEqual(actionIds(pendingUpdate.params.blocks!).filter((id) => INBOX_IDS.includes(id)), [], "with no buttons to click again");
+  assert.deepEqual(
+    actionIds(pendingUpdate.params.blocks!).filter((id) => INBOX_IDS.includes(id)),
+    [],
+    "with no buttons to click again",
+  );
   assert.deepEqual(repliesTo(first.response_url), [], "nothing to say while the runner works");
 
   // --- the runner refuses: the buttons come back with the reason
@@ -227,7 +315,10 @@ try {
     for (let i = 0; i < 50; i++) {
       const [intent] = await intentsFor(red.id);
       if (intent) {
-        await db.update(intents).set({ handled_at: new Date(), result: JSON.stringify({ approval: { blocked: "a check is red on h2" } }) }).where(eq(intents.id, intent.id));
+        await db
+          .update(intents)
+          .set({ handled_at: new Date(), result: JSON.stringify({ approval: { blocked: "a check is red on h2" } }) })
+          .where(eq(intents.id, intent.id));
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -237,7 +328,11 @@ try {
   await runner;
   assert.deepEqual(repliesTo(refused.response_url), ["Not merged: a check is red on h2"]);
   const restored = updatesOf(red.ts).at(-1)!;
-  assert.deepEqual(actionIds(restored.params.blocks!).filter((id) => INBOX_IDS.includes(id)), [SLACK_ACTION_IDS.approve, SLACK_ACTION_IDS.request_changes, SLACK_ACTION_IDS.close], "the buttons are back");
+  assert.deepEqual(
+    actionIds(restored.params.blocks!).filter((id) => INBOX_IDS.includes(id)),
+    [SLACK_ACTION_IDS.approve, SLACK_ACTION_IDS.request_changes, SLACK_ACTION_IDS.close],
+    "the buttons are back",
+  );
 
   // --- after a refusal the action can be tried again, still once per double click
   const refusedId = slackRequestId(red.eventId, "approve");
@@ -247,9 +342,15 @@ try {
   await Promise.all([retryA.sent, retryB.sent]);
   const merger = (async () => {
     for (let i = 0; i < 50; i++) {
-      const [intent] = await db.select().from(intents).where(eq(intents.id, `panel:approve_merge:${retryId}`));
+      const [intent] = await db
+        .select()
+        .from(intents)
+        .where(eq(intents.id, `panel:approve_merge:${retryId}`));
       if (intent) {
-        await db.update(intents).set({ handled_at: new Date(), result: JSON.stringify({ approval: { merged: "abc1234def" } }) }).where(eq(intents.id, intent.id));
+        await db
+          .update(intents)
+          .set({ handled_at: new Date(), result: JSON.stringify({ approval: { merged: "abc1234def" } }) })
+          .where(eq(intents.id, intent.id));
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -270,7 +371,11 @@ try {
   const before = timeline.length;
   const opened = click(changes.eventId, SLACK_ACTION_IDS.request_changes);
   await opened.sent;
-  assert.equal(timeline[before], "views.open", "the modal opens before the ack, before anything is read");
+  assert.equal(
+    timeline.slice(before).filter((m) => m !== "users.info")[0],
+    "views.open",
+    "the modal opens before the ack, before anything but the clicker's lookup",
+  );
   const viewCall = calls.filter((c) => c.method === "views.open").at(-1)!;
   assert.equal(viewCall.params.trigger_id, `trigger-${urls}`, "the click's trigger opens the modal");
   const loading = JSON.parse(viewCall.params.view!) as { submit?: unknown; title: { text: string } };
@@ -285,7 +390,11 @@ try {
   assert.equal(view.callback_id, SLACK_ACTION_IDS.request_changes);
   assert.equal(view.blocks.find((b) => b.type === "input")!.optional, false, "feedback is required");
   assert.equal((await intentsFor(changes.id)).length, 0, "opening the modal records nothing");
-  assert.match(JSON.stringify(await (await submit(view, "Rename the flag.", "U0STRANGER")).json()), new RegExp(NOT_OWNER), "a stranger's submission is refused in the modal");
+  assert.match(
+    JSON.stringify(await (await submit(view, "Rename the flag.", "U0STRANGER")).json()),
+    new RegExp(NOT_MEMBER),
+    "a stranger's submission is refused in the modal",
+  );
   const accepted = await submit(view, "Rename the flag.");
   assert.equal(accepted.status, 200);
   assert.equal(await accepted.text(), "", "an empty ack closes the modal");
@@ -310,7 +419,11 @@ try {
   assert.match(JSON.stringify(answerView), /Postgres or SQLite\?/, "the modal shows the question");
   await submit(answerView, "Postgres.");
   await drain();
-  assert.deepEqual(replies.map((r) => [r.job.key, r.requestId, r.body]), [[`${prefix}-Q`, slackRequestId(question.eventId, "answer"), "Postgres."]], "posted in the source as the panel does");
+  assert.deepEqual(
+    replies.map((r) => [r.job.key, r.requestId, r.body]),
+    [[`${prefix}-Q`, slackRequestId(question.eventId, "answer"), "Postgres."]],
+    "posted in the source as the panel does",
+  );
   const [answerIntent] = await intentsFor(question.id);
   assert.equal(answerIntent!.id, `panel:answer:${slackRequestId(question.eventId, "answer")}`);
   assert.match(updatesOf(question.ts)[0]!.params.text!, /Answer sent/);
@@ -327,7 +440,10 @@ try {
   const [leakReply] = repliesTo(leakyClick.response_url);
   assert.match(leakReply!, /Could not post the answer: Linear refused \[redacted\]/);
   assert.ok(!JSON.stringify(responses).includes(TOKEN) && !JSON.stringify(calls).includes(TOKEN), "no secret reaches Slack");
-  assert.deepEqual(actionIds(updatesOf(leaky.ts).at(-1)!.params.blocks!).filter((id) => INBOX_IDS.includes(id)), [SLACK_ACTION_IDS.answer]);
+  assert.deepEqual(
+    actionIds(updatesOf(leaky.ts).at(-1)!.params.blocks!).filter((id) => INBOX_IDS.includes(id)),
+    [SLACK_ACTION_IDS.answer],
+  );
   assert.equal((await intentsFor(leaky.id)).length, 0);
 
   // --- retry: a modal whose note is optional, then the retry_job intent
@@ -351,7 +467,10 @@ try {
   const dismiss = click(failed.eventId, SLACK_ACTION_IDS.dismiss);
   await dismiss.sent;
   await drain();
-  const [dismissed] = await db.select().from(jobs).where(eq(jobs.id, failed.id as JobRow["id"]));
+  const [dismissed] = await db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.id, failed.id as JobRow["id"]));
   assert.ok(dismissed!.dismissed_at, "dismissed through the panel's action");
   assert.match(updatesOf(failed.ts)[0]!.params.text!, /Dismissed/);
 
@@ -368,7 +487,10 @@ try {
   assert.match(JSON.stringify(resolvedView), new RegExp(ALREADY_RESOLVED), "a resolved message's modal button says so in the modal");
   assert.equal(resolvedView.submit, undefined, "with nothing to submit");
   assert.deepEqual(repliesTo(stale.response_url), []);
-  const staleSubmit = await submit({ callback_id: SLACK_ACTION_IDS.request_changes, private_metadata: JSON.stringify({ event: hand.eventId, responseUrl: `${base}/response/stale` }) }, "Too late.");
+  const staleSubmit = await submit(
+    { callback_id: SLACK_ACTION_IDS.request_changes, private_metadata: JSON.stringify({ event: hand.eventId, responseUrl: `${base}/response/stale` }) },
+    "Too late.",
+  );
   assert.match(JSON.stringify(await staleSubmit.json()), /already resolved/, "a modal left open on a resolved item");
   await drain();
   assert.equal((await intentsFor(hand.id)).length, 1, "still only the one approval");
@@ -376,6 +498,7 @@ try {
 
   console.log("slack actions regressions passed");
 } finally {
+  await db.delete(users).where(within(users.email, [OWNER, ENGINEER]));
   if (created.length > 0) {
     const ids = created as JobRow["id"][];
     await db.delete(intents).where(inArray(intents.job_id, ids));

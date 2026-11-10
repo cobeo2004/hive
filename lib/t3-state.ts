@@ -24,9 +24,7 @@ const projectRow = z.object({ project_id: z.string(), title: z.string(), workspa
 function readProjectsFromSqlite(statePath: string): T3Project[] {
   const state = new Database(statePath, { readonly: true });
   try {
-    const rows = state
-      .query("select project_id, title, workspace_root from projection_projects where deleted_at is null order by workspace_root")
-      .all();
+    const rows = state.query("select project_id, title, workspace_root from projection_projects where deleted_at is null order by workspace_root").all();
     return rows.map((row) => {
       const parsed = projectRow.parse(row);
       return { id: parsed.project_id, title: parsed.title, path: parsed.workspace_root };
@@ -52,8 +50,7 @@ export async function readProjects({
 }): Promise<Projects> {
   try {
     return { source: "sqlite", items: readProjectsFromSqlite(statePath) };
-  } catch {
-  }
+  } catch {}
   const items: T3Project[] = [];
   let answered = false;
   for (const path of repos) {
@@ -96,19 +93,14 @@ export function readT3Runtime(userdataDir = t3UserdataDir()) {
 }
 
 const settingsFile = z.looseObject({
-  providerInstances: z.record(
-    z.string(),
-    z.looseObject({ driver: z.string(), enabled: z.boolean().default(true), displayName: z.string().nullish() }),
-  ),
+  providerInstances: z.record(z.string(), z.looseObject({ driver: z.string(), enabled: z.boolean().default(true), displayName: z.string().nullish() })),
 });
 
 const manifestModel = z.looseObject({ slug: z.string(), name: z.string().optional() });
 const manifestFile = z.looseObject({
   manifest: z.looseObject({
     currentModels: z.record(z.string(), z.array(z.string())).catch({}),
-    providers: z
-      .record(z.string(), z.looseObject({ models: z.union([z.array(manifestModel), z.record(z.string(), manifestModel)]).catch([]) }))
-      .catch({}),
+    providers: z.record(z.string(), z.looseObject({ models: z.union([z.array(manifestModel), z.record(z.string(), manifestModel)]).catch([]) })).catch({}),
   }),
 });
 

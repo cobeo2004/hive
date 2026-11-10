@@ -8,7 +8,6 @@ import type { MergeDecision } from "../lib/merge-decision";
 // Slack notifications against a fake Slack Web API: no request leaves this machine.
 
 const OWNER = "owner@example.com";
-process.env.FACTORY_OWNER_EMAILS = OWNER;
 const TOKEN = "xoxb-regression-token-0123456789";
 const SIGNING = "regression-signing-secret-abcdef";
 process.env.SLACK_SIGNING_SECRET = SIGNING;
@@ -16,7 +15,16 @@ process.env.SLACK_SIGNING_SECRET = SIGNING;
 const { db } = await import("../db/client");
 const { intents, jobs, notificationSettings, runs, slackMessages } = await import("../db/schema");
 const { linearJob, usageRun } = await import("./fixtures");
-const { inQuietHours, notificationConfigSchema, NOTIFICATIONS_ID, parseNotificationConfig, requestSlackTest, saveNotifications, slackTestOutcome, DEFAULT_NOTIFICATIONS } = await import("../lib/notifications");
+const {
+  inQuietHours,
+  notificationConfigSchema,
+  NOTIFICATIONS_ID,
+  parseNotificationConfig,
+  requestSlackTest,
+  saveNotifications,
+  slackTestOutcome,
+  DEFAULT_NOTIFICATIONS,
+} = await import("../lib/notifications");
 const { eventId, NOTIFY_WINDOW_MS, notifyEvents, redact, renderMessage, resolution, SLACK_ACTION_IDS } = await import("../lib/slack");
 const { slackClient } = await import("../lib/slack-api");
 const { notifySlack, POSTING_STALE_MS, sendSlackTest, slackFromEnv } = await import("../runner/slack");
@@ -50,7 +58,9 @@ const server = await serve(0, async (request) => {
       case "conversations.open":
         return Response.json({ ok: true, channel: { id: `D${params.users}` } });
       case "chat.postMessage":
-        return params.channel === "C0GONE00" ? Response.json({ ok: false, error: "channel_not_found" }) : Response.json({ ok: true, channel: params.channel, ts: `${nextTs++}.000100` });
+        return params.channel === "C0GONE00"
+          ? Response.json({ ok: false, error: "channel_not_found" })
+          : Response.json({ ok: true, channel: params.channel, ts: `${nextTs++}.000100` });
       case "chat.update":
         return Response.json({ ok: true, channel: params.channel, ts: params.ts });
       default:
@@ -67,14 +77,23 @@ let slack = fresh();
 const prefix = `SLK${Date.now() % 1_000_000}`;
 const key = (n: string) => `${prefix}-${n}`;
 const mine = (call: Call) => (call.params.text ?? "").includes(prefix);
-const since = (mark: number, method?: string) => calls.slice(mark).filter((c) => (!method || c.method === method) && (c.method.startsWith("conversations") || mine(c)));
+const since = (mark: number, method?: string) =>
+  calls.slice(mark).filter((c) => (!method || c.method === method) && (c.method.startsWith("conversations") || mine(c)));
 const insert = async (n: string, over: Partial<typeof jobs.$inferInsert>) => {
   const row = linearJob(`${prefix}-${n}`, key(n), { title: `Job ${n}`, url: `https://linear.app/x/issue/${key(n)}`, provider: "claudeAgent", ...over });
   await db.insert(jobs).values(row);
   return row.id!;
 };
-const setJob = (id: string, set: Partial<typeof jobs.$inferInsert>) => db.update(jobs).set({ updated_at: new Date(), ...set }).where(eq(jobs.id, id as JobRow["id"]));
-const rowsFor = (id: string) => db.select().from(slackMessages).where(eq(slackMessages.job_id, id as JobRow["id"]));
+const setJob = (id: string, set: Partial<typeof jobs.$inferInsert>) =>
+  db
+    .update(jobs)
+    .set({ updated_at: new Date(), ...set })
+    .where(eq(jobs.id, id as JobRow["id"]));
+const rowsFor = (id: string) =>
+  db
+    .select()
+    .from(slackMessages)
+    .where(eq(slackMessages.job_id, id as JobRow["id"]));
 const writeConfig = (config: object) =>
   db
     .insert(notificationSettings)
@@ -131,7 +150,14 @@ try {
   assert.equal(redact("value s3cret-value-here", ["s3cret-value-here"]), "value [redacted]");
 
   const pureJob = {
-    ...linearJob("pure", "PURE-1", { title: "Fix <the> & thing", url: "https://linear.app/x/issue/PURE-1", stage: "waiting", stage_at: new Date(0), question: `Use ${TOKEN} for <db> & co?`, provider: "codex" }),
+    ...linearJob("pure", "PURE-1", {
+      title: "Fix <the> & thing",
+      url: "https://linear.app/x/issue/PURE-1",
+      stage: "waiting",
+      stage_at: new Date(0),
+      question: `Use ${TOKEN} for <db> & co?`,
+      provider: "codex",
+    }),
     attempt: 1,
     pr_url: "https://github.com/o/r/pull/7",
   } as JobRow;
@@ -161,10 +187,21 @@ try {
   assert.equal(resolution("failed", { ...pureJob, stage: "queued" }), "🔁 Retried");
   assert.equal(resolution("failed", { ...pureJob, stage: "failed", dismissed_at: new Date(1) }), "Dismissed");
   assert.equal(resolution("handover", { ...pureJob, stage: "failed", dismissed_at: new Date(1) }), "Closed");
-  assert.equal(resolution("handover", { ...pureJob, stage: "merged", merge_decision: decision({ merged: { sha: "s", method: "squash", at: "x", base: "main", title: "t", commits: 1, via: "inbox" } }) }), "✅ Merged by the factory");
+  assert.equal(
+    resolution("handover", {
+      ...pureJob,
+      stage: "merged",
+      merge_decision: decision({ merged: { sha: "s", method: "squash", at: "x", base: "main", title: "t", commits: 1, via: "inbox" } }),
+    }),
+    "✅ Merged by the factory",
+  );
   const settledStop = { ...requestedStop({ at: new Date(0), by: OWNER, reason: "r", reopen: false }), settledAt: new Date(1).toISOString() };
   assert.equal(resolution("stop_unconfirmed", { ...pureJob, stop: { ...settledStop, state: "unconfirmed" } }), "Resolved", "still waiting on the owner");
-  assert.equal(resolution("stop_unconfirmed", { ...pureJob, stop: { ...settledStop, state: "escalated", settledAt: null, retries: 1 } }), "🔁 Retrying stop", "a retried stop is not confirmed yet");
+  assert.equal(
+    resolution("stop_unconfirmed", { ...pureJob, stop: { ...settledStop, state: "escalated", settledAt: null, retries: 1 } }),
+    "🔁 Retrying stop",
+    "a retried stop is not confirmed yet",
+  );
   assert.equal(resolution("stop_unconfirmed", { ...pureJob, stop: { ...settledStop, state: "confirmed", retries: 1 } }), "✅ Stop confirmed");
   assert.equal(resolution("stop_unconfirmed", { ...pureJob, stop: { ...settledStop, state: "unconfirmed" }, dismissed_at: new Date(2) }), "Dismissed");
   assert.equal(INTENT_ROUTES.slack_test, "slack");
@@ -173,9 +210,22 @@ try {
   assert.equal(INTENT_ATTEMPTS.slack_test, 1, "a token runner's error is the answer");
 
   const now = Date.parse("2026-10-27T12:00:00Z");
-  const machine = (report: unknown, seen = now) => ({ last_seen_at: new Date(seen), inventory: { runnerSha: "a", t3: "unknown", connect: "unknown", projects: { source: "unknown" }, repos: [], ...(report !== undefined && { slack: report }) } });
+  const machine = (report: unknown, seen = now) => ({
+    last_seen_at: new Date(seen),
+    inventory: {
+      runnerSha: "a",
+      t3: "unknown",
+      connect: "unknown",
+      projects: { source: "unknown" },
+      repos: [],
+      ...(report !== undefined && { slack: report }),
+    },
+  });
   assert.equal(reportedSlack([machine(undefined)], now), null, "no runner reports Slack yet");
-  assert.deepEqual(reportedSlack([machine({ configured: false, owner: false }), machine({ configured: true, owner: true })], now), { configured: true, owner: true });
+  assert.deepEqual(reportedSlack([machine({ configured: false, owner: false }), machine({ configured: true, owner: true })], now), {
+    configured: true,
+    owner: true,
+  });
   assert.equal(reportedSlack([machine({ configured: true, owner: true }, now - 3_600_000)], now), null, "an offline runner does not count");
 
   // --- disabled without a token
@@ -186,7 +236,10 @@ try {
   assert.equal(calls.length, mark, "nothing reached Slack");
   const fromEnv = slackFromEnv({ SLACK_BOT_TOKEN: TOKEN, SLACK_API_URL: baseUrl, SLACK_OWNER_USER_ID: "U0OWNER", SLACK_SIGNING_SECRET: SIGNING, PATH: "/bin" });
   assert.ok(fromEnv && fromEnv.owner === "U0OWNER");
-  assert.ok(fromEnv.secrets.includes(TOKEN) && fromEnv.secrets.includes(SIGNING) && !fromEnv.secrets.includes("/bin"), "the token and signing secret are kept out of messages");
+  assert.ok(
+    fromEnv.secrets.includes(TOKEN) && fromEnv.secrets.includes(SIGNING) && !fromEnv.secrets.includes("/bin"),
+    "the token and signing secret are kept out of messages",
+  );
 
   // The branch copies the dev database: post whatever its jobs already have, so only this script's jobs change below.
   await db.delete(notificationSettings);
@@ -264,7 +317,10 @@ try {
   await writeConfig({});
   await pass();
   assert.equal(since(mark, "chat.postMessage").length, 1, "and posted once they are on");
-  await db.update(jobs).set({ dismissed_at: new Date(Date.now() + 60_000) }).where(eq(jobs.id, b as JobRow["id"]));
+  await db
+    .update(jobs)
+    .set({ dismissed_at: new Date(Date.now() + 60_000) })
+    .where(eq(jobs.id, b as JobRow["id"]));
   mark = calls.length;
   await pass();
   assert.match(since(mark, "chat.update")[0]!.params.text!, /Dismissed/, "a dismissed failure says so");
@@ -278,14 +334,22 @@ try {
     stage: "merged",
     stage_at: new Date(),
     pr_url: "https://github.com/o/r/pull/9",
-    merge_decision: decision({ outcome: "merge", merged, watch: { state: "revert_failed", until: new Date().toISOString(), failed: ["ci"], revertPr: null, reason: "conflict" } }),
+    merge_decision: decision({
+      outcome: "merge",
+      merged,
+      watch: { state: "revert_failed", until: new Date().toISOString(), failed: ["ci"], revertPr: null, reason: "conflict" },
+    }),
   });
   mark = calls.length;
   result = await pass();
   assert.equal((await rowsFor(c)).length, 0, "a question waits out quiet hours");
   assert.ok(result.held >= 1);
   const dRows = await rowsFor(d);
-  assert.deepEqual(dRows.map((r) => r.kind), ["revert_failed"], "a failed revert goes out at night; the merge update waits");
+  assert.deepEqual(
+    dRows.map((r) => r.kind),
+    ["revert_failed"],
+    "a failed revert goes out at night; the merge update waits",
+  );
   await writeConfig({});
   mark = calls.length;
   await pass();
@@ -303,11 +367,21 @@ try {
   await setJob(e, { stage: "merged", stage_at: new Date(), merge_decision: decision({ merged: { ...merged, sha: "e1e1e1e", via: "inbox" } }) });
   mark = calls.length;
   await pass();
-  assert.deepEqual(since(mark).map((c) => c.method), ["chat.update"], "an approved merge edits the handover and posts nothing new");
+  assert.deepEqual(
+    since(mark).map((c) => c.method),
+    ["chat.update"],
+    "an approved merge edits the handover and posts nothing new",
+  );
   assert.match(since(mark)[0]!.params.text!, /✅ Merged by the factory/);
 
   // --- a revert the factory did is an update
-  await setJob(d, { merge_decision: decision({ outcome: "merge", merged, watch: { state: "reverted", until: new Date().toISOString(), failed: ["ci"], revertPr: "https://github.com/o/r/pull/11", reason: null } }) });
+  await setJob(d, {
+    merge_decision: decision({
+      outcome: "merge",
+      merged,
+      watch: { state: "reverted", until: new Date().toISOString(), failed: ["ci"], revertPr: "https://github.com/o/r/pull/11", reason: null },
+    }),
+  });
   mark = calls.length;
   await pass();
   assert.match(since(mark, "chat.postMessage")[0]!.params.text!, /↩️ .*so the factory reverted it/);
@@ -373,7 +447,14 @@ try {
 
   // --- a row a dead runner left posting is posted again
   const k = await track("K", { stage: "waiting", stage_at: new Date(), question: "Crashed?" });
-  const kEvent = notifyEvents([(await db.select().from(jobs).where(eq(jobs.id, k as JobRow["id"])))[0]!])[0]!;
+  const kEvent = notifyEvents([
+    (
+      await db
+        .select()
+        .from(jobs)
+        .where(eq(jobs.id, k as JobRow["id"]))
+    )[0]!,
+  ])[0]!;
   const stale = new Date(Date.now() - POSTING_STALE_MS - 1000);
   await db.insert(slackMessages).values({ id: kEvent.id, job_id: kEvent.job.id, kind: kEvent.kind, state: "posting", created_at: stale, updated_at: stale });
   await pass();
@@ -420,7 +501,12 @@ try {
   }
 
   // --- secrets never reach Slack
-  await track("L", { title: `Leak ${TOKEN}`, stage: "failed", stage_at: new Date(), stage_summary: `Failed with SLACK_SIGNING_SECRET=${SIGNING} and xoxb-another-leaked-token-999` });
+  await track("L", {
+    title: `Leak ${TOKEN}`,
+    stage: "failed",
+    stage_at: new Date(),
+    stage_summary: `Failed with SLACK_SIGNING_SECRET=${SIGNING} and xoxb-another-leaked-token-999`,
+  });
   await pass();
   for (const call of calls) {
     const body = JSON.stringify(call.params);
@@ -428,9 +514,18 @@ try {
   }
 
   // --- the test message, from Settings to the runner
-  const user = async () => ({ email: OWNER, emailVerified: true });
+  const user = async () => ({ email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() });
   const deps = { db, user, slackConfigured: async () => true };
-  assert.equal((await requestSlackTest({ ...deps, user: async () => ({ email: "x@example.com", emailVerified: true }) }, randomUUID())).ok, false, "owner only");
+  assert.equal(
+    (
+      await requestSlackTest(
+        { ...deps, user: async () => ({ email: "x@example.com", role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() }) },
+        randomUUID(),
+      )
+    ).ok,
+    false,
+    "an engineer is refused",
+  );
   assert.match(JSON.stringify(await requestSlackTest({ ...deps, slackConfigured: async () => false }, randomUUID())), /No online runner has a Slack token/);
   const requested = await requestSlackTest(deps, randomUUID());
   assert.ok(requested.ok);
@@ -441,11 +536,24 @@ try {
   const sent = await sendSlackTest(JSON.parse(intent!.detail!), slack);
   assert.deepEqual(sent, { sent: { to: "owner", channel: "DU0OWNER" } });
   assert.match(calls.at(-1)!.params.text!, /Test from the marshal factory, sent by owner@example.com/);
-  await db.update(intents).set({ result: JSON.stringify({ error: "a failed try" }) }).where(eq(intents.id, requested.intentId));
+  await db
+    .update(intents)
+    .set({ result: JSON.stringify({ error: "a failed try" }) })
+    .where(eq(intents.id, requested.intentId));
   assert.deepEqual(await slackTestOutcome(deps, requested.intentId), { status: "pending" }, "an error on an open intent is not final");
-  await db.update(intents).set({ handled_at: new Date(), result: JSON.stringify({ error: "channel_not_found" }) }).where(eq(intents.id, requested.intentId));
-  assert.deepEqual(await slackTestOutcome(deps, requested.intentId), { status: "failed", message: "The runner could not send it: channel_not_found" }, "and is once it is closed");
-  await db.update(intents).set({ handled_at: new Date(), result: JSON.stringify(sent) }).where(eq(intents.id, requested.intentId));
+  await db
+    .update(intents)
+    .set({ handled_at: new Date(), result: JSON.stringify({ error: "channel_not_found" }) })
+    .where(eq(intents.id, requested.intentId));
+  assert.deepEqual(
+    await slackTestOutcome(deps, requested.intentId),
+    { status: "failed", message: "The runner could not send it: channel_not_found" },
+    "and is once it is closed",
+  );
+  await db
+    .update(intents)
+    .set({ handled_at: new Date(), result: JSON.stringify(sent) })
+    .where(eq(intents.id, requested.intentId));
   assert.deepEqual(await slackTestOutcome(deps, requested.intentId), { status: "done", message: "Sent to your Slack DMs." });
   await writeConfig({ target: "channel", channelId: "C0FACTORY" });
   assert.deepEqual(await sendSlackTest({ actor: OWNER }, slack), { sent: { to: "channel", channel: "C0FACTORY" } });

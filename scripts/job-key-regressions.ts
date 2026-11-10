@@ -45,8 +45,18 @@ assert.throws(() => jobKey("GH", 1, "y".repeat(80)), /cannot make a job key/, "a
 for (const bad of ["FAC-5-a2", "GH-x", "GH-X-1", "FAC 5", "hive/FAC-5", "FAC-5."]) assert.equal(isJobKey(bad), false, bad);
 
 // The report identity reads a generic key from its branch or env like a Linear one.
-assert.deepEqual(mcpIdentity({}, "/w", () => "hive/GH-demo-9-a2"), { jobKey: "GH-demo-9", branch: "hive/GH-demo-9-a2", sessionId: "mcp:hive/GH-demo-9-a2" });
-assert.deepEqual(mcpIdentity({ FACTORY_JOB_KEY: "GH-demo-9", FACTORY_ATTEMPT: "3" }, "/w"), { jobKey: "GH-demo-9", branch: "hive/GH-demo-9-a3", sessionId: "mcp:hive/GH-demo-9-a3" });
-assert.equal(mcpIdentity({}, "/w", () => "hive/onboarding"), undefined);
+assert.deepEqual(
+  mcpIdentity({}, "/w", () => "hive/GH-demo-9-a2"),
+  { jobKey: "GH-demo-9", branch: "hive/GH-demo-9-a2", sessionId: "mcp:hive/GH-demo-9-a2" },
+);
+assert.deepEqual(mcpIdentity({ FACTORY_JOB_KEY: "GH-demo-9", FACTORY_ATTEMPT: "3" }, "/w"), {
+  jobKey: "GH-demo-9",
+  branch: "hive/GH-demo-9-a3",
+  sessionId: "mcp:hive/GH-demo-9-a3",
+});
+assert.equal(
+  mcpIdentity({}, "/w", () => "hive/onboarding"),
+  undefined,
+);
 
 console.log("job key regressions passed");

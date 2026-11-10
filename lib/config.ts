@@ -31,7 +31,10 @@ export const sandboxSchema = z
     pstack: z
       .object({
         repo: z.string().default("michael-denyer/pstack-claude"),
-        commit: z.string().regex(/^[0-9a-f]{40}$/).default("614d2f9791ddf73e0654c9be5a42c5a48d8f5ba0"),
+        commit: z
+          .string()
+          .regex(/^[0-9a-f]{40}$/)
+          .default("614d2f9791ddf73e0654c9be5a42c5a48d8f5ba0"),
         version: z.string().default("0.9.69"),
       })
       .prefault({}),
@@ -41,7 +44,11 @@ export const sandboxSchema = z
     memoryMiB: z.number().int().positive().default(2048),
     memoryLimitMiB: z.number().int().positive().default(8192),
     /** The hard cap on a sandbox's life; one that hits it is gone, and its job follows the gone-thread rules. */
-    timeoutMs: z.number().int().positive().default(4 * 3_600_000),
+    timeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .default(4 * 3_600_000),
     /** How long a job waiting in pr or waiting keeps its sandbox running once its thread settles. */
     hibernateAfterMinutes: z.number().nonnegative().default(5),
     /** How long a hibernated sandbox's snapshot lives; a job still waiting after that has a gone thread. */
@@ -122,7 +129,9 @@ export type FactoryConfig = z.infer<typeof configSchema>;
 
 /** Just the limits, for readers that hold no secrets, such as the sandbox image build. */
 export function loadLimits(): FactoryLimits {
-  const raw = existsSync(/* turbopackIgnore: true */ CONFIG_PATH) ? JSON.parse(readFileSync(/* turbopackIgnore: true */ CONFIG_PATH, "utf8")).factory : undefined;
+  const raw = existsSync(/* turbopackIgnore: true */ CONFIG_PATH)
+    ? JSON.parse(readFileSync(/* turbopackIgnore: true */ CONFIG_PATH, "utf8")).factory
+    : undefined;
   return factorySchema.parse(raw ?? {});
 }
 

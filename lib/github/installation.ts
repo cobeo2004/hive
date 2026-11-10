@@ -19,7 +19,13 @@ const reposSchema = z.object({
 });
 
 /** Every repo any installation of the app can reach, archived ones left out. */
-export async function installationRepos({ api = GITHUB_API, app = () => appCredentials() }: { api?: string; app?: () => Pick<AppFile, "client_id" | "pem"> } = {}): Promise<Installable> {
+export async function installationRepos({
+  api = GITHUB_API,
+  app = () => appCredentials(),
+}: {
+  api?: string;
+  app?: () => Pick<AppFile, "client_id" | "pem">;
+} = {}): Promise<Installable> {
   const jwt = appJwt(app());
   const installations = installationsSchema.parse((await githubRequest(api, jwt, "GET", "/app/installations?per_page=100")).json);
   const repos: InstallableRepo[] = [];
@@ -38,7 +44,11 @@ export async function installationRepos({ api = GITHUB_API, app = () => appCrede
 const contentSchema = z.object({ content: z.string(), encoding: z.literal("base64") });
 
 /** A file's text on the repo's default branch, or null when it has none. */
-export async function fileOnDefaultBranch(repo: RepoName, path: string, { api = GITHUB_API, tokens = installationTokens }: { api?: string; tokens?: Pick<TokenSource, "get"> } = {}) {
+export async function fileOnDefaultBranch(
+  repo: RepoName,
+  path: string,
+  { api = GITHUB_API, tokens = installationTokens }: { api?: string; tokens?: Pick<TokenSource, "get"> } = {},
+) {
   forbidInTest("the GitHub App");
   const { status, json } = await githubRequest(api, await tokens.get(repo), "GET", `/repos/${repo}/contents/${path}`, { allow: [404] });
   if (status === 404) return null;

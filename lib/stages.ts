@@ -31,8 +31,7 @@ export const STAGE_TRANSITIONS: { readonly [From in Stage]: { readonly [C in Cau
   failed: { reclaim: ["queued"], merged: ["merged"] },
 };
 
-export const canTransition = (from: Stage, to: Stage, cause: Cause) =>
-  STAGE_TRANSITIONS[from][cause]?.includes(to) ?? false;
+export const canTransition = (from: Stage, to: Stage, cause: Cause) => STAGE_TRANSITIONS[from][cause]?.includes(to) ?? false;
 
 export type StageRow = Pick<JobRow, "key" | "stage" | "stage_at" | "attempt" | "stage_event_id">;
 export type StageMove = { stage: Stage; at: Date; eventId: string; branch?: string };

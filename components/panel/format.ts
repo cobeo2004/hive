@@ -11,19 +11,12 @@ export function formatTokens(n: number) {
 
 export const formatUsd = (n: number) => `$${n.toFixed(n < 10 ? 2 : 1)}`;
 
-type Tokens = Pick<
-  RunRow,
-  "input_tokens" | "output_tokens" | "cache_read_tokens" | "cache_write_tokens"
->;
+type Tokens = Pick<RunRow, "input_tokens" | "output_tokens" | "cache_read_tokens" | "cache_write_tokens">;
 
-export const totalTokens = (t: Tokens) =>
-  t.input_tokens + t.output_tokens + t.cache_read_tokens + t.cache_write_tokens;
+export const totalTokens = (t: Tokens) => t.input_tokens + t.output_tokens + t.cache_read_tokens + t.cache_write_tokens;
 
 export function runCost(run: RunRow, runAgents: readonly AgentRow[]) {
-  return (
-    costUsd(run, run.model) +
-    runAgents.reduce((sum, agent) => sum + costUsd(agent, agent.model), 0)
-  );
+  return costUsd(run, run.model) + runAgents.reduce((sum, agent) => sum + costUsd(agent, agent.model), 0);
 }
 
 export function spendOf(runs: readonly RunRow[], agentsBySession: Map<string, AgentRow[]>) {
@@ -41,5 +34,4 @@ export function groupBy<T>(rows: readonly T[], key: (row: T) => string) {
   return groups;
 }
 
-export const runTitle = (run: RunRow) =>
-  run.title ?? run.job_key ?? (run.repo ? `${run.repo} session` : "Session");
+export const runTitle = (run: RunRow) => run.title ?? run.job_key ?? (run.repo ? `${run.repo} session` : "Session");

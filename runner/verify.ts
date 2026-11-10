@@ -40,7 +40,11 @@ export const forgetVerifications = () => flights.clear();
 export function runnerVerification(job: VerifyJob, sha: string, policy: RepoPolicy, previous: MergeDecision | null, now: number): RunnerVerification {
   if (policy.autonomy !== "auto") return { kind: "unavailable", reason: "the factory runs the checks itself only when the repo merges on its own" };
   if (!job.sandbox_id && !job.sandbox_snapshot) {
-    return { kind: "unavailable", reason: job.execution === "modal" ? "the job has no sandbox left to run them in" : "the run isn't in a cloud sandbox, so the factory can't run them itself" };
+    return {
+      kind: "unavailable",
+      reason:
+        job.execution === "modal" ? "the job has no sandbox left to run them in" : "the run isn't in a cloud sandbox, so the factory can't run them itself",
+    };
   }
   const flight = flights.get(job.key);
   // A run for an older head still holds the sandbox; this head waits for it to end.
@@ -75,7 +79,13 @@ const hostRunner =
  * checks there, and returns the evidence event. The recipe the factory recorded wins over the one
  * in the commit; without either, package.json scripts are the checks.
  */
-export async function verifyAtHead(host: JobHost, job: { key: string; attempt: number; repo: string }, sha: string, recipe: Recipe | null, now = Date.now): Promise<FactoryEvent> {
+export async function verifyAtHead(
+  host: JobHost,
+  job: { key: string; attempt: number; repo: string },
+  sha: string,
+  recipe: Recipe | null,
+  now = Date.now,
+): Promise<FactoryEvent> {
   const { repoDir, workDir } = verifyRuntime;
   const branch = attemptBranch(job.key, job.attempt);
   const dir = `${workDir}/${sha.slice(0, 12)}-${randomBytes(4).toString("hex")}`;
@@ -90,7 +100,11 @@ export async function verifyAtHead(host: JobHost, job: { key: string; attempt: n
     if (head !== sha) throw new Error(`the worktree is at ${head.slice(0, 7)}, not ${sha.slice(0, 7)}`);
     const fileRecipe = recipe ? null : await host.readFile(`${dir}/${RECIPE_PATH}`);
     const parsed = fileRecipe ? parseRecipe(fileRecipe) : null;
-    const plan = planChecks({ recipe: recipe ?? (parsed?.ok ? parsed.recipe : null), packageJson: await host.readFile(`${dir}/package.json`), files: await host.list(dir) });
+    const plan = planChecks({
+      recipe: recipe ?? (parsed?.ok ? parsed.recipe : null),
+      packageJson: await host.readFile(`${dir}/package.json`),
+      files: await host.list(dir),
+    });
     const checks = await runChecks(plan, hostRunner(host, dir), { now });
     const at = now();
     return eventSchema.parse({

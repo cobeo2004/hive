@@ -49,17 +49,31 @@ export function usedScripts(commands: readonly string[], ...versions: readonly S
  * the recorded recipe's checks, null for a repo whose checks are its package.json scripts. `base`
  * and `head` are the two versions of package.json's scripts; null when one couldn't be read.
  */
-export function trustedEdits({ files, required, base, head }: { files: readonly string[]; required: readonly PlannedCheck[] | null; base: Scripts | null; head: Scripts | null }): string[] {
+export function trustedEdits({
+  files,
+  required,
+  base,
+  head,
+}: {
+  files: readonly string[];
+  required: readonly PlannedCheck[] | null;
+  base: Scripts | null;
+  head: Scripts | null;
+}): string[] {
   const reasons: string[] = [];
   if (files.includes(RECIPE_PATH)) reasons.push(`The pull request edits the recipe the factory trusts: ${RECIPE_PATH}.`);
   const workflows = files.filter((file) => matchesAny(file, WORKFLOWS));
-  if (workflows.length > 0) reasons.push(`The pull request edits CI workflows (${workflows.slice(0, 3).join(", ")}${workflows.length > 3 ? ` and ${workflows.length - 3} more` : ""}).`);
+  if (workflows.length > 0)
+    reasons.push(
+      `The pull request edits CI workflows (${workflows.slice(0, 3).join(", ")}${workflows.length > 3 ? ` and ${workflows.length - 3} more` : ""}).`,
+    );
   if (files.includes(PACKAGE_JSON)) {
     if (!base || !head) reasons.push("The pull request edits package.json, and its scripts couldn't be compared with the base branch's.");
     else {
       const commands = required ? required.map((c) => c.command) : CHECKS.map((name) => `bun run ${name}`);
       const changed = usedScripts(commands, base, head).filter((name) => base[name] !== head[name]);
-      if (changed.length > 0) reasons.push(`The pull request edits the check scripts the factory trusts: ${changed.map((name) => `package.json scripts.${name}`).join(", ")}.`);
+      if (changed.length > 0)
+        reasons.push(`The pull request edits the check scripts the factory trusts: ${changed.map((name) => `package.json scripts.${name}`).join(", ")}.`);
     }
   }
   return reasons;

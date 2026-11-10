@@ -39,7 +39,9 @@ const githubPushSchema = z.object({
   ref: z.string(),
   after: z.string().optional(),
   repository: z.object({ default_branch: z.string(), full_name: z.string().optional() }),
-  commits: z.array(z.object({ added: z.array(z.string()).optional(), removed: z.array(z.string()).optional(), modified: z.array(z.string()).optional() })).optional(),
+  commits: z
+    .array(z.object({ added: z.array(z.string()).optional(), removed: z.array(z.string()).optional(), modified: z.array(z.string()).optional() }))
+    .optional(),
   size: z.number().int().optional(),
   distinct_size: z.number().int().optional(),
   forced: z.boolean().optional(),
@@ -115,16 +117,12 @@ export function githubPushIntent(event: string, body: unknown): IntentDraft | nu
 export function githubIntent(event: string, body: unknown): IntentDraft | null {
   if (event === "pull_request") {
     const pr = githubPrSchema.parse(body);
-    return pr.action === "closed" && pr.pull_request.merged
-      ? { kind: "merged", prUrl: pr.pull_request.html_url }
-      : null;
+    return pr.action === "closed" && pr.pull_request.merged ? { kind: "merged", prUrl: pr.pull_request.html_url } : null;
   }
   if (event === "pull_request_review") return reviewIntent(body);
   if (event === "push") {
     const push = githubPushSchema.parse(body);
-    return push.ref === `refs/heads/${push.repository.default_branch}`
-      ? { kind: "recheck_conflicts", detail: push.ref }
-      : null;
+    return push.ref === `refs/heads/${push.repository.default_branch}` ? { kind: "recheck_conflicts", detail: push.ref } : null;
   }
   return null;
 }

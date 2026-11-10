@@ -6,15 +6,16 @@ You label an issue in Linear, file one from the panel, or send one from Slack. A
 
 When the PR is ready, the agent reports whether it is confident it built what the issue asked for. In repos you switch to **Merge when confident**, the factory merges every PR the agent is confident about and that clears the hard limits (green checks, no conflicts, no open Bugbot findings, checks verified at the PR head), and reverts a merge that turns main red. Everything else is handed to you to review and merge from the panel, Slack or GitHub ([Merge decisions](docs/operations.md#merge-decisions)).
 
-![The whole factory: sources, Neon, your Mac, Modal, Vercel and GitHub, with the numbered path one ticket takes](docs/images/factory-diagram.jpg)
+![The whole factory: sources, Postgres, your Mac, Modal and GitHub, with the numbered path one ticket takes](docs/images/factory-diagram.jpg)
 
 The pieces:
 
-- **Panel** (`app/`, `components/`): a Next.js app on Vercel. Its **Jobs** page shows every job as a board or a list (the header's Board/List switch; the panel remembers your pick), with each run's timeline and cost in a side panel you can expand to full view. **Inbox** lists what needs you: questions, PRs to review, failures. The panel files jobs and approves merges. Only the owner can sign in.
-- **Ingest Function** (`functions/ingest/`): a Neon Function that receives the Linear and GitHub webhooks and the reporter's events, and writes them to Postgres.
+- **Panel** (`app/`, `components/`): a Next.js app served by `bun run start` on a Mac of your own, optionally behind Tailscale. Its **Jobs** page shows every job as a board or a list (the header's Board/List switch; the panel remembers your pick), with each run's timeline and cost in a side panel you can expand to full view. **Inbox** lists what needs you: questions, PRs to review, failures. The panel files jobs and approves merges. Only the owner can sign in.
+- **Ingest** (`app/api/ingest/`, `app/api/webhooks/[source]/`): panel routes that receive the reporter's events (`/api/ingest`, Bearer `FACTORY_INGEST_SECRET`) and the Linear and GitHub webhooks (`/api/webhooks/linear`, `/api/webhooks/github`, signature-checked), and write them to Postgres. They and `/api/slack/*` are the only paths that need no session.
+- **Live updates**: Postgres triggers `NOTIFY hive_changes` with the changed table's name. The panel's `/api/live` streams those names to the open page, which re-renders; the runner listens too, so a new intent wakes it before its next tick.
 - **Runner** (`runner/`): a Bun daemon on your Mac, run by launchd. It is the only part that touches T3, git and the GitHub API, starts and hibernates the Modal sandboxes, makes every merge, and posts the Slack notifications.
-- **Slack app** (`app/api/slack/`, optional): notifications, buttons to answer, merge or request changes, and `/factory` to file jobs. The routes run on Vercel and act through the same inbox actions as the panel.
-- **Reporter** (`hooks/`, `mcp/`): Claude Code hooks and a small MCP server, installed into each target repo. They send the run's progress to the ingest Function.
+- **Slack app** (`app/api/slack/`, optional): notifications, buttons to answer, merge or request changes, and `/factory` to file jobs. The routes run in the panel and act through the same inbox actions as the panel.
+- **Reporter** (`hooks/`, `mcp/`): Claude Code hooks and a small MCP server, installed into each target repo. They send the run's progress to the panel's `/api/ingest`.
 - **Playbook** (`playbooks/factory.md`): the instructions every factory thread follows. It extends PStack's bug-fix and feature playbooks.
 
 ## What you need
@@ -23,8 +24,7 @@ Accounts:
 
 - **Linear**, with a team for factory work and a personal API key.
 - **GitHub**, for the target repo and a GitHub App the setup creates for you.
-- **Neon**, for Postgres, Auth, Realtime and the ingest Function.
-- **Vercel**, for the panel.
+- **Postgres 16 or later**, on the panel's machine or hosted: the panel, its sign-in tables and its live updates all live there.
 - Optional: **Modal**, to run jobs in cloud sandboxes ([Running jobs in Modal sandboxes](#running-jobs-in-modal-sandboxes)), and **Slack**, for notifications and acting from Slack ([Connecting Slack](#connecting-slack)).
 
 On the Mac that runs the factory:
@@ -33,12 +33,11 @@ On the Mac that runs the factory:
 - [Bun](https://bun.sh), git, and the [GitHub CLI](https://cli.github.com) signed in (`gh auth login`). Threads push branches and open PRs with your own git and `gh` credentials.
 - Claude Code with the PStack plugin installed.
 - T3 Code, running, with its `t3` command line tool. The installer looks for it at `~/.t3/bin/t3`, then on your `PATH`, or you can set `T3CODE_CLI_PATH`.
-- The `neon` CLI, signed in, and the `vercel` CLI.
 - `jq` and `openssl`, used by a few commands below.
 
 ## Install
 
-These steps set up one factory: one Neon project, one panel, and one Mac running the runner. Do them in order. Several steps depend on values an earlier step creates.
+These steps set up one factory: one Postgres database, one panel, and one Mac running the runner. Do them in order. Several steps depend on values an earlier step creates.
 
 ### 1. Clone the factory
 
@@ -48,12 +47,13 @@ cd ~/code/marshal-factory
 bun install
 ```
 
-Fork the repo first if you want Vercel to deploy your copy. This checkout is the **live checkout**. The runner, and the hooks installed into your target repos, run code straight from this path. Keep it on `main` and don't move it. Do development work in a separate clone or worktree.
+This checkout is the **live checkout**. The panel, the runner, and the hooks installed into your target repos all run code straight from this path. Keep it on `main` and don't move it. Do development work in a separate clone or worktree.
 
-### 2. Change the two values tied to the original setup
+### 2. Change the value tied to the original setup
 
 - `scripts/setup-github-app.ts`: change the manifest's `name` (`marshal-factory-ski043`) and `url`. GitHub App names are unique across GitHub, so you need your own, such as `marshal-factory-<you>`.
-- `lib/migrate-guard.ts`: `PRODUCTION_ENDPOINTS` names the production database endpoint, so a preview build can never migrate production. You fill it in at step 4.
+
+`vercel.json`, `scripts/migrate-guard.ts` and the rest of the files inherited from marshal-factory stay in the repo but are unused: Hive is self-hosted.
 
 ### 3. Prepare Linear
 
@@ -66,48 +66,32 @@ In the Linear team you want the factory to work in:
 
 If your team key or label differs, set them in every place listed under [Settings](#settings).
 
-### 4. Create the Neon backend
+### 4. Create the Postgres database
 
-Create a project, link this checkout to it, and turn on Realtime for `main`:
-
-```sh
-neon projects create --name marshal-factory
-neon init --no-agent-setup      # links this directory to the project; writes .neon
-neon realtime enable --branch main --allowed-origin '*'
-```
-
-Create `.env.local` with the secrets you choose yourself:
+Hive needs Postgres 16 or later and does not care where it runs: the panel's Mac, a server on your tailnet, or a hosted one. Create a database, then write `.env.local` with the connection strings and the secrets you choose yourself. `FACTORY_PANEL_URL` is where step 8 serves the panel; ingest and the webhooks live under it:
 
 ```sh
 cat > .env.local <<EOF
+DATABASE_URL=postgres://postgres@127.0.0.1:5432/hive
+DATABASE_URL_UNPOOLED=postgres://postgres@127.0.0.1:5432/hive
 FACTORY_INGEST_SECRET=$(openssl rand -hex 32)
 LINEAR_WEBHOOK_SECRET=$(openssl rand -hex 32)
-NEON_AUTH_COOKIE_SECRET=$(openssl rand -base64 32)
-FACTORY_OWNER_EMAILS=you@example.com
+BETTER_AUTH_SECRET=$(openssl rand -base64 32)
 LINEAR_API_KEY=<your Linear API key>
 FACTORY_TEAM_KEY=FAC
 FACTORY_LABEL=factory
+FACTORY_PANEL_URL=http://localhost:3000
 EOF
 chmod 600 .env.local
 ```
 
-Deploy `neon.ts` to `main`, which turns on Neon Auth and deploys the ingest Function. The GitHub App doesn't exist yet, so pass a placeholder for its webhook secret. Step 6 replaces it.
+Create the tables, which also add the live-update triggers and the sign-in tables:
 
 ```sh
-GITHUB_APP_WEBHOOK_SECRET=pending neon deploy --branch main --env .env.local --no-env-pull
-```
-
-Pull the values Neon generated (connection strings, Auth, Realtime, and the Function's URL), then create the tables:
-
-```sh
-neon env pull --branch main
-echo "NEXT_PUBLIC_NEON_REALTIME_URL=$(grep '^NEON_REALTIME_URL=' .env.local | cut -d= -f2-)" >> .env.local
 bun run db:migrate
 ```
 
-`.env.local` now also holds `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `NEON_AUTH_BASE_URL`, `NEON_REALTIME_URL`, `NEON_REALTIME_SECRET` and `NEON_FUNCTION_INGEST_BASE_URL`.
-
-Finally, put the production endpoint id into `PRODUCTION_ENDPOINTS` in `lib/migrate-guard.ts`. It is the `ep-…` part of the host in `DATABASE_URL`, without `-pooler`.
+`DATABASE_URL_UNPOOLED` may be the same connection string as `DATABASE_URL`; live updates LISTEN over it, so it must be a direct connection rather than a pooler. `PANEL_PORT` sets the port `next start` listens on, 3000 unless you set it.
 
 ### 5. Write the runner's config
 
@@ -116,13 +100,13 @@ The runner and the reporter read `~/.config/marshal-factory/config.json`:
 ```sh
 mkdir -p ~/.config/marshal-factory
 set -a; source .env.local; set +a
-jq -n --arg key "$LINEAR_API_KEY" --arg url "$NEON_FUNCTION_INGEST_BASE_URL/ingest" --arg secret "$FACTORY_INGEST_SECRET" \
+jq -n --arg key "$LINEAR_API_KEY" --arg url "$FACTORY_PANEL_URL/api/ingest" --arg secret "$FACTORY_INGEST_SECRET" \
   '{linearApiKey: $key, ingestUrl: $url, secret: $secret, factory: {teamKey: "FAC", label: "factory"}}' \
   > ~/.config/marshal-factory/config.json
 chmod 600 ~/.config/marshal-factory/config.json
 ```
 
-`secret` must equal `FACTORY_INGEST_SECRET`, or ingest rejects the reporter's events. [Settings](#settings) lists the optional limits you can add under `factory`.
+`ingestUrl` is the panel's `/api/ingest`; the runner copies it into each sandbox. `secret` must equal `FACTORY_INGEST_SECRET`, or ingest rejects the reporter's events. [Settings](#settings) lists the optional limits you can add under `factory`.
 
 ### 6. Create the GitHub App
 
@@ -132,14 +116,7 @@ The runner reads and merges PRs as a GitHub App, not as your `gh` login:
 bun scripts/setup-github-app.ts
 ```
 
-A browser page opens and sends the app manifest to GitHub. Click **Create GitHub App**, pick the repos the factory may work in, and click **Install**. The script saves the app's id, private key and webhook secret to `~/.config/marshal-factory/github-app.json` (mode 600). You can add repos to the installation later in GitHub's app settings.
-
-Now give the ingest Function the real webhook secret:
-
-```sh
-neon functions deploy ingest --branch main --src functions/ingest/index.ts \
-  --env GITHUB_APP_WEBHOOK_SECRET="$(jq -r .webhook_secret ~/.config/marshal-factory/github-app.json)"
-```
+A browser page opens and sends the app manifest to GitHub. Click **Create GitHub App**, pick the repos the factory may work in, and click **Install**. The script saves the app's id, private key and webhook secret to `~/.config/marshal-factory/github-app.json` (mode 600). You can add repos to the installation later in GitHub's app settings. The app's webhook points at `$FACTORY_PANEL_URL/api/webhooks/github`; step 8 gives the panel its secret.
 
 ### 7. Create the Linear webhook
 
@@ -147,31 +124,35 @@ neon functions deploy ingest --branch main --src functions/ingest/index.ts \
 bun scripts/install-webhooks.ts
 ```
 
-This registers a webhook on your team (Issue and Comment events) that points at the ingest Function, and records its id in the config. Running it again reuses the existing webhook.
+This registers a webhook on your team (Issue and Comment events) that points at `$FACTORY_PANEL_URL/api/webhooks/linear`, and records its id in the config. Running it again reuses the webhook at that URL; when it finds one at an older URL, such as the retired ingest Function, it says so, and you delete that one in Linear → Settings → API.
 
-### 8. Deploy the panel
+### 8. Install and start the panel
 
-Import the repo into Vercel as a Next.js project. `vercel.json` already sets the build command (migration guard, then migrations, then build) and the region. Then:
-
-- Add these environment variables for Production. Mark the secrets as Sensitive.
-  - `DATABASE_URL`, `DATABASE_URL_UNPOOLED`
-  - `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`
-  - `NEON_REALTIME_URL`, `NEXT_PUBLIC_NEON_REALTIME_URL`, `NEON_REALTIME_SECRET`
-  - `FACTORY_OWNER_EMAILS`
-  - `LINEAR_API_KEY`, used by the New job form
-  - `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`, from `~/.config/marshal-factory/github-app.json`, so **Add repository** can list the repos the App reaches
-  - `FACTORY_TEAM_KEY` and `FACTORY_LABEL`, if they differ from `FAC` and `factory`
-  - Optional: `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, so you can paste a repo's secrets in the panel instead of running a command on the Mac
-  - Optional: `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` and `SLACK_OWNER_USER_ID` ([Connecting Slack](#connecting-slack))
-- Set the Ignored Build Step to `[ -z "$DATABASE_URL" ]`, so previews without a database are skipped. To get previews with their own Neon branch, connect Neon's Vercel integration. Each preview then migrates its own branch, and the migration guard stops any preview that points at production.
-
-Deploy, then add the panel's production URL to Neon Auth's trusted domains; the example uses `https://marshal-factory.vercel.app`, so put your own domain in its place. A new branch has none, and without this sign-up fails with "Create account failed: Invalid origin.":
+The panel is a normal Next.js server on this Mac, run by launchd. Build it, then install the LaunchAgent:
 
 ```sh
-neon neon-auth domain add https://marshal-factory.vercel.app --branch main
+bun run build
+PANEL_PORT=3000 bun scripts/install-panel.ts
+tail -f ~/Library/Logs/marshal-factory/panel.log
 ```
 
-Then create your owner account. Sign-up is off by default. The [owner account steps](docs/operations.md#panel-access-and-deploys) turn it on briefly, so you can register with an address from `FACTORY_OWNER_EMAILS` and confirm it with the emailed code.
+`scripts/install-panel.ts` writes the LaunchAgent `com.hive.panel`, which runs `bun run start -- -p ${PANEL_PORT:-3000}` in this checkout: it starts at login, restarts if it exits, and reads `.env.local` itself. Re-running it with nothing changed leaves the agent alone; `bun scripts/install-panel.ts --uninstall` unloads it. Open the panel at `$FACTORY_PANEL_URL`, locally `http://localhost:3000`.
+
+The panel is the only web server you need, and it takes its settings from `.env.local`: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `BETTER_AUTH_SECRET`, `FACTORY_PANEL_URL`, `FACTORY_INGEST_SECRET`, `LINEAR_WEBHOOK_SECRET` and `GITHUB_APP_WEBHOOK_SECRET` (`jq -r .webhook_secret ~/.config/marshal-factory/github-app.json`), `LINEAR_API_KEY` for the New job form, `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` from `~/.config/marshal-factory/github-app.json` so **Add repository** can list the repos the App reaches, `FACTORY_TEAM_KEY` and `FACTORY_LABEL` when they differ from `FAC` and `factory`, and optionally `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` so you can paste a repo's secrets in the panel instead of running a command on the Mac, and `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` and `SLACK_OWNER_USER_ID` ([Connecting Slack](#connecting-slack)). Restart the panel after changing them (`bun scripts/install-panel.ts --uninstall && PANEL_PORT=3000 bun scripts/install-panel.ts`).
+
+**Tailscale is optional.** Any reverse proxy works, and nothing in the app reads a proxy's headers. To keep the panel on your tailnet only, run `tailscale serve --bg http://localhost:3000` on this Mac and set `FACTORY_PANEL_URL` to the `https://<mac>.<tailnet>.ts.net` URL it prints. Linear, GitHub and Slack cannot reach a tailnet-only panel. Funnel makes a whole port public, so give exactly the three public prefixes their own port, with targets that keep the prefix:
+
+```sh
+tailscale funnel --bg --https=8443 --set-path /api/ingest http://localhost:3000/api/ingest
+tailscale funnel --bg --https=8443 --set-path /api/webhooks http://localhost:3000/api/webhooks
+tailscale funnel --bg --https=8443 --set-path /api/slack http://localhost:3000/api/slack
+```
+
+Set `FACTORY_PUBLIC_URL=https://<mac>.<tailnet>.ts.net:8443` in `.env.local`: `setup-github-app` and `install-webhooks` register their webhooks there. Use the same base for `ingestUrl` in `~/.config/marshal-factory/config.json` and for the URLs in the Slack manifest. `tailscale funnel status` should list only those three paths on :8443, and `tailscale serve status` the whole panel on :443 for the tailnet.
+
+Everything else, including `/auth/*` and `/api/live`, stays on the tailnet. Without Tailscale the panel is public, and its own sign-in is the gate ([Panel access and deploys](docs/operations.md#panel-access-and-deploys)).
+
+Then create the first admin. On the Mac, with `.env.local` in place, `bun scripts/setup-token.ts` prints a one-time setup link, valid for an hour. Open it, set your name, email and password, then turn on two-factor authentication on `/setup`. The [panel access steps](docs/operations.md#panel-access-and-deploys) cover invites and password resets.
 
 ### 9. Start the runner
 
@@ -180,7 +161,7 @@ bun scripts/install-runner.ts
 tail -f ~/Library/Logs/marshal-factory/runner.log
 ```
 
-This installs the LaunchAgent `com.marshal-factory.runner`. It starts at login and restarts if it exits. Within a minute the log shows `realtime` `live` and a `heartbeat`, and your Mac appears under **Machines** in the panel. The runner still needs a repo to work in, which the next section adds.
+This installs the LaunchAgent `com.marshal-factory.runner`. It starts at login and restarts if it exits. Within a minute the log shows `listen` `live` and a `heartbeat`, and your Mac appears under **Machines** in the panel. The runner still needs a repo to work in, which the next section adds.
 
 ## Add your repo
 
@@ -260,7 +241,7 @@ The optional `factory` object in `~/.config/marshal-factory/config.json` overrid
 
 [docs/operations.md](docs/operations.md) lists the rest.
 
-If you change the team key or label, also change them in the ingest Function (`FACTORY_TEAM_KEY` and `FACTORY_LABEL`, with the `neon functions deploy` command from step 6) and in Vercel. Then rerun `bun scripts/install-webhooks.ts` for a new team.
+If you change the team key or label, also change them (`FACTORY_TEAM_KEY` and `FACTORY_LABEL`) in the panel's `.env.local`. Then rerun `bun scripts/install-webhooks.ts` for a new team.
 
 ## Running jobs in Modal sandboxes
 
@@ -280,9 +261,9 @@ Then set **Run jobs on** to Modal in the panel's Settings, which shows anything 
 
 Optional. With Slack connected, the runner messages you when a job needs you or the factory merges or reverts on its own, and edits the message once it's resolved. The messages carry the Inbox's buttons (**Approve and merge**, **Request changes**, **Answer**, **Close**, **Dismiss**), and `/factory` or the **Send to factory** message shortcut files new jobs. Only your own Slack account can act.
 
-1. Create the app at [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From a manifest**, with the manifest in [docs/operations.md](docs/operations.md#slack-notifications), then install it to your workspace. Change the panel URL in it if yours isn't `marshal-factory.vercel.app`.
+1. Create the app at [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From a manifest**, with the manifest in [docs/operations.md](docs/operations.md#slack-notifications), then install it to your workspace. Change the panel URL in it to yours.
 2. Add three values to `.env.local` in the live checkout: `SLACK_BOT_TOKEN` (**OAuth & Permissions** → Bot User OAuth Token), `SLACK_SIGNING_SECRET` (**Basic Information** → App Credentials) and `SLACK_OWNER_USER_ID` (your Slack profile → ⋯ → **Copy member ID**).
-3. Add the same three to the panel's Vercel environment for Production, redeploy, and restart the runner (`bun scripts/install-runner.ts --uninstall && bun scripts/install-runner.ts`).
+3. Add the same three to the panel's `.env.local`, restart the panel (`bun scripts/install-panel.ts --uninstall && bun scripts/install-panel.ts`), and restart the runner (`bun scripts/install-runner.ts --uninstall && bun scripts/install-runner.ts`).
 4. In the panel's **Settings** → **Notifications**, pick your DMs or a channel, the events you want and optional quiet hours, then **Send test message**.
 
 [docs/operations.md](docs/operations.md#slack-notifications) has the details.
@@ -295,24 +276,24 @@ After a merge to `main`, update the live checkout with:
 bun scripts/rollout.ts
 ```
 
-It waits for Vercel's production deploy (which runs the migrations), stops the runner, pulls, migrates, redeploys the ingest Function and rebuilds the sandbox image when they changed, and starts the runner again. [docs/operations.md](docs/operations.md#rolling-out-a-merge) has the steps and the opt-in canary.
+It stops the runner, pulls, migrates, builds the panel and restarts it until `/auth/sign-in` answers 200, rebuilds the sandbox image when it changed, and starts the runner again. [docs/operations.md](docs/operations.md#rolling-out-a-merge) has the steps and the opt-in canary.
 
 ## Troubleshooting
 
 - **Start with the runner log**: `~/Library/Logs/marshal-factory/runner.log`. Each line is one JSON event. Errors name the step that failed.
 - **An issue isn't picked up.** Check that it is in your team (`teamKey`), has the label, and is in an unstarted state such as Todo. Also check that **Repositories** lists at least one repo or `factory.repos` isn't empty, and that the Linear webhook exists under Linear → Settings → API. The runner also polls every 90 seconds, so a missed webhook only delays the job.
 - **Machine shows offline.** The runner isn't sending heartbeats. Check `launchctl list | grep marshal-factory`, then the log. Run `bun runner/index.ts --once` in the live checkout to do one pass by hand and see its output.
-- **Sign-up fails with "Invalid origin."** Neon Auth only accepts sign-ups from its trusted domains, and the panel's domain isn't one of them. Run `neon neon-auth domain add https://<your panel domain> --branch main`, then sign up again. See [the owner account steps](docs/operations.md#panel-access-and-deploys).
-- **The board has no live updates.** Check the three Realtime variables in Vercel. Previews never subscribe to live updates; only production does.
-- **A run has no stages or costs.** The target repo's hooks aren't reaching ingest. Check that the files from `install-target` are on the repo's `main`, and that `secret` in your config equals `FACTORY_INGEST_SECRET` in the Function.
+- **Sign-in fails with "Invalid origin."** Better Auth trusts only `FACTORY_PANEL_URL`. Set it to the URL you open the panel at, and restart the panel. See [panel access](docs/operations.md#panel-access-and-deploys).
+- **The board has no live updates.** The footer says Connecting while `/api/live` is down. Check that the migrations ran (they add the `hive_notify` triggers) and that `DATABASE_URL_UNPOOLED` in the panel's `.env.local` is a direct connection: a LISTEN needs one, not a pooler.
+- **A run has no stages or costs.** The target repo's hooks aren't reaching ingest. Check that the files from `install-target` are on the repo's `main`, and that `secret` in your config equals `FACTORY_INGEST_SECRET` in the panel's `.env.local`.
 - **You moved the live checkout.** The hooks and the LaunchAgent hold its old path. Run `install-target` for each repo and `install-runner` again.
 - **Repositories shows a repo as failed with "The image build was still running after 45 minutes, so the factory stopped it."** The runner never saw the warm-image build finish, for example because a rollout restarted it while the build ran. Until a new image lands, that repo's jobs run without a warm image (the runner logs `sandbox:warm-image-outdated`), so they clone and install from scratch. Press **Rebuild image** on the repo's Repositories entry; the image builds in a few minutes and the repo returns to Ready. See Freshness in [Onboarding a repository](docs/operations.md#onboarding-a-repository).
 
 ## Developing
 
-Work in a separate clone or worktree, never in the live checkout. Run `bun dev` for the panel against a Neon branch of your own, not `main`.
+Work in a separate clone or worktree, never in the live checkout. Run `bun dev` for the panel against a database of your own, not production.
 
-`bun run test:regressions` runs every `scripts/*-regressions.ts` against a throwaway Neon branch made from production. It deletes the branch when the run ends. Pass a prefix to run a subset, for example `bun run test:regressions ingest`. During a test run, the real Linear client, the GitHub App and `t3` commands refuse to run, so a test can't touch real work.
+`TEST_DATABASE_URL=postgres://localhost/postgres bun run test:regressions` runs every `scripts/*-regressions.ts` against a throwaway `hive_test_*` database it creates on that server, migrates, and drops when the run ends. The role needs the CREATEDB privilege. Pass a prefix to run a subset, for example `bun run test:regressions ingest`. During a test run, the real Linear client, the GitHub App and `t3` commands refuse to run, so a test can't touch real work.
 
 ## Further reading
 

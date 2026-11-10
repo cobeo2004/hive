@@ -27,7 +27,16 @@ const prUrl = (n: number) => `https://github.com/ski043/factory-demo/pull/${stam
 async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
   const k = key(name);
   keys.push(k);
-  await db.insert(jobs).values(linearJob(`untracked-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "queued", provider: "codex", t3_thread_id: `thread-${k}`, updated_at: hourAgo, ...over }));
+  await db.insert(jobs).values(
+    linearJob(`untracked-regress-${k}`, k, {
+      machine_id: TEST_MACHINE_ID,
+      stage: "queued",
+      provider: "codex",
+      t3_thread_id: `thread-${k}`,
+      updated_at: hourAgo,
+      ...over,
+    }),
+  );
   return k;
 }
 
@@ -64,7 +73,11 @@ try {
   prs.set(`hive/${PR}`, { url: prUrl(1), state: "open" });
   prs.set(`hive/${MERGED}`, { url: prUrl(2), state: "merged" });
   prs.set(`hive/${TRACKED}`, { url: prUrl(3), state: "open" });
-  shown.set(`thread-${DONE}`, { state: "stopped", status: "completed", lastMessage: "Done. The token ghs_abcdefghijklmnopqrstuvwxyz0123 did not work, so no PR. Should I use the v2 API?" });
+  shown.set(`thread-${DONE}`, {
+    state: "stopped",
+    status: "completed",
+    lastMessage: "Done. The token ghs_abcdefghijklmnopqrstuvwxyz0123 did not work, so no PR. Should I use the v2 API?",
+  });
   shown.set(`thread-${FRESH}`, { state: "stopped", status: "completed", lastMessage: "finished" });
   shown.set(`thread-${FAILED}`, { state: "stopped", status: "failed", lastMessage: "crashed" });
   shown.set(`thread-${ASLEEP}`, { state: "stopped", status: "completed", lastMessage: "x" });
@@ -79,19 +92,35 @@ try {
   read.length = 0;
 
   const first = await inferUntracked(only);
-  assert.deepEqual(Array.isArray(first) ? [...first].sort() : first, [`${PR}:pr`, `${MERGED}:merged`, `${DONE}:waiting`, `${FAILED}:failed`].sort(), JSON.stringify(first));
+  assert.deepEqual(
+    Array.isArray(first) ? [...first].sort() : first,
+    [`${PR}:pr`, `${MERGED}:merged`, `${DONE}:waiting`, `${FAILED}:failed`].sort(),
+    JSON.stringify(first),
+  );
   const pr = await row(PR);
-  assert.deepEqual([pr.stage, pr.pr_url, pr.stage_summary], ["pr", prUrl(1), `Opened ${prUrl(1)}`], "an open PR on the attempt branch moves the job to pr with its URL");
+  assert.deepEqual(
+    [pr.stage, pr.pr_url, pr.stage_summary],
+    ["pr", prUrl(1), `Opened ${prUrl(1)}`],
+    "an open PR on the attempt branch moves the job to pr with its URL",
+  );
   assert.match(pr.stage_event_id!, /^inferred:/);
   const merged = await row(MERGED);
   assert.deepEqual([merged.stage, merged.pr_url], ["merged", prUrl(2)], "a PR already merged goes straight to merged");
   assert.match(merged.stage_event_id!, /^merged:/, "through the merged path");
   const done = await row(DONE);
   assert.equal(done.stage, "waiting", "a thread that completed without a PR waits for the owner");
-  assert.equal(done.question, "Done. The token [redacted] did not work, so no PR. Should I use the v2 API?", "with its last message as the question, token masked");
+  assert.equal(
+    done.question,
+    "Done. The token [redacted] did not work, so no PR. Should I use the v2 API?",
+    "with its last message as the question, token masked",
+  );
   assert.equal((await row(FRESH)).stage, "triage", "a thread inside the grace may not have started its run yet");
   const failed = await row(FAILED);
-  assert.deepEqual([failed.stage, failed.stage_summary], ["failed", "Watchdog stopped this run: its T3 thread failed (stage implementing)."], "a failed thread fails the job as the watchdog would");
+  assert.deepEqual(
+    [failed.stage, failed.stage_summary],
+    ["failed", "Watchdog stopped this run: its T3 thread failed (stage implementing)."],
+    "a failed thread fails the job as the watchdog would",
+  );
   assert.match(failed.stage_event_id!, /^watchdog:/);
   assert.equal((await row(TRACKED)).stage, "queued", "a tracked harness reports its own stages");
   assert.ok(!lookedUp.includes(`hive/${TRACKED}`) && !read.includes(`thread-${TRACKED}`), "and is not looked up");
@@ -100,7 +129,11 @@ try {
   assert.ok(!read.includes(`thread-${ASLEEP}`) && !lookedUp.includes(`hive/${ASLEEP}`), "and never read");
 
   const before = await Promise.all([PR, MERGED, DONE, FAILED].map(eventsOf));
-  assert.deepEqual(before.map((ids) => ids.length), [1, 1, 1, 1], "one event per job");
+  assert.deepEqual(
+    before.map((ids) => ids.length),
+    [1, 1, 1, 1],
+    "one event per job",
+  );
   assert.deepEqual(await inferUntracked(only), [], "a second pass changes nothing");
   assert.deepEqual(await Promise.all([PR, MERGED, DONE, FAILED].map(eventsOf)), before, "and posts nothing");
   const runFor = async (k: string) => (await db.select().from(runs).where(eq(runs.job_key, k)))[0];
@@ -128,12 +161,17 @@ try {
 
   // The owner answers: the thread gets the answer, and a second settle without a PR asks again.
   SOURCES.linear.replies = async (job) =>
-    job.key === DONE ? { kind: "resume", question: job.question!, replies: [{ id: `reply-${DONE}`, body: "Yes", createdAt: new Date().toISOString() }], answer: "Yes" } : { kind: "wait" };
+    job.key === DONE
+      ? { kind: "resume", question: job.question!, replies: [{ id: `reply-${DONE}`, body: "Yes", createdAt: new Date().toISOString() }], answer: "Yes" }
+      : { kind: "wait" };
   SOURCES.linear.acknowledgeReplies = async () => {};
   const resumed = await resumeAnswered();
   assert.ok(resumed.includes(`${DONE}:sent`), JSON.stringify(resumed));
   assert.equal((await row(DONE)).stage, "queued");
-  assert.ok(sent.some((s) => s.threadId === `thread-${DONE}` && s.message.includes("Yes")), "the answer goes to the same thread");
+  assert.ok(
+    sent.some((s) => s.threadId === `thread-${DONE}` && s.message.includes("Yes")),
+    "the answer goes to the same thread",
+  );
   shown.set(`thread-${DONE}`, { state: "stopped", status: "interrupted", lastMessage: null });
   assert.deepEqual(await inferUntracked({ only: [DONE], now: later() }), [`${DONE}:waiting`]);
   const again = await row(DONE);
@@ -157,7 +195,18 @@ try {
   assert.deepEqual([reported.stage, reported.stage_summary, reported.stage_event_id], ["pr", "PR is up.", `abc${stamp}pr`], "the reported pr stands");
 
   const GAP = await insert("GAP", {});
-  await ingest(db, [eventSchema.parse({ ...mcpReport, sessionId: `mcp:hive/${GAP}`, jobKey: GAP, branch: `hive/${GAP}`, eventId: `abc${stamp}gap`, at: Date.now(), stage: "implementing", summary: "Building it." })]);
+  await ingest(db, [
+    eventSchema.parse({
+      ...mcpReport,
+      sessionId: `mcp:hive/${GAP}`,
+      jobKey: GAP,
+      branch: `hive/${GAP}`,
+      eventId: `abc${stamp}gap`,
+      at: Date.now(),
+      stage: "implementing",
+      summary: "Building it.",
+    }),
+  ]);
   prs.set(`hive/${GAP}`, { url: prUrl(6), state: "open" });
   assert.deepEqual(await inferUntracked({ only: [GAP] }), [], "inside the grace the reported stage stands");
   assert.deepEqual(await inferUntracked({ only: [GAP], now: later() }), [`${GAP}:pr`], "past it, a PR the agent never reported fills the gap");
