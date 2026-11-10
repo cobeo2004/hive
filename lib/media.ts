@@ -43,6 +43,10 @@ export const mediaShape = {
   data: z.base64().max(MAX_DATA_CHARS),
 };
 
+/** Whether an event's file is within the limit for its kind; the base64 length gives its byte size exactly. */
+export const withinLimit = ({ contentType, data }: { contentType: MediaType; data: string }) =>
+  (data.length * 3) / 4 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0) <= (contentType.startsWith("image/") ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES);
+
 const KINDS = { png: "image", jpg: "image", jpeg: "image", webp: "image", mp4: "video", mov: "video" } as const;
 
 /** What a file's extension says it is; null when it is none the panel shows. */

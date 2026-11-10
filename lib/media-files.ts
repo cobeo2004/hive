@@ -17,6 +17,8 @@ export function runsRoot(cwd: string): string {
   }
 }
 
+const IMAGE_TYPES: Record<string, MediaType> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
+
 const inside = (root: string, path: string) => {
   const rel = relative(root, path);
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
@@ -36,7 +38,8 @@ export function findMedia(file: string, root: string): string | null {
       const candidate = join(root, run, "media", file);
       if (!existsSync(candidate)) continue;
       const path = realpathSync(candidate);
-      if (!inside(realpathSync(join(root, run, "media")), path)) continue;
+      const media = realpathSync(join(root, run, "media"));
+      if (!inside(realpathSync(root), media) || !inside(media, path)) continue;
       const mtime = statSync(path).mtimeMs;
       if (!best || mtime > best.mtime) best = { path, mtime };
     } catch {
@@ -57,7 +60,10 @@ export function readMedia(file: string, root: string): ReadMedia {
   if (size > limit) return { ok: false, reason: `${file} is ${size} bytes, over the ${limit} limit for ${kind}s` };
   const bytes = readFileSync(path);
   const contentType = sniffType(bytes);
-  if (!contentType?.startsWith(`${kind}/`)) return { ok: false, reason: `${file} is not the ${file.split(".").pop()} it is named` };
+  const ext = file.split(".").pop()!.toLowerCase();
+  // Images must be the exact type their extension names; a video's .mov or .mp4 may carry either brand.
+  const ok = kind === "video" ? contentType?.startsWith("video/") : contentType === IMAGE_TYPES[ext];
+  if (!contentType || !ok) return { ok: false, reason: `${file} is not the ${ext} it is named` };
   return { ok: true, bytes, contentType };
 }
 

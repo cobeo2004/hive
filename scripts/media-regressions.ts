@@ -48,6 +48,12 @@ writeFileSync(join(mediaDir, "notes.txt"), "not an image");
 writeFileSync(join(mediaDir, "huge.png"), Buffer.concat([PNG, Buffer.alloc(MAX_IMAGE_BYTES)]));
 writeFileSync(join(dir, "outside.png"), PNG);
 symlinkSync(join(dir, "outside.png"), join(mediaDir, "escape.png"));
+writeFileSync(join(mediaDir, "liar.jpg"), PNG);
+writeFileSync(join(mediaDir, "pic.webp"), Buffer.from("RIFF\0\0\0\0WEBPVP8 "));
+mkdirSync(join(dir, "elsewhere"));
+writeFileSync(join(dir, "elsewhere", "far.png"), PNG);
+mkdirSync(join(runsDir, "run-b"));
+symlinkSync(join(dir, "elsewhere"), join(runsDir, "run-b", "media"));
 
 const assessment = (over: Partial<MergeAssessment> = {}): MergeAssessment => ({
   recommendation: "merge",
@@ -83,6 +89,9 @@ try {
   assert.match(refusal(join(dir, "outside.png"))!, /is not in any/, "a path is no file name");
   assert.match(refusal("../outside.png")!, /is not in any/, "a relative path out of the dir");
   assert.match(refusal("escape.png")!, /is not in any/, "a symlink out of the dir");
+  assert.match(refusal("far.png")!, /is not in any/, "a media dir that is a symlink out of the runs dir");
+  assert.match(refusal("liar.jpg")!, /is not the jpg it is named/, "png bytes named .jpg");
+  assert.ok(readMedia("empty.jpeg", runsDir).ok && readMedia("pic.webp", runsDir).ok, "real jpeg and webp still read");
   assert.deepEqual(
     unreadable([...shots, { file: "notes.txt", caption: "x" }], runsDir),
     ["notes.txt is not a png, jpg, webp, mp4 or mov file"],
@@ -118,6 +127,11 @@ try {
     !eventSchema.safeParse({ ...sent[0], data: Buffer.alloc(25_000_000 + 3).toString("base64") }).success,
     "ingest refuses a file over the video limit",
   );
+
+  const sized = (contentType: string, n: number) => ({ ...sent[0], contentType, data: Buffer.alloc(n).toString("base64") });
+  assert.ok(!eventSchema.safeParse(sized("image/png", 1_000_001)).success, "ingest refuses an image over 1 MB");
+  assert.ok(eventSchema.safeParse(sized("image/png", 1_000_000)).success, "an image of exactly 1 MB is fine");
+  assert.ok(eventSchema.safeParse(sized("video/mp4", 2_000_000)).success, "a 2 MB video is fine");
 
   // --- the outbox keeps a batch of media under one request's size
   {
