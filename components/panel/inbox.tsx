@@ -12,7 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { JobRow } from "@/db/schema";
 import { parseAssessment } from "@/lib/assessment";
-import { INBOX_LABELS, inboxItems, inboxReason, type InboxItem, type InboxKind } from "@/lib/inbox";
+import { INBOX_LABELS, inboxItems, inboxReason, type InboxItem, type InboxKind, type OwnerView } from "@/lib/inbox";
 import { stopLine, stopView } from "@/lib/stop";
 import { AUTONOMY_LABELS, type ReviewSummary } from "@/lib/merge-decision";
 import { sourceLink } from "@/lib/sources/shapes";
@@ -23,7 +23,6 @@ import { EvidenceSummaryList } from "./evidence";
 import { InboxActions } from "./inbox-actions";
 import { FullViewToggle, useEscapeToSidePanel, type FullView } from "./full-view";
 import { inboxHref, jobsHref } from "./job-view";
-import { useOwnerParam } from "./use-owner-param";
 import { Confidence } from "./merge-decision";
 import { useRowKeys } from "./row-keys";
 import { ShortTime } from "./time";
@@ -291,9 +290,8 @@ function Review({ loaded, prUrl }: { loaded: Loaded; prUrl: string }) {
   );
 }
 
-function Detail({ item, card, fullView }: { item: Item; card: BoardCard | undefined; fullView: FullView }) {
+function Detail({ item, card, fullView, owner }: { item: Item; card: BoardCard | undefined; fullView: FullView; owner: OwnerView }) {
   const { job, kind } = item;
-  const owner = useOwnerParam();
   useEscapeToSidePanel(fullView);
   const link = sourceLink(job);
   const wantsReview = kind !== "question" && job.pr_url !== null;
@@ -322,7 +320,7 @@ function Detail({ item, card, fullView }: { item: Item; card: BoardCard | undefi
               <span className="text-muted-foreground">{job.repo}</span>
               <span className="ml-auto flex flex-wrap gap-2">
                 {card?.latest && (
-                  <Button render={<Link href={jobsHref("list", card.latest.session_id)} scroll={false} />} variant="ghost" size="sm">
+                  <Button render={<Link href={jobsHref("list", card.latest.session_id, false, owner)} scroll={false} />} variant="ghost" size="sm">
                     Run
                   </Button>
                 )}
@@ -373,6 +371,7 @@ export function Inbox({
   selected,
   repoLabels,
   fullView,
+  owner,
 }: {
   jobs: readonly JobRow[];
   cards: readonly BoardCard[];
@@ -381,8 +380,9 @@ export function Inbox({
   fullView: FullView;
   /** Each repo's short name, while more than one repo has jobs; undefined shows no repo. */
   repoLabels?: ReadonlyMap<string, string>;
+  /** The resolved owner view, so links keep it even on a bare URL. */
+  owner: OwnerView;
 }) {
-  const owner = useOwnerParam();
   const itemHref = (key: string) => inboxHref(owner, key);
   const items = useMemo(() => inboxItems(jobs), [jobs]);
   const listRef = useRef<HTMLDivElement>(null);
@@ -425,7 +425,7 @@ export function Inbox({
           </ul>
         </div>
       )}
-      {open && <Detail key={open.job.key} item={open} card={cards.find((c) => c.id === open.job.key)} fullView={fullView} />}
+      {open && <Detail key={open.job.key} item={open} card={cards.find((c) => c.id === open.job.key)} fullView={fullView} owner={owner} />}
     </div>
   );
 }

@@ -274,7 +274,7 @@ export function LivePanel({
   const content = (() => {
     switch (view) {
       case "inbox":
-        return <Inbox jobs={ownerJobs} cards={cards} selected={inboxKey} repoLabels={repoLabels} fullView={fullView} />;
+        return <Inbox jobs={ownerJobs} cards={cards} selected={inboxKey} repoLabels={repoLabels} fullView={fullView} owner={owner} />;
       case "jobs":
         return showArchive ? (
           <JobList cards={shownCards} agentsBySession={agentsBySession} selected={detail?.sessionId} machines={machineById} repoLabels={repoLabels} archived />
