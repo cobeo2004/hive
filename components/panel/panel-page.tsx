@@ -51,8 +51,9 @@ async function Panel({ view, searchParams }: { view: PanelView; searchParams: Pr
     currentUser(),
   ]);
   const jobView = parseJobView(rawView) ?? parseJobView(jar.get(JOB_VIEW_COOKIE)?.value) ?? "board";
-  // Jobs opens on Everyone, the Inbox on Mine; `?view=mine|everyone` is accepted as the alias for `?owner=`.
-  const owner = parseOwnerView(rawOwner) ?? parseOwnerView(rawView) ?? (view === "inbox" ? "mine" : "everyone");
+  // Jobs opens on Everyone, the Inbox on Mine (unless a `?job=` link names an item, which may only be
+  // listed on Everyone); `?view=mine|everyone` is accepted as the alias for `?owner=`.
+  const owner = parseOwnerView(rawOwner) ?? parseOwnerView(rawView) ?? (view === "inbox" && typeof job !== "string" ? "mine" : "everyone");
   const me = viewerOf(user);
   // After the loads, which check the owner.
   const registry = await readRegistry(db);

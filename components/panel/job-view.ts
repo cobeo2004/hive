@@ -1,5 +1,4 @@
-import { useSearchParams } from "next/navigation";
-import { parseOwnerView, type OwnerView } from "@/lib/inbox";
+import type { OwnerView } from "@/lib/inbox";
 
 export type JobView = "board" | "list";
 
@@ -7,12 +6,6 @@ export type JobView = "board" | "list";
 export const JOB_VIEW_COOKIE = "jobs_view";
 
 export const parseJobView = (raw: unknown): JobView | undefined => (raw === "board" || raw === "list" ? raw : undefined);
-
-/** The owner view in the URL: `owner` is canonical, and `view` still holds it when a link used the alias. */
-export function useOwnerParam(): OwnerView | undefined {
-  const params = useSearchParams();
-  return parseOwnerView(params.get("owner")) ?? parseOwnerView(params.get("view"));
-}
 
 /**
  * The jobs page in `view`, with the run open on the right when there is one. `archived` shows the

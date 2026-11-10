@@ -252,8 +252,9 @@ export function LivePanel({
   const mineIds = useMemo(() => new Set(ownedBy(jobRows, "mine", me).map((j) => j.id)), [jobRows, me]);
   const shownCards = useMemo(() => {
     const inRepo = repo ? cards.filter((c) => c.repo === repo) : cards;
-    return owner === "mine" ? inRepo.filter((c) => c.jobId !== null && mineIds.has(c.jobId)) : inRepo;
-  }, [cards, repo, owner, mineIds]);
+    // The archive has no owner switch, so it lists every job.
+    return owner === "mine" && !showArchive ? inRepo.filter((c) => c.jobId !== null && mineIds.has(c.jobId)) : inRepo;
+  }, [cards, repo, owner, mineIds, showArchive]);
   const ownerJobs = useMemo(() => ownedBy(shownJobs, owner, me), [shownJobs, owner, me]);
   const mineCount = useMemo(() => inboxItems(ownedBy(shownJobs, "mine", me)).length, [shownJobs, me]);
   const everyoneCount = useMemo(() => inboxItems(shownJobs).length, [shownJobs]);
