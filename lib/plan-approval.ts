@@ -12,7 +12,10 @@ export const PLAN_QUESTION_MAX = PLAN_HEADER.length + 2 + PLAN_MAX + PLAN_TRUNCA
 export function planQuestion(plan: string, answerKey = "") {
   const key = answerKey.trim();
   const body = plan.trim() + (key ? `\n\n## answer-key.md\n\n${key}` : "");
-  return `${PLAN_HEADER}\n\n${body.length > PLAN_MAX ? body.slice(0, PLAN_MAX) + PLAN_TRUNCATED : body}`;
+  if (body.length <= PLAN_MAX) return `${PLAN_HEADER}\n\n${body}`;
+  // A cut between a surrogate pair leaves a lone high surrogate, which Postgres JSONB refuses.
+  const cut = /[\uD800-\uDBFF]/.test(body[PLAN_MAX - 1]!) ? PLAN_MAX - 1 : PLAN_MAX;
+  return `${PLAN_HEADER}\n\n${body.slice(0, cut)}${PLAN_TRUNCATED}`;
 }
 
 export const isPlanApproval = (question?: string | null) => !!question?.startsWith(PLAN_HEADER);

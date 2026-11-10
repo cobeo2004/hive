@@ -805,6 +805,15 @@ try {
   assert.equal(eventSchema.safeParse(planEvent({ question: longPlan })).success, true, "and the event still carries it");
   assert.equal(eventSchema.safeParse(planEvent({ question: "x".repeat(PLAN_QUESTION_MAX + 1) })).success, false, "but nothing longer");
 
+  const emojiPlan = planQuestion("a".repeat(PLAN_MAX - 1) + "😀");
+  assert.ok(emojiPlan.endsWith(PLAN_TRUNCATED), "a plan cut at an emoji is marked");
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(emojiPlan), "the cut never leaves half a surrogate pair");
+  const EMOJI = await job("EMOJI", { stage: "implementing" });
+  await ingest(db, [
+    eventSchema.parse({ ...planEvent({ question: emojiPlan, jobKey: EMOJI, sessionId: `session-${EMOJI}` }), eventId: `plan-emoji-${stamp}` }),
+  ]);
+  assert.equal((await row(EMOJI)).question, emojiPlan, "and the plan round-trips through Postgres");
+
   const planId = planRow.id;
   const approveId = crypto.randomUUID();
   assert.deepEqual(await inbox.approveMerge(deps(), planId, approveId, null), { ok: true, intentId: `panel:answer:${approveId}` });
