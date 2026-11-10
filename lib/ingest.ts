@@ -374,7 +374,7 @@ async function applyEvidence(tx: Tx, e: Extract<FactoryEvent, { kind: "evidence"
       .where(eq(jobs.id, job.id));
 }
 
-/** Stores one attached image; a redelivered event changes nothing. Screenshots open no run. */
+/** Stores one attached image or video; a redelivered event changes nothing. Media open no run. */
 async function applyScreenshot(tx: Tx, e: Extract<FactoryEvent, { kind: "screenshot" }>) {
   await tx
     .insert(jobMedia)
@@ -382,6 +382,7 @@ async function applyScreenshot(tx: Tx, e: Extract<FactoryEvent, { kind: "screens
       stage_event_id: e.stageEventId,
       file: e.file,
       job_key: e.jobKey,
+      kind: e.contentType.startsWith("video/") ? "video" : "image",
       content_type: e.contentType,
       bytes: Buffer.from(e.data, "base64"),
       event_id: e.eventId,
@@ -390,7 +391,7 @@ async function applyScreenshot(tx: Tx, e: Extract<FactoryEvent, { kind: "screens
     .onConflictDoNothing();
 }
 
-/** The event as the log keeps it: an image's bytes live in job_media only. */
+/** The event as the log keeps it: a file's bytes live in job_media only. */
 const logged = (e: FactoryEvent): FactoryEvent => (e.kind === "screenshot" ? { ...e, data: "" } : e);
 
 export type StageRefusal = { eventId: string; reason: string };
