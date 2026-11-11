@@ -59,12 +59,12 @@ const soft = (p: Promise<unknown>) =>
     throw error;
   });
 
-/** Always fits (room kept for `-a<n>`) and never repeats: a name the slug would blur (`.`, `_`, `-`, `/`) or that is long carries a hash of the exact name. */
+/** Always fits (room kept for `-a<n>`) and never repeats: a name the slug would blur (`.`, `_`, `-`, `/`) or that is long carries `-h-` and a hash of the exact name, which no plain slug (one hyphen) can match. */
 export function githubKey(repo: string, number: number) {
   const slug = repo.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const hash = createHash("sha256").update(repo.toLowerCase()).digest("hex").slice(0, 20);
   const plain = /^[a-z0-9]+\/[a-z0-9]+$/i.test(repo) && slug.length <= 46;
-  return jobKey("GH", number, plain ? slug : `${slug.slice(0, 25).replace(/-+$/, "")}-${hash}`);
+  return jobKey("GH", number, plain ? slug : `${slug.slice(0, 23).replace(/-+$/, "")}-h-${hash}`);
 }
 
 /** Every open issue carrying the label, a page at a time. */
@@ -118,9 +118,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
               description: issue.body,
               writeback: { kind: "github", repo, number: issue.number },
               sourceState: { labels: issue.labels.map((l) => l.name) },
-              // R2: the issue's own repo; the claim refuses it rather than route it anywhere else.
-              repo,
-              // A failed job whose failure is not written back yet is not retried: that would repeat it unasked and lose the failure.
+              repo, // R2: the claim refuses it rather than route it elsewhere
               reclaimIf: sql`${jobs.synced_event_id} is not distinct from ${jobs.stage_event_id}`,
             });
           }
