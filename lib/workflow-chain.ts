@@ -1,5 +1,7 @@
 // sstack's step chain (lib/sstack_workflow.py `_kids` + `order`) over a repo snapshot's files.
 // Pure TS, no node/Bun imports, so the canvas can run it in the browser.
+import { parse } from "smol-toml";
+
 type Val = string | boolean | number;
 export type Spec = {
   name: string;
@@ -13,38 +15,31 @@ export type Spec = {
 };
 type Chain = { order: string[]; after: Record<string, string> };
 
-const ESC: Record<string, string> = { b: "\b", t: "\t", n: "\n", f: "\f", r: "\r", '"': '"', "\\": "\\", e: "\x1b" };
-const ESCAPE = /\\([btnfr"\\e]|x[\dA-Fa-f]{2}|u[\dA-Fa-f]{4}|U00(?:0[\dA-Fa-f]|10)[\dA-Fa-f]{4})/g;
-// TOML basic ("...", escapes decoded; an invalid one stays as written) or literal ('...', verbatim) string; bare text passes through.
-const dec = (_: string, c: string) => ESC[c] ?? String.fromCodePoint(+`0x${c.slice(1)}`);
-const unquote = (s: string) => (s[0] === "'" ? s.slice(1, -1) : s[0] === '"' ? s.slice(1, -1).replace(ESCAPE, dec) : s);
-
-// ponytail: scalars only (Q36); add arrays and inline tables when a step key needs them.
-export function readToml(text: string): Record<string, Val> {
-  const out: Record<string, Val> = {};
-  let section = "";
-  for (const raw of text.split("\n")) {
-    let quote = "";
-    let end = raw.length;
-    for (let i = 0; i < raw.length && end === raw.length; i++) {
-      if (quote === '"' && raw[i] === "\\") i++;
-      else if (quote) quote = raw[i] === quote ? "" : quote;
-      else if (raw[i] === '"' || raw[i] === "'") quote = raw[i];
-      else if (raw[i] === "#") end = i;
-    }
-    const line = raw.slice(0, end).trim();
-    const head = /^\[+([^[\]]+)\]+$/.exec(line);
-    if (head) section = `${(head[1].match(/"(?:\\.|[^"\\])*"|'[^']*'|[^\s.]+/g) ?? []).map(unquote).join(".")}.`;
-    const kv = /^("(?:\\.|[^"\\])*"|'[^']*'|[\w-]+)\s*=\s*(.+)$/.exec(line);
-    if (!kv) continue;
-    const key = section + unquote(kv[1]);
-    const v = kv[2].trim();
-    if (/^(".*"|'.*')$/.test(v)) out[key] = unquote(v);
-    else if (v === "true" || v === "false") out[key] = v === "true";
-    else if (/^\d+$/.test(v)) out[key] = Number(v);
+// smol-toml parses; nested tables flatten to dotted keys (`unattended.plan_gate`); readToml throws on invalid TOML.
+const flat = (table: object, prefix = ""): [string, Val][] =>
+  Object.entries(table).flatMap(([k, v]) =>
+    typeof v === "string" || typeof v === "boolean" || typeof v === "number"
+      ? [[prefix + k, v]]
+      : v && typeof v === "object" && !Array.isArray(v) && !(v instanceof Date)
+        ? flat(v, `${prefix}${k}.`)
+        : [],
+  );
+export const readToml = (text: string): Record<string, Val> => Object.fromEntries(flat(parse(text)));
+// The files steps() and meta() read. One that does not parse is reported (tomlError) and ignored (usable).
+const TOML = /^\.sstack\/(steps\/[^/]+\/step|roles\/[^/]+|config)\.toml$/;
+const failure = (path: string, text: string) => {
+  try {
+    if (TOML.test(path)) readToml(text);
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
   }
-  return out;
+  return "";
+};
+export function tomlError(files: Record<string, string>): string | null {
+  const bad = Object.entries(files).find(([path, text]) => failure(path, text));
+  return bad ? `${bad[0]}: ${failure(...bad)}` : null;
 }
+export const usable = (files: Record<string, string>) => Object.fromEntries(Object.entries(files).filter(([path, text]) => !failure(path, text)));
 
 // sstack docs/spec/workflow.md "Built-in steps"
 const D = (after: string, gate: boolean, kind: Spec["kind"], role = "", on_fail = "") => ({ after, gate, kind, role, on_fail });
@@ -60,7 +55,8 @@ const DEFAULTS = {
 const STEP = /^\.sstack\/steps\/([^/]+)\/step\.toml$/;
 const stepPath = (name: string) => `.sstack/steps/${name}/step.toml`;
 
-export function steps(files: Record<string, string>): Record<string, Spec> {
+export function steps(all: Record<string, string>): Record<string, Spec> {
+  const files = usable(all);
   const names = new Set([...Object.keys(DEFAULTS), ...Object.keys(files).flatMap((p) => STEP.exec(p)?.[1] ?? [])]);
   const out: Record<string, Spec> = {};
   for (const name of names) {
@@ -141,7 +137,8 @@ const ROLES: Record<string, Record<string, string>> = {
   implement: { harness: "pi", model: "opencode-go/deepseek-v4.1-flash" },
 };
 
-export function meta(files: Record<string, string>, spec: Spec): { model: string; planGate?: "Inbox" | "Auto" } {
+export function meta(all: Record<string, string>, spec: Spec): { model: string; planGate?: "Inbox" | "Auto" } {
+  const files = usable(all);
   const r = { ...(Object.hasOwn(ROLES, spec.role) ? ROLES[spec.role] : {}), ...readToml(files[`.sstack/roles/${spec.role}.toml`] ?? "") };
   const model = spec.kind !== "role" ? "—" : r.harness && r.model ? `${r.harness} · ${r.model}` : "default";
   if (spec.name !== "plan") return { model };

@@ -9,7 +9,7 @@ declare const Bun: { TOML: { parse(text: string): unknown } }; // no bun-types i
 const { patch } = await import("../lib/toml-patch");
 const { parseBranch } = await import("../lib/factory");
 const { mayCreate, runWorkflowPr, runWorkflowSmoke, workflowDeps } = await import("../runner/workflow-pr");
-const { readToml, steps, chain, move, diffLines, meta } = await import("../lib/workflow-chain");
+const { readToml, steps, chain, move, diffLines, meta, tomlError } = await import("../lib/workflow-chain");
 
 const REPO = "acme/sstack";
 const ROLE = ".sstack/roles/implement.toml";
@@ -217,10 +217,14 @@ try {
   assert.deepEqual([meta({ ".sstack/roles/plan.toml": 'model = "sonnet"\n' }, s.plan).model, meta({}, s.review).model], ["claude · sonnet", "default"]);
   assert.deepEqual(readToml('after = "\\u0070lan"\n"on_fail" = \'a\\b\'\n'), { after: "plan", on_fail: "a\\b" });
   assert.deepEqual(readToml('"\\u0061fter" = "plan"\nrole = "\\U00000070lan"\n'), { after: "plan", role: "plan" });
-  assert.equal(readToml('["unattended"]\nplan_gate = "inbox"\n')["unattended.plan_gate"], "inbox");
-  for (const h of ['["unattended"]', "[ 'unattended' ]", "[unattended]"])
-    assert.equal(meta({ [CONFIG]: `${h}\nplan_gate = "inbox"\n` }, s.plan).planGate, "Inbox");
-  assert.deepEqual(chain(steps({ ".sstack/steps/review/step.toml": '"after" = "\\u0070lan"\n' })), ["recon", "plan", "implement", "gate", "review", "pr"]);
+  for (const h of ['["unattended"]\nplan_gate', "[ 'unattended' ]\nplan_gate", "[unattended]\nplan_gate", "unattended.plan_gate"])
+    assert.equal(meta({ [CONFIG]: `${h} = "inbox"\n` }, s.plan).planGate, "Inbox");
+  const six = ["recon", "plan", "implement", "gate", "review", "pr"];
+  for (const after of ['"after" = "\\u0070lan"', 'after = """plan"""']) assert.deepEqual(chain(steps({ ".sstack/steps/review/step.toml": `${after}\n` })), six);
+  const bad = { ".sstack/steps/review/step.toml": "after = \n", [CONFIG]: "unattended.plan_gate =\n" };
+  assert.match(tomlError(bad) ?? "", /^\.sstack\/steps\/review\/step\.toml: /);
+  assert.deepEqual(chain(steps(bad)), six);
+  assert.equal(meta(bad, s.plan).planGate, "Auto");
 
   console.log("workflow regressions passed");
 } catch (error) {

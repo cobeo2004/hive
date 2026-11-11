@@ -4,7 +4,7 @@ import { GripVertical } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { chain, diffLines, meta, move, steps } from "@/lib/workflow-chain";
+import { chain, diffLines, meta, move, steps, tomlError } from "@/lib/workflow-chain";
 import { cn } from "@/lib/utils";
 import { PanelHeader } from "./panel-header";
 
@@ -14,7 +14,9 @@ const NOTE = "Save as PR and Smoke test arrive with the workflow intents.";
 const PINNED = new Set(["recon", "pr"]);
 const chip = "rounded bg-muted px-1.5 py-0.5 text-muted-foreground text-xs";
 
-export function WorkflowCanvas({ repo, files, canEdit }: { repo: string; files: Record<string, string>; canEdit: boolean }) {
+export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; files: Record<string, string>; canEdit: boolean }) {
+  const parseError = useMemo(() => tomlError(files), [files]);
+  const canEdit = admin && !parseError;
   const specs = useMemo(() => steps(files), [files]);
   const [after, setAfter] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState("");
@@ -61,6 +63,7 @@ export function WorkflowCanvas({ repo, files, canEdit }: { repo: string; files: 
       />
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4 md:flex-row md:p-6">
         <div className="min-w-0 flex-1">
+          {parseError && <p role="alert" className="mb-3 text-destructive text-sm">{`Read-only, invalid TOML ignored: ${parseError}`}</p>}
           <div className="relative pt-8">
             {/* ponytail: x is index-based, which assumes equal-width nodes (flex-1). Measure with refs if widths diverge. */}
             <svg aria-hidden viewBox="0 0 100 32" preserveAspectRatio="none" className="absolute inset-x-0 top-0 hidden h-8 w-full sm:block">
