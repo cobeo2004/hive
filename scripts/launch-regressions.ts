@@ -17,6 +17,7 @@ const { inferUntracked } = await import("../runner/untracked");
 const { ingestClient } = await import("../runner/ingest-client");
 const { ingest } = await import("../lib/ingest");
 const { eventSchema } = await import("../lib/events");
+const { runnerEventId } = await import("../lib/stages");
 const { github } = await import("../lib/github/pulls");
 const { pinnedVersions } = await import("../lib/sandbox");
 const { sandboxHarness, sandboxRuntime } = await import("../runner/sandbox");
@@ -657,6 +658,26 @@ try {
   const held = (await db.select().from(jobs).where(eq(jobs.key, hold)))[0]!;
   assert.deepEqual([held.stage, /rate limit/.test(held.stage_summary ?? "")], ["pr", true], "a tracked rate-limited job with a PR stays at pr, never failed");
   assert.equal(posted.filter((e) => e.jobKey === hold && e.stage === "pr").length, 1, "its note is posted once");
+  // Requested changes move it back to implementing (a new stage event); the next rate limit is a new note, still one per limit.
+  const [heldRow] = await db.select().from(jobs).where(eq(jobs.key, hold));
+  await ingestClient.post({
+    eventId: runnerEventId("changes", heldRow!.external_id, "fb-1"),
+    sessionId: heldRow!.session_id ?? runnerEventId("changes", heldRow!.external_id),
+    at: Date.now(),
+    kind: "stage",
+    stage: "implementing",
+    summary: "A reviewer requested changes; the thread is updating it.",
+    jobKey: hold,
+  } as never);
+  assert.equal((await db.select().from(jobs).where(eq(jobs.key, hold)))[0]!.stage, "implementing", "requested changes move the held job back to implementing");
+  for (let pass = 0; pass < 2; pass++) await watchdog();
+  const heldAgain = (await db.select().from(jobs).where(eq(jobs.key, hold)))[0]!;
+  assert.deepEqual(
+    [heldAgain.stage, /rate limit/.test(heldAgain.stage_summary ?? "")],
+    ["pr", true],
+    "a second rate limit after requested changes holds it at pr again",
+  );
+  assert.equal(posted.filter((e) => e.jobKey === hold && e.stage === "pr").length, 2, "one note per rate limit: two in total, none from the second pass");
   // The tracked job opened its PR but hit the limit before reporting it: no stored url, an open PR on its branch.
   const unreported = `${id}-unreported`;
   await seed(unreported, { t3_thread_id: "mcp:unreported" });

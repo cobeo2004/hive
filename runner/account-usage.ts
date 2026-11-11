@@ -147,11 +147,18 @@ export async function rateLimitedRun(job: { key: string; attempt: number }, host
   }
 }
 
-/** R10a: no account fallback once a PR exists (a relaunch could only open a second one): the job stays at pr with one note. Returns whether it posted. */
-export async function holdAtPr(job: Pick<JobRow, "key" | "external_id" | "attempt" | "session_id" | "stage" | "stage_summary">, prUrl: string) {
+/**
+ * R10a: no account fallback once a PR exists (a relaunch could only open a second one): the job stays at pr with one note.
+ * Returns whether it posted. The event id carries the event that moved the job into its stage, so a retry of one transition
+ * is the same id (one note) while a return to implementing after requested changes gets a new one (the next rate limit posts).
+ */
+export async function holdAtPr(
+  job: Pick<JobRow, "key" | "external_id" | "attempt" | "session_id" | "stage" | "stage_event_id" | "stage_summary">,
+  prUrl: string,
+) {
   if (job.stage === "pr" && job.stage_summary?.startsWith("The account hit its rate limit")) return false;
   await postEvent({
-    eventId: runnerEventId("inferred", job.external_id, job.attempt, "pr", "rate-limited"),
+    eventId: runnerEventId("inferred", job.external_id, job.attempt, "pr", "rate-limited", job.stage_event_id ?? job.stage),
     sessionId: job.session_id ?? runnerEventId("inferred", job.external_id, job.attempt),
     at: Date.now(),
     kind: "stage",
