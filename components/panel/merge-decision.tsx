@@ -1,11 +1,9 @@
 import { CheckIcon, XIcon } from "lucide-react";
-import { Separator } from "@/components/ui/separator";
 import type { JobRow } from "@/db/schema";
 import { parseAssessment, type MergeAssessment } from "@/lib/assessment";
 import { AUTONOMY_LABELS, mergeDecisionSchema, type FactoryMerge, type MergeDecision, type MergeWatch } from "@/lib/merge-decision";
 import { cn } from "@/lib/utils";
 import { shownDecision } from "./cards";
-import { Media } from "./media";
 import { Time } from "./time";
 
 export const parseDecision = (value: unknown): MergeDecision | null => mergeDecisionSchema.safeParse(value).data ?? null;
@@ -68,7 +66,7 @@ export function Confidence({ assessment: { confidence } }: { assessment: MergeAs
   );
 }
 
-function Assessment({ job, assessment }: { job: JobRow; assessment: MergeAssessment }) {
+function Assessment({ assessment }: { assessment: MergeAssessment }) {
   return (
     <div className="flex flex-col gap-2.5">
       <p className="text-muted-foreground">The agent recommends {assessment.recommendation === "merge" ? "merging" : "handing over"}.</p>
@@ -87,12 +85,6 @@ function Assessment({ job, assessment }: { job: JobRow; assessment: MergeAssessm
         </div>
       )}
       <Confidence assessment={assessment} />
-      {assessment.media?.length ? (
-        <div className="flex flex-col gap-1">
-          <h4 className="text-xs font-medium text-muted-foreground">Media</h4>
-          <Media job={job} assessment={assessment} />
-        </div>
-      ) : null}
       {assessment.notes && (
         <div className="flex flex-col gap-1">
           <h4 className="text-xs font-medium text-muted-foreground">Notes</h4>
@@ -133,9 +125,9 @@ export function MergeDecisionSection({ job }: { job: JobRow }) {
   const line = decisionLine(decision);
   return (
     <>
-      <Separator />
-      <section className="flex flex-col gap-2.5 px-4.5 py-3.5 text-sm">
+      <section aria-label="Merge decision" className="flex flex-col gap-2.5 px-4.5 py-3.5 text-sm">
         <h3 className="text-sm font-medium text-muted-foreground">Merge decision</h3>
+        <p className="text-xs text-muted-foreground">Comes with the PR: the agent&apos;s confidence, how it read the issue, and the assumptions it made.</p>
         {(job.stage === "pr" || decision) && (
           <div className="flex flex-col gap-1.5">
             <div className="flex flex-wrap items-baseline gap-x-2">
@@ -161,7 +153,7 @@ export function MergeDecisionSection({ job }: { job: JobRow }) {
             )}
           </div>
         )}
-        {assessment ? <Assessment job={job} assessment={assessment} /> : <p className="text-muted-foreground">The agent didn&apos;t report an assessment.</p>}
+        {assessment ? <Assessment assessment={assessment} /> : <p className="text-muted-foreground">The agent didn&apos;t report an assessment.</p>}
       </section>
     </>
   );

@@ -128,12 +128,13 @@ export function diffLines(specs: Record<string, Spec>, after: Record<string, str
     .map(([n, to]) => ({ path: stepPath(n), from: `after = "${specs[n].after}"`, to: `after = "${to}"` }));
 }
 
-// sstack defaults/roles/*.toml; a repo role file overrides these per key (review declares none)
-const ROLES: Record<string, Record<string, string>> = {
+// sstack defaults/roles/*.toml; a repo role file overrides these per key (review sets only mode, so meta() still says default)
+export const ROLES: Record<string, Record<string, string>> = {
   investigate: { harness: "claude", model: "sonnet" },
   plan: { harness: "claude", model: "opus" },
   scout: { harness: "claude", model: "haiku" },
-  implement: { harness: "pi", model: "opencode-go/deepseek-v4.1-flash" },
+  implement: { harness: "pi", model: "opencode-go/deepseek-v4.1-flash", effort: "high" },
+  review: { mode: "auto" },
 };
 
 export function meta(all: Record<string, string>, spec: Spec): { model: string; planGate?: "Inbox" | "Auto" } {

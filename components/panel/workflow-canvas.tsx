@@ -5,7 +5,9 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { chain, diffLines, meta, move, steps, tomlError } from "@/lib/workflow-chain";
 import { cn } from "@/lib/utils";
+import type { Edit } from "@/lib/workflow-edits";
 import { PanelHeader } from "./panel-header";
+import { WorkflowStepPanel } from "./workflow-step-panel";
 
 // ponytail: Save as PR and Smoke test need the workflow_pr / workflow_smoke intent kinds, whose migration is held. Flip this when it merges.
 const INTENTS_READY = false;
@@ -21,10 +23,12 @@ export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; 
   const [selected, setSelected] = useState("");
   const [drag, setDrag] = useState("");
   const [error, setError] = useState("");
+  const [edits, setEdits] = useState<Edit[]>([]); // the step panel's field edits, kept here so Save sees them
+  const [raw, setRaw] = useState<Record<string, string>>({}); // files edited as text
   const current = useMemo(() => Object.fromEntries(Object.entries(specs).map(([k, s]) => [k, { ...s, after: after[k] ?? s.after }])), [specs, after]);
   const order = chain(current);
   const diff = diffLines(specs, after);
-  const dirty = diff.length > 0;
+  const dirty = diff.length > 0 || edits.length > 0 || Object.keys(raw).length > 0;
 
   const drop = (onto: string) => {
     const res = drag ? move(current, drag, onto) : null;
@@ -68,13 +72,23 @@ export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; 
                 if (to < 0) return [];
                 const x = (j: number) => ((j + 0.5) / order.length) * 100;
                 return (
-                  <path
-                    key={n}
-                    d={`M${x(i)} 32Q${(x(i) + x(to)) / 2} 0 ${x(to)} 32`}
-                    className="fill-none stroke-destructive"
-                    strokeDasharray="4 3"
-                    vectorEffect="non-scaling-stroke"
-                  />
+                  <g key={n}>
+                    <path
+                      d={`M${x(i)} 32Q${(x(i) + x(to)) / 2} 0 ${x(to)} 32`}
+                      className="fill-none stroke-destructive"
+                      strokeDasharray="4 3"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    {/* a wide transparent stroke is the click target: clicking an on_fail arc selects its source step */}
+                    <path
+                      d={`M${x(i)} 32Q${(x(i) + x(to)) / 2} 0 ${x(to)} 32`}
+                      className="cursor-pointer fill-none stroke-transparent"
+                      strokeWidth={10}
+                      vectorEffect="non-scaling-stroke"
+                      pointerEvents="stroke"
+                      onClick={() => setSelected(n)}
+                    />
+                  </g>
                 );
               })}
             </svg>
@@ -134,16 +148,22 @@ export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; 
         <aside className="flex shrink-0 flex-col gap-4 md:w-72">
           <div className="rounded-lg border p-3 text-sm">
             {selected && current[selected] ? (
-              <>
-                <p className="font-medium">{selected}</p>
-                <p className="font-mono text-muted-foreground text-xs">.sstack/steps/{selected}/step.toml</p>
-              </>
+              <WorkflowStepPanel
+                key={selected}
+                files={files}
+                specs={current}
+                name={selected}
+                canEdit={canEdit}
+                edits={edits}
+                setEdits={setEdits}
+                raw={raw}
+                setRaw={setRaw}
+              />
             ) : (
               <p className="text-muted-foreground">Select a step.</p>
             )}
-            <div data-slot="step-panel" />
           </div>
-          {dirty && (
+          {diff.length > 0 && (
             <pre className="overflow-x-auto rounded-lg border p-3 font-mono text-xs">
               {diff.map((d) => (
                 <span key={d.path} className="block">

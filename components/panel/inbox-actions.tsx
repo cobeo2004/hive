@@ -24,7 +24,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { Button, type ButtonProps } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
@@ -34,6 +34,7 @@ import type { JobRow } from "@/db/schema";
 import { followUpHint, INBOX_ACTIONS, MAX_FEEDBACK_CHARS, MAX_FOLLOW_UP_CHARS, MAX_RETRY_NOTE_CHARS, type InboxAction, type InboxKind } from "@/lib/inbox";
 import type { InboxOutcome, IntentOutcome } from "@/lib/inbox-actions";
 import type { MergeDecision } from "@/lib/merge-decision";
+import { canRequestChanges, retryLabel } from "./inbox-model";
 
 const POLL_MS = 1_500;
 /** The runner works one step at a time, so a busy queue can hold a request for a few minutes. */
@@ -134,6 +135,8 @@ function Compose({
   initial = "",
   maxLength = MAX_FEEDBACK_CHARS,
   optional = false,
+  canSend,
+  variant = "outline",
   submit,
   icon,
   disabled,
@@ -148,6 +151,9 @@ function Compose({
   maxLength?: number;
   /** Sends with an empty box. */
   optional?: boolean;
+  /** Whether the text may be sent; the default is any text. */
+  canSend?: (text: string) => boolean;
+  variant?: ButtonProps["variant"];
   submit: string;
   icon: ReactNode;
   disabled: boolean;
@@ -155,7 +161,8 @@ function Compose({
   onSend: (text: string, clear: () => void) => void;
 }) {
   const [text, setText] = useState(initial);
-  const send = () => (optional || text.trim()) && onSend(text, () => setText(""));
+  const sendable = optional || (canSend ? canSend(text) : text.trim() !== "");
+  const send = () => sendable && onSend(text, () => setText(""));
   return (
     <Field className="w-full">
       <FieldLabel>{label}</FieldLabel>
@@ -174,7 +181,7 @@ function Compose({
       />
       <div className="flex w-full items-center gap-3">
         <FieldDescription className="min-w-0 flex-1">{description}</FieldDescription>
-        <Button size="sm" variant="outline" disabled={disabled || (!optional && !text.trim())} loading={loading} onClick={send}>
+        <Button size="sm" variant={variant} disabled={disabled || !sendable} loading={loading} onClick={send}>
           {icon}
           {submit}
           <Kbd className="ms-1 hidden sm:inline-flex">⌘↵</Kbd>
@@ -200,7 +207,10 @@ function ApproveButton({
   const [open, setOpen] = useState(false);
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
-      <AlertDialogTrigger disabled={disabled} render={<Button size="sm" loading={loading} />}>
+      <AlertDialogTrigger
+        disabled={disabled}
+        render={<Button size="sm" loading={loading} className="border-transparent bg-(--lime) text-(--on-lime) hover:bg-(--lime)/90" />}
+      >
         <GitMergeIcon data-icon="inline-start" />
         Approve and merge
       </AlertDialogTrigger>
@@ -250,7 +260,7 @@ function CloseButton({
   const failing = kind !== "failed";
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
-      <AlertDialogTrigger disabled={disabled} render={<Button size="sm" variant="destructive-outline" loading={loading} />}>
+      <AlertDialogTrigger disabled={disabled} render={<Button size="sm" variant="ghost" loading={loading} />}>
         <XIcon data-icon="inline-start" />
         Close
       </AlertDialogTrigger>
@@ -340,7 +350,7 @@ export function InboxActions({
       {has("retry_stop") && (
         <Button
           size="sm"
-          variant="outline"
+          variant="secondary"
           disabled={disabled}
           loading={loading("retry_stop")}
           onClick={() => void run("retry_stop", () => retryStop(job.id, requestId()), "Interrupting again.")}
@@ -365,12 +375,14 @@ export function InboxActions({
 
   return (
     <div className="flex flex-col gap-3">
+      {has("approve") && buttons}
       {has("answer") && (
         <Compose
-          label="Your answer"
+          label="Add a note"
           description="Posted on the issue as your reply; the agent resumes with it."
           placeholder="Answer the question"
-          submit="Send answer"
+          variant="default"
+          submit="Answer and resume"
           icon={<SendIcon data-icon="inline-start" />}
           disabled={disabled}
           loading={loading("answer")}
@@ -384,6 +396,8 @@ export function InboxActions({
             kind === "plan_approval" ? "Sent to the agent, which revises its plan and asks again." : "Sent to the agent, which updates the same branch and PR."
           }
           placeholder="What should change"
+          variant="secondary"
+          canSend={(text) => canRequestChanges(kind, text)}
           submit="Request changes"
           icon={<MessageSquareReplyIcon data-icon="inline-start" />}
           disabled={disabled}
@@ -393,12 +407,13 @@ export function InboxActions({
       )}
       {has("retry") && (
         <Compose
-          label="Retry"
+          label="Note for the next attempt (optional)"
           description="Starts a new attempt on a new branch, as adding the factory label again would. A note goes to the agent and onto the issue."
           placeholder="A note for the next attempt (optional)"
           maxLength={MAX_RETRY_NOTE_CHARS}
           optional
-          submit="Retry"
+          variant="default"
+          submit={retryLabel(job)}
           icon={<RotateCcwIcon data-icon="inline-start" />}
           disabled={disabled}
           loading={loading("retry")}
@@ -412,6 +427,7 @@ export function InboxActions({
           placeholder="What the fix should do"
           initial={followUpHint(job, decision)}
           maxLength={MAX_FOLLOW_UP_CHARS}
+          variant="default"
           submit="File a follow-up"
           icon={<FilePlusIcon data-icon="inline-start" />}
           disabled={disabled}
@@ -419,7 +435,7 @@ export function InboxActions({
           onSend={(text, clear) => void run("follow_up", () => fileFollowUp(job.id, requestId(), text), "Filed the follow-up.", clear)}
         />
       )}
-      {buttons}
+      {!has("approve") && buttons}
       <Waiting busy={busy} />
       {error && (
         <Alert variant="error">

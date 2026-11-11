@@ -1,8 +1,9 @@
 "use client";
 
 import { CheckIcon, ShieldCheckIcon, ShieldAlertIcon, XIcon } from "lucide-react";
-import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
 import type { JobEvidenceRow, JobRow } from "@/db/schema";
+import { parseAssessment } from "@/lib/assessment";
 import {
   CHECK_NAME_LABELS,
   formatDuration,
@@ -14,6 +15,7 @@ import {
   type EvidenceLine as Line,
   type EvidenceSummary,
 } from "@/lib/evidence";
+import { mediaKind, mediaUrl } from "@/lib/media";
 import { cn } from "@/lib/utils";
 import { jobEvidenceLine, shownDecision } from "./cards";
 import { useFeed, type Feed } from "./live-refresh";
@@ -78,41 +80,93 @@ function provenance(row: { producer: EvidenceSummary["producer"]; source: Eviden
     .join(" · ");
 }
 
-/** Run detail's evidence: every commit the job's checks ran at, newest first, with each check's output. */
+/** Which side of a before/after pair a media file is, from its name (`before-…`, `after-…`); never from its caption. */
+export const mediaPhase = (file: string) => /^(before|after)-/.exec(file)?.[1] ?? null;
+
+/** Run detail's evidence: what the agent showed, then the checks at the PR head, then every earlier commit. Media shows; the checks prove. */
 export function EvidenceSection({ feed, job }: { feed: Feed<JobEvidenceRow>; job: JobRow }) {
   const { rows } = useFeed(feed);
   const line = jobEvidenceLine(job);
   const head = shownDecision(job)?.headSha ?? null;
+  const media = parseAssessment(job.merge_assessment)?.media ?? [];
   const attemptRows = rows.filter((r) => r.attempt === job.attempt);
-  if (!line && attemptRows.length === 0) return null;
+  if (!line && attemptRows.length === 0 && media.length === 0) return null;
+  // The PR head's checks lead; the rest follow newest first, as the feed has them.
+  const ordered = [...attemptRows].sort((x, y) => Number(y.sha === head) - Number(x.sha === head));
   return (
-    <>
-      <Separator />
-      <section className="flex flex-col gap-2.5 px-4.5 py-3.5 text-sm">
-        <h3 className="text-sm font-medium text-muted-foreground">Evidence</h3>
-        {line && <EvidenceLine line={line} className="text-sm" />}
-        {attemptRows.length === 0 && <p className="text-muted-foreground">No checks were reported for this attempt yet.</p>}
+    <section aria-label="Evidence" className="flex flex-col gap-2.5 px-4.5 py-3.5 text-sm">
+      <h3 className="flex items-baseline justify-between gap-2 text-sm font-medium text-muted-foreground">
+        Evidence
+        {job.pr_url && <span className="text-xs font-normal text-muted-foreground">attached to the PR</span>}
+      </h3>
+      {media.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <h4 className="text-xs font-medium text-muted-foreground">Media</h4>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
+            {media.map((m, i) => {
+              const src = mediaUrl(job.key, i, job.assessment_event_id);
+              const phase = mediaPhase(m.file);
+              return (
+                <figure key={`${i}:${m.file}`} className="flex min-w-0 flex-col gap-1">
+                  {mediaKind(m.file) === "video" ? (
+                    <video src={src} controls preload="metadata" className="aspect-video w-full rounded-md border bg-muted" />
+                  ) : (
+                    <a href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border bg-muted">
+                      {/* An owner-only image behind the session; next/image would fetch it without the cookie. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={src} alt={m.caption} loading="lazy" className="aspect-video w-full object-cover object-top" />
+                    </a>
+                  )}
+                  <figcaption className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                    {phase && <Badge variant={phase === "before" ? "error" : "success"}>{phase === "before" ? "Before" : "After"}</Badge>}
+                    {m.caption}
+                  </figcaption>
+                </figure>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {line && <EvidenceLine line={line} className="text-sm" />}
+      {attemptRows.length === 0 && <p className="text-muted-foreground">No checks were reported for this attempt yet.</p>}
+      {ordered.length > 0 && (
         <ol className="flex flex-col gap-3">
-          {attemptRows.map((row) => (
-            <li key={row.sha} className="flex flex-col gap-1.5">
-              <div className="flex flex-wrap items-baseline gap-x-2">
-                <span className="font-mono text-xs">{shortSha(row.sha)}</span>
-                {head === row.sha && <span className="text-xs text-muted-foreground">PR head</span>}
-                <span className="ml-auto text-xs text-faint">
-                  <Time date={row.recorded_at} />
-                </span>
-              </div>
-              <p className={cn("text-xs", row.clean ? "text-muted-foreground" : "text-warning")}>{provenance(row)}</p>
-              <ul className="flex flex-col gap-1">
-                {row.checks.map((check, i) => (
-                  <CheckItem key={`${check.name}-${i}`} check={check} />
-                ))}
-              </ul>
-            </li>
-          ))}
+          <CommitRow row={ordered[0]} head={head} first />
         </ol>
-      </section>
-    </>
+      )}
+      {ordered.length > 1 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground">Earlier commits · {ordered.length - 1}</summary>
+          <ol className="mt-2 flex flex-col gap-3">
+            {ordered.slice(1).map((row) => (
+              <CommitRow key={row.sha} row={row} head={head} />
+            ))}
+          </ol>
+        </details>
+      )}
+    </section>
+  );
+}
+
+function CommitRow({ row, head, first }: { row: JobEvidenceRow; head: string | null; first?: boolean }) {
+  return (
+    <li className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-mono text-xs">
+          {first ? `factory-verify · ${shortSha(row.sha)} · ${row.clean ? "clean tree" : "uncommitted changes"}` : shortSha(row.sha)}
+        </span>
+        {head === row.sha && <span className="text-xs text-muted-foreground">PR head</span>}
+        <span className="ml-auto text-xs text-faint">
+          <Time date={row.recorded_at} />
+        </span>
+      </div>
+      <p className={cn("text-xs", row.clean ? "text-muted-foreground" : "text-warning")}>{provenance(row)}</p>
+      <ul className="flex flex-col gap-1">
+        {row.checks.map((check, i) => (
+          <CheckItem key={`${check.name}-${i}`} check={check} />
+        ))}
+      </ul>
+    </li>
   );
 }
 
