@@ -28,6 +28,10 @@ These are CI jobs (`.github/workflows/`), and `.sstack/project.toml` `verify` ru
 
 `package.json`, `bun.lock`, `vercel.json` and `.github/**` are held for the owner. A feature plan adds no dependency. If the work seems to need one, stop and ask; there is usually a Node built-in (`node:crypto`, `node:util`) or an installed package that covers it. `scripts/contrast-regressions.ts` documents the one place a transitive install is used and why.
 
+## Client components
+
+A `"use client"` file may import types from `lib/` but not values from a module that pulls in `node:crypto`, the database or Bun. `lib/creds.ts`, `lib/pool-accounts.ts` and `lib/toml-patch.ts` are such modules (L141, L152, L178). Inline the small rule, move it to a pure module, or pass the function in as a parameter, as `lib/workflow-edits.ts` takes the patcher. A `"use server"` file in `app/actions/` exports only async functions; types, constants and helpers live in `lib/` (L172).
+
 ## Exhaustive types
 
 - A new `InboxKind` updates every `Record<InboxKind, ...>` in `lib/inbox.ts` and its siblings (L67).

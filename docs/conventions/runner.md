@@ -21,6 +21,7 @@ Every file, git and T3 action for a job goes through `JobHost` (`lib/host.ts`: `
 - `T3CODE_CLI_PATH` (set by the LaunchAgent) names the `t3` binary, else `t3` on PATH (`lib/host.ts`).
 - **Env set on `t3 thread start` does not reach the agent.** `startThread` (`lib/t3-client.ts`, called from `runner/launch.ts`) runs the `t3` CLI through `host.run`; an `env` option there (`ExecOptions.env` in `lib/exec.ts`) would only affect that CLI process. The agent is spawned by the long-lived T3 server, which started earlier with its own environment. So `SSTACK_UNATTENDED`, `SSTACK_PLAN_GATE` or any other variable set that way never arrives (accepted lesson L174).
 - To change how sstack behaves for one job, write **the job worktree's** `.sstack/local/config.toml`. `.sstack/local/` is git-ignored, so nothing leaks into the PR. Hive-wide defaults live in the runner's `~/.sstack/config.toml` (`runner/sstack-defaults.ts`).
+- `modalHost.run` (`lib/modal-host.ts`) **ignores** `ExecOptions.env`, so an `env` passed to `host.run` is silently dropped for a sandbox job. Forward it to Modal's `exec` `env` option and cover it in `scripts/launch-regressions.ts` (L176).
 - Sandboxes are different: Modal secrets and the sandbox's own env are real process environment (`runner/sandbox.ts`, `lib/modal-secrets.ts`) and never pass through the runner's logs. Anything the agent needs that is not a sstack setting goes in a Modal secret or the launch message (`runner/ops.ts` builds it).
 - Before assuming any delivery channel, run it: start a thread that prints `env`.
 
@@ -37,10 +38,10 @@ Every file, git and T3 action for a job goes through `JobHost` (`lib/host.ts`: `
 - Code that calls T3, Linear, GitHub or ingest goes through guarded helpers so regressions throw (`lib/test-mode.ts`).
 - Semgrep (`.github/workflows/semgrep.yml`) blocks `new RegExp(variable)` (use a static regex; L91) and AES-GCM without `authTagLength: 16` on both cipher and decipher (L40).
 
-## Matching threads, transcripts and heartbeats
+## Matching children to usage, and heartbeats
 
-- Match a child's Claude transcript or Codex rollout by the brief text named in `<worktree>/<run_dir>/run.json` `.brief`, not by time (`runner/sstack-lineage.ts`; L98, L113). Search every `~/.claude/projects/*` folder (L103). A Codex rollout's first user item is an injected AGENTS.md: read the text before the first assistant reply (L109).
-- A headless child matches no transcript: keep its stored tokens, show "—" (L99). Model `unknown` means no usable usage, so do not overwrite (L100).
+- sstack logs each ended child to `<worktree>/.sstack/runs/index.jsonl` with a `session: {id, kind}`. `runner/sstack-lineage.ts` reads a child's cost **only** from that session, never by time or by text in the brief (accepted direction in L140, which replaced the brief-text matching of L98, L103, L109 and L113; do not restore it).
+- For a `t3-thread` child, resolve the provider session through `nativeSessionOf` in `lib/t3-client.ts`. A claude or codex session whose kind equals its harness is used as recorded. Ids that fail `SAFE_ID`, belong to a `runs` row, or resolve to model `unknown` have no usable usage, so the child keeps its stored tokens and shows "—". So do pi and other children.
 - A new heartbeat field goes into `collectHeartbeat` (`runner/heartbeat.ts`), the schema in `lib/machine.ts` and the facts line in `components/panel/machines.tsx` together (L105).
 - Re-patching `~/.sstack/config.toml` keeps the runner's local `[overnight]` table (`patch()` from `lib/toml-patch.ts`; L106). Resolve the root with `realpath`, refuse symlinks, and make rollback unable to throw (L118).
 

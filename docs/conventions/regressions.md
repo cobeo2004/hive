@@ -10,6 +10,7 @@ TEST_DATABASE_URL=postgres://localhost:5432/postgres bun run test:regressions [n
 ```
 
 - `scripts/test-branch.ts` creates `hive_test_<time>_<rand>` on that server, migrates it, runs each script against it, and drops it. The role needs CREATEDB. Run one script with its name prefix (`... ingest`).
+- Run one script as `bun run test:regressions <name>`, the name as a separate argument; a quoted `"test:regressions contrast"` makes bun look for a script of that whole name (L124). `scripts/test-branch.ts` only runs files ending `-regressions.ts` whose name starts with the prefix, so put new checks in the script the brief names rather than a new file (L147).
 - Run the **full** suite in the foreground with output redirected to a log file. A background run hides the failing script's name (L29).
 - CI sets `REGRESSIONS_SKIP=playbook` (`.github/workflows/ci.yml`) until R13 rewrites `playbook-regressions.ts`. Locally, expect only that script to fail. Any other failure is yours.
 
@@ -25,6 +26,7 @@ TEST_DATABASE_URL=postgres://localhost:5432/postgres bun run test:regressions [n
 - Fakes: `threads` in `runner/threads.ts`, the fake pulls in `lib/github/pulls.ts`, `scripts/fake-modal.ts`. Add a Slack API call and you update all three fake Slacks: `slack-regressions`, `slack-actions-regressions`, `slack-source-regressions` (L5). Their default `{ok:true}` branch hides the new call.
 - Slack lookups are cached per process, misses included (`slackIds` in `runner/slack.ts`). Give each case that needs a lookup its own new user (L48).
 - Git fixtures use a real bare `origin` and have `commit()` push to it, not `update-ref` (L60). Pass `-c core.autocrlf=false` when the test checks exact file text (L53).
+- Stub `ingestClient.post` (run the event schema, write to the test database, restore in `finally`) before any case where `inferUntracked` posts an event (L129). Scope new cases in a block or use fresh names: a duplicate top-level `const` stops the whole script (L155).
 - Restore every stub in `try/finally`. A case added later must not see an earlier stub (L111).
 - `lib/linear` cannot be imported statically in a script that is not on the ESLint allowlist (`eslint.config.mjs`). Prefer testing through `sourceFor`; the dynamic-import workaround is for tests only (L31).
 

@@ -19,6 +19,8 @@ Applies to `app/(panel)/**`, `app/layout.tsx`, `app/globals.css`, `components/**
 
 Every text and background pair in both themes reads at 4.5:1 or better. `scripts/contrast-regressions.ts` enforces it by compiling `app/globals.css` with Tailwind and reading the result through lightningcss, never regexes (L93, L115). After touching a token run `TEST_DATABASE_URL=... bun run test:regressions contrast`, and prove the gate by temporarily lightening `--muted-foreground` and seeing it fail.
 
+- Use Tailwind's custom-property syntax for Hive tokens: `bg-(--primary-soft)`, `bg-(--lime) text-(--on-lime)`. Never reference a `--tw-*` variable in your own CSS (L145). The contrast gate also rejects `!important` that a bare `@import "tailwindcss"` compile does not emit, `@keyframes` or `@property` at any depth, and any custom property declared outside the scope and theme layers (L123, L130, L133).
+
 ## Data and rendering
 
 - Server components read rows; `components/panel/live-refresh.tsx` follows the SSE stream (`/api/live`) and calls `router.refresh()`. That is the live model. Do not add SWR, polling or client caches.
@@ -35,13 +37,13 @@ Every text and background pair in both themes reads at 4.5:1 or better. `scripts
 ## Live check (required for any visible change)
 
 1. `bun run dev` (needs `.env.local` with a database and `BETTER_AUTH_SECRET`), open the page in the T3 Code browser (`preview_*` tools) or a device.
-2. Sign in with a seeded admin: `bun scripts/setup-token.ts`, then `update two_factor set verified = true` (L32).
+2. Sign in with a seeded admin through the real flow: `bun scripts/setup-token.ts`, then `update two_factor set verified = true` (L32). Seeded users need `@unibuz.com.au` emails, or `createLink` refuses them (L165).
 3. Board cards render only with a `runs` row on a `hive/` branch (L45).
 4. Wait on `domcontentloaded` plus a selector. Never `networkidle`: the SSE stream keeps a connection open (L46).
 
 ## Media
 
-A UI PR needs `media/before-<x>.png` and `media/after-<x>.png` pairs, or `media/no-before.md` for a new screen (L42). Capture headless with `playwright-core` and the cached chromium (L33), not "screenshot timed out" (L85). A `skip.md` waiver does not satisfy a UI change.
+A UI PR needs `media/before-<x>.png` and `media/after-<x>.png` pairs, or `media/no-before.md` for a new screen (L42). Capture headless with `playwright-core`, giving it an explicit `executablePath` to the cached `chromium_headless_shell-*` under `~/Library/Caches/ms-playwright` (L33, L166), and serve the panel on a port other agents do not hold: check with `lsof -iTCP:<port> -sTCP:LISTEN` (L167). "Screenshot timed out" is not evidence (L85), and a `skip.md` waiver (for example "no signed-in admin") does not satisfy a UI change (L179).
 
 ## Why
 
