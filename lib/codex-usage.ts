@@ -45,7 +45,6 @@ const tokenCount = z.object({
   }),
 });
 
-// An `error` event carries a machine code (codex_error_info), not just message text.
 const taskEvent = z.object({
   type: z.literal("event_msg"),
   payload: z.object({ type: z.enum(["task_started", "task_complete", "error"]), codex_error_info: z.unknown().optional() }),

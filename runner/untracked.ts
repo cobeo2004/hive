@@ -2,6 +2,7 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { db } from "../db/client";
 import { jobs } from "../db/schema";
 import type { Stage } from "../lib/events";
+import { RATE_LIMITED } from "../lib/creds";
 import { attemptBranch } from "../lib/factory";
 import type { RepoName } from "../lib/github/app";
 import { github } from "../lib/github/pulls";
@@ -9,6 +10,7 @@ import { hosts, isHibernated } from "../lib/host";
 import { parseJobs } from "../lib/sources";
 import type { Job } from "../lib/sources/types";
 import { causeOf, runnerEventId } from "../lib/stages";
+import { rateLimitedRun } from "./account-usage";
 import { bindingOf } from "./binding";
 import { thisMachine } from "./heartbeat";
 import { config, harnessDrivers, IN_FLIGHT, jobTracked, postEvent, postMerged, threads, watchdogFail } from "./ops";
@@ -74,7 +76,10 @@ async function inferJob(job: Job, now: number): Promise<string | undefined> {
   const settled = settledAs(thread.status);
   switch (settled) {
     case "failed":
-      return (await watchdogFail(job, `its T3 thread failed (stage ${job.stage})`)) ? "failed" : undefined;
+      // R10a: this pass runs before the watchdog, so it reads the provider's rate-limit signal too.
+      return (await watchdogFail(job, `${(await rateLimitedRun(job, hosts.forJob(job))) ? RATE_LIMITED : "its T3 thread failed"} (stage ${job.stage})`))
+        ? "failed"
+        : undefined;
     case "completed":
     case "interrupted":
       if (job.pr_url) {

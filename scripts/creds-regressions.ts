@@ -120,8 +120,9 @@ try {
     return got === "wait" ? got : got?.id;
   };
   const stamp = async (thread: string, branch: string, accountId: string) => {
-    const at = new Date();
-    await db.insert(runs).values({ session_id: `creds-${thread}`, job_key: keys.a, branch, t3_thread_id: thread, started_at: at, last_event_at: at });
+    await db
+      .insert(runs)
+      .values({ session_id: `creds-${thread}`, job_key: keys.a, branch, t3_thread_id: thread, started_at: new Date(), last_event_at: new Date() });
     await recordRunAccount(keys.a, thread, accountId);
   };
   const ranOn = () => db.select({ branch: runs.branch, account: runs.account_id }).from(runs).where(eq(runs.job_key, keys.a)).orderBy(runs.branch);
@@ -138,17 +139,13 @@ try {
   const pool = config.factory.pool;
   await meter("creds-pool", 95);
   pool.pauseInstead = true;
-  try {
-    assert.equal(await idOf(keys.a), "wait", "1.4: pool at its threshold with pauseInstead on waits");
-  } finally {
-    pool.pauseInstead = false;
-  }
+  assert.equal(await idOf(keys.a), "wait", "1.4: pool at its threshold with pauseInstead on waits");
+  pool.pauseInstead = false;
 
   // 1.3: after a rate limit the next attempt skips every account that already ran the job.
   await meter("creds-a", 10);
   await meter("creds-pool", 10);
-  const limited = (stage: string) => `Watchdog stopped this run: ${RATE_LIMITED} (stage ${stage}).`;
-  await failed(2, limited("implementing"));
+  await failed(2, `Watchdog stopped this run: ${RATE_LIMITED} (stage implementing).`);
   assert.equal(await idOf(keys.a), "creds-pool", "1.3: the owner's account just rate-limited, so the next attempt runs on the pool's");
   await stamp("t-2", "hive/CRD-1-a2", "creds-pool");
   const ran = (await ranOn()).map((r) => `${r.branch}:${r.account}`);

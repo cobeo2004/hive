@@ -13,6 +13,8 @@ const { rateLimitRuntime } = await import("../runner/account-usage");
 const { transcriptRateLimited } = await import("../lib/transcript");
 const { parseRollout } = await import("../lib/codex-usage");
 const { relaunchRateLimited } = await import("../runner/inbox");
+const { inferUntracked } = await import("../runner/untracked");
+const { github } = await import("../lib/github/pulls");
 const { pinnedVersions } = await import("../lib/sandbox");
 const { sandboxHarness, sandboxRuntime } = await import("../runner/sandbox");
 const { jobId, sourceFor } = await import("../lib/sources");
@@ -592,51 +594,51 @@ try {
     .values({ id: rlAccount, owner_id: null, provider: "claude", kind: "subscription", label: rlAccount, sealed: seal("t", newKeyPair().publicKey) });
   const now = new Date();
   await db.insert(runRows).values({ session_id: `${rl}-s`, job_key: rl, branch: `hive/${rl}`, account_id: rlAccount, started_at: now, last_event_at: now });
-  const settled = { state: threads.state, signal: rateLimitRuntime.signal };
   let text = transcript(say("Tests failed: expected HTTP 429, received 200."));
   threads.state = async (threadId) => (threadId === "mcp:rl" ? "stopped" : "running");
   rateLimitRuntime.signal = async () => transcriptRateLimited(text);
-  try {
+  await watchdog();
+  assert.equal((await db.select().from(jobs).where(eq(jobs.key, rl)))[0]!.stage, "implementing", "a stopped thread with no provider signal is not failed");
+  text = transcript({ type: "user" }, hit);
+  // The failure row is written before the event posts, which a regression cannot do.
+  await assert.rejects(watchdog(), /deployed ingest function/);
+
+  // 1.3 on an untracked harness: inference fails a failed thread before the watchdog sees it, so it reads the signal too.
+  github.pullRequestForBranch = async () => null;
+  threads.read = async () => ({ state: "stopped", status: "failed", lastMessage: null });
+  for (const signal of [false, true]) {
+    const cx = `${id}-cx${signal}`;
+    await db
+      .insert(jobs)
+      .values(linearJob(cx, cx, { stage: "implementing", provider: "codex", t3_thread_id: `t-${cx}`, machine_id: TEST_MACHINE_ID, stage_at: new Date(0) }));
+    await db.insert(runRows).values({ session_id: `${cx}-s`, job_key: cx, branch: `hive/${cx}`, account_id: rlAccount, started_at: now, last_event_at: now });
+    rateLimitRuntime.signal = async () => signal;
+    await inferUntracked({ only: [cx] });
     await watchdog();
-    assert.equal((await db.select().from(jobs).where(eq(jobs.key, rl)))[0]!.stage, "implementing", "a stopped thread with no provider signal is not failed");
-    text = transcript({ type: "user" }, hit);
-    // The failure row is written before the event posts, which a regression cannot do.
-    await assert.rejects(watchdog(), /deployed ingest function/);
-  } finally {
-    threads.state = settled.state;
-    rateLimitRuntime.signal = settled.signal;
+    const retried: string[] = [];
+    await relaunchRateLimited((async (jid: string) => (retried.push(jid), {})) as never);
+    const summary = (await db.select().from(jobs).where(eq(jobs.key, cx)))[0]!.stage_summary ?? "";
+    assert.ok(summary.includes(signal ? RATE_LIMITED : "its T3 thread failed"), summary);
+    const want = signal ? [rlJid, jobId("linear", cx)] : [rlJid];
+    assert.deepEqual(retried.filter((j) => j.includes(id)).sort(), want.sort(), "each rate-limited attempt that ran on an account is retried, once");
   }
-  const limited = (await db.select().from(jobs).where(eq(jobs.id, rlJid)))[0]!;
-  assert.equal(limited.stage, "failed", "the rate-limited thread fails at once, with no nudge first");
-  assert.ok(limited.stage_summary?.includes(RATE_LIMITED), limited.stage_summary ?? "");
-  const fakeRetry = async (jobId: string, detail: { attempt: number }) => ({ started: detail.attempt, jobId });
-  assert.deepEqual(
-    await relaunchRateLimited(fakeRetry as never),
-    [{ key: rl, started: 1, jobId: rlJid }],
-    "an attempt that ran on an account is retried, once",
-  );
 
   // 1.4: with the pool at its threshold the job stays queued with no thread, and the summary is written once.
   const waiting = `${id}-wait`;
   await db.insert(jobs).values(linearJob(waiting, waiting, { stage: "queued" }));
   const limits = config.factory.sandbox;
-  const savedRuntime = { ...sandboxRuntime };
   Object.assign(sandboxRuntime, {
     image: () => ({ imageId: "im-test", t3Version: limits.t3Version, versions: pinnedVersions(limits), factoryCommit: "abc", builtAt: "now" }),
     driverOf: (provider: string) => provider,
     account: async () => "wait",
   });
-  try {
-    assert.deepEqual(await launchInSandboxes([entry(waiting)], slot), [], "no thread starts");
-    const held = (await db.select().from(jobs).where(eq(jobs.key, waiting)))[0]!;
-    assert.deepEqual(
-      [held.stage, held.stage_summary, held.t3_thread_id, held.machine_id],
-      ["queued", "Waiting for the team pool", null, null],
-      "1.4: the job stays in its stage and says it waits for the team pool",
-    );
-  } finally {
-    Object.assign(sandboxRuntime, savedRuntime);
-  }
+  assert.deepEqual(await launchInSandboxes([entry(waiting)], slot), [], "no thread starts");
+  const held = (await db.select().from(jobs).where(eq(jobs.key, waiting)))[0]!;
+  assert.deepEqual(
+    [held.stage, held.stage_summary, held.t3_thread_id, held.machine_id],
+    ["queued", "Waiting for the team pool", null, null],
+    "1.4: the job stays in its stage and says it waits for the team pool",
+  );
 
   // 1.5: the harness is never switched to fit the accounts.
   const lead = { provider: "claudeAgent", model: "claude-opus-5-5" };

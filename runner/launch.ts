@@ -472,7 +472,6 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
   let room = limits.maxParallel - (await sandboxesInFlight(slot.id));
   // claude and codex are the job's owner's or pool's accounts (R9a); null means the runner's own login.
   const leases = new Map<string, { marker: string; slot: string | null; choice: HarnessChoice; claude: Account | null; codex: Account | null }>();
-  /** R10a: the job stays queued with no thread; the summary is written once, not every pass. */
   const poolWait = async (key: string) => {
     await db
       .update(jobsTable)

@@ -420,18 +420,15 @@ async function wakeInRoom(row: JobRow, snapshot: string, asleep: SQL | undefined
   const limits = config.factory.sandbox;
   // Like a launch: the owner's or pool's Codex account replaces a slot (errors carry an id or fixed text, never a secret).
   const codex = needsCodexSlot(row.provider) ? await sandboxRuntime.account(row.key, "codex", undefined) : null;
-  // R10a: a pool at its threshold with pauseInstead on holds a wake too; it is tried again on a later tick.
   if (codex === "wait") throw new WakeDeferredError(`${row.key} waits to wake: the team pool is at its threshold`);
   const slot = needsCodexSlot(row.provider) && !codex ? await leaseSlot(asleep, usableSlots(limits)) : null;
   if (slot === undefined) throw new WakeDeferredError(`no free Codex login slot to wake ${row.key}`);
   let sandboxId: string | undefined;
   let claude: Account | null = null;
   try {
-    if (!needsCodexSlot(row.provider)) {
-      const picked = await sandboxRuntime.account(row.key, "claude", sandboxRuntime.claudeToken());
-      if (picked === "wait") throw new WakeDeferredError(`${row.key} waits to wake: the team pool is at its threshold`);
-      claude = picked;
-    }
+    const picked = needsCodexSlot(row.provider) ? null : await sandboxRuntime.account(row.key, "claude", sandboxRuntime.claudeToken());
+    if (picked === "wait") throw new WakeDeferredError(`${row.key} waits to wake: the team pool is at its threshold`);
+    claude = picked;
     const claudeToken = claude?.secret;
     const [repoRow] = await db.select().from(repoSettings).where(eq(repoSettings.repo, row.repo));
     const created = await createJobSandbox({
