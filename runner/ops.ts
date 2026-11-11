@@ -35,6 +35,7 @@ import { confirmStops, stopDelivered } from "./stops";
 import { postEvent } from "./ingest-client";
 import { holdAtPr, rateLimitedRun } from "./account-usage";
 import { recordCodexUsage } from "./codex-usage";
+import { recordSstackLineage } from "./sstack-lineage";
 
 export { ingestClient, postEvent } from "./ingest-client";
 import { threads } from "./threads";
@@ -377,6 +378,7 @@ export async function reconcileUsage({ only }: { only?: string[] } = {}) {
       // A merged or failed job's thread is done, so its subagents are settled.
       const final = stage === "merged" || stage === "failed";
       if (await (isMcpSession(run.session_id) ? recordCodexUsage(run, host, { final }) : reconcileRun(run, host))) fixed.push(run.job_key!);
+      await recordSstackLineage(run, host);
     } catch (error) {
       if (!(error instanceof HostGoneError)) throw error;
       console.log(
