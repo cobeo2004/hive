@@ -386,7 +386,7 @@ export function InboxActions({
           icon={<SendIcon data-icon="inline-start" />}
           disabled={disabled}
           loading={loading("answer")}
-          onSend={(text, clear) => void run("answer", () => answerQuestion(job.id, requestId(), text), "Answer sent.", clear)}
+          onSend={(text, clear) => void run("answer", () => answerQuestion(job.id, requestId(), text, job.stage_event_id), "Answer sent.", clear)}
         />
       )}
       {has("request_changes") && (

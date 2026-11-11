@@ -436,7 +436,7 @@ try {
   const R2 = await insert("R2", { stage: "waiting", question: "Which?", t3_thread_id: "thread-R2", session_id: "session-R2", sandbox_snapshot: "im-snap-r2" });
   archived.add("thread-R2");
   answered.add(R2);
-  await assert.rejects(resumeAnswered(), /deployed ingest function/, "the queued event cannot post in a regression");
+  assert.match((await resumeAnswered()).errors.join(), /deployed ingest function/, "the queued event cannot post in a regression");
   const r2 = await row(R2);
   const sbR2 = [...sandboxes.values()].find((s) => s.spec?.imageId === "im-snap-r2")!;
   assert.ok(sbR2.terminated, "the woken sandbox ends");
@@ -463,7 +463,7 @@ try {
     codex_slot: slotD,
   });
   answered.add(R1);
-  await assert.rejects(resumeAnswered(), /deployed ingest function/);
+  assert.match((await resumeAnswered()).errors.join(), /deployed ingest function/);
   const r1 = await row(R1);
   assert.deepEqual([r1.sandbox_id, r1.codex_slot, r1.t3_thread_id, r1.machine_id], [null, null, null, null], JSON.stringify(r1));
   assert.ok(
@@ -499,7 +499,7 @@ try {
     limits.maxParallel = (await sandboxesInFlight(TEST_MACHINE_ID)) + 1;
     answered.add(A1);
     answered.add(A2);
-    const firstPass = await resumeAnswered();
+    const firstPass = (await resumeAnswered()).resumed;
     const awake = [A1, A2].filter((k) => firstPass.includes(`${k}:sent`));
     const waited = [A1, A2].filter((k) => firstPass.includes(`${k}:wake-deferred`));
     assert.deepEqual([awake.length, waited.length], [1, 1], `one wakes, the other waits: ${JSON.stringify(firstPass)}`);
@@ -511,7 +511,7 @@ try {
       [null, `im-snap-${deferred.slice(2, 4)}`, []],
       "the other stays hibernated with its answer unclaimed",
     );
-    assert.deepEqual(await resumeAnswered(), [`${deferred}:wake-deferred`], "and keeps waiting while the cap is held");
+    assert.deepEqual((await resumeAnswered()).resumed, [`${deferred}:wake-deferred`], "and keeps waiting while the cap is held");
 
     // A launch waits too while the woken sandbox holds the cap.
     const LW = await insert("LW", { stage: "queued", machine_id: null });
@@ -521,7 +521,7 @@ try {
     // Once the woken job's sandbox ends, the other wakes on the next pass.
     await db.update(jobs).set({ stage: "merged" }).where(eq(jobs.key, woke));
     assert.deepEqual(await teardownFinished(), [`${woke}:torn down`]);
-    assert.deepEqual(await resumeAnswered(), [`${deferred}:sent`], "the waiting answer is delivered");
+    assert.deepEqual((await resumeAnswered()).resumed, [`${deferred}:sent`], "the waiting answer is delivered");
     assert.ok((await row(deferred)).sandbox_id && !(await row(deferred)).sandbox_snapshot);
     await db.update(jobs).set({ stage: "merged" }).where(eq(jobs.key, deferred));
     assert.deepEqual(await teardownFinished(), [`${deferred}:torn down`]);

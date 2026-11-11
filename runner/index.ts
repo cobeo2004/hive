@@ -62,6 +62,13 @@ async function writeBackPass() {
   return result;
 }
 
+/** Resumes answered jobs; one that failed is logged and does not hide the ones that went through. */
+async function resumePass() {
+  const pass = await ops.resumeAnswered();
+  for (const error of pass.errors) log("resumeAnswered:failed", { error });
+  return pass;
+}
+
 async function launchAndAnnounce() {
   const launched = await launchQueued(logWorktree);
   const announced = await isolated(ops.announceClaims);
@@ -77,7 +84,7 @@ async function handle(intent: IntentRow) {
       return { stop: await ops.stopJob(intent.job_id!, intent.detail ?? "stopped in its source") };
     case "answer":
       return {
-        resumed: await ops.resumeAnswered(),
+        resumed: await resumePass(),
         ...(await launchAndAnnounce()),
         synced: await writeBackPass(),
       };
@@ -204,7 +211,7 @@ async function tick() {
     outbox: await isolated(flushLocalOutbox),
     claimed: await isolated(() => ops.claim()),
     // An answer can land before its question reached the source, and its intent then finds nothing.
-    resumed: await isolated(ops.resumeAnswered),
+    resumed: await isolated(resumePass),
     // Stops whose webhook never arrived; before deliverStops, so a new stop is messaged this tick.
     stopsReconciled: await isolated(() => ops.reconcileStops()),
     stopsDelivered: await isolated(() => ops.deliverStops()),

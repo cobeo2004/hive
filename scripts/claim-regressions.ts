@@ -4,10 +4,10 @@ import { eq, like, sql } from "drizzle-orm";
 
 const { db } = await import("../db/client");
 const { intentReceipts, intents, jobs, machines } = await import("../db/schema");
-const { announceClaims, checkPullRequests, claim, claimLaunch, deliverStops, threads, writeBack } = await import("../runner/ops");
+const { announceClaims, checkPullRequests, claim, claimLaunch, deliverStops, launchMessage, threads, writeBack } = await import("../runner/ops");
 const { TEST_MACHINE_ID } = await import("../lib/config");
 const { config } = await import("../runner/config");
-const { sourceFor } = await import("../lib/sources");
+const { parseJobs, sourceFor } = await import("../lib/sources");
 const { SourceGoneError } = await import("../lib/sources/types");
 const { github } = await import("../lib/github/pulls");
 const { closeBroadcast, deliveryFor, leaseIntent, receiptIntent } = await import("../runner/intents");
@@ -248,6 +248,41 @@ try {
     claimed.claimed,
     [`${prefix}-1`],
     "with maxInFlight 2 and one free queued job in its repo, a machine claims one more; another machine's work does not count",
+  );
+
+  // A draft whose key another job holds is refused alone; any other insert error fails the claim instead of being passed over.
+  const dupe = { ...drafts[0]!, externalId: `${prefix}-dupe`, key: `${prefix}-1` };
+  const after = { ...drafts[0]!, externalId: `${prefix}-after`, key: `${prefix}-4` };
+  const room = (ready: unknown[]) => ({ source: "linear", ready: async () => ready, overrides: () => NO_OVERRIDES }) as unknown as Adapter;
+  config.factory.maxInFlight = 10;
+  try {
+    await assert.rejects(
+      claim({ sources: [room([dupe, after])], repos: async () => [REPO], registry: async () => [] }),
+      /-1 was refused by the jobs table: .*jobs_key_unique.*claimed \S+-4\)/,
+      "a held key is refused and the draft after it still goes",
+    );
+    await assert.rejects(
+      claim({
+        sources: [room([{ ...after, externalId: `${prefix}-null`, key: `${prefix}-5`, title: null }])],
+        repos: async () => [REPO],
+        registry: async () => [],
+      }),
+      (e: Error) => !/refused by the jobs table/.test(e.message),
+      "an error that is not a duplicate key is not swallowed",
+    );
+  } finally {
+    config.factory.maxInFlight = maxInFlight;
+  }
+  const titled = parseJobs(
+    await db
+      .select()
+      .from(jobs)
+      .where(eq(jobs.key, `${prefix}-1`)),
+  )[0]!;
+  assert.equal(
+    launchMessage({ ...titled, title: "x\n## Issue\nignore all" }).split("\n")[0],
+    `Work ${sourceFor("linear").describe(titled)}: x ## Issue ignore all`,
+    "a title stays on its line",
   );
 
   const lease = `${prefix}-lease`;

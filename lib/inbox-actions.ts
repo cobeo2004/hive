@@ -195,13 +195,19 @@ export async function fileFollowUp(deps: InboxDeps, jobId: JobId, requestId: str
   return { ok: true, intentId: null, message: `Filed ${filed.identifier}. The factory picks it up as a new job.` };
 }
 
-/** Answers the job's question in its source as a reply, then asks its runner to resume it. */
-export async function answerQuestion(deps: InboxDeps, jobId: JobId, requestId: string, body: string): Promise<InboxOutcome> {
+/**
+ * Answers the job's question in its source as a reply, then asks its runner to resume it. A form
+ * that sends the question's event id is refused once the job has asked another question, so a late
+ * answer never lands on the next one.
+ */
+export async function answerQuestion(deps: InboxDeps, jobId: JobId, requestId: string, body: string, questionEvent?: string | null): Promise<InboxOutcome> {
   if (badRequest(requestId)) return { ok: false, message: "The request is not valid." };
   const text = feedbackSchema.safeParse(body);
   if (!text.success) return { ok: false, message: "Write an answer." };
   const found = await ownerJob(deps, jobId, "answer");
   if (!found.ok) return found;
+  if (questionEvent !== undefined && questionEvent !== found.job.stage_event_id)
+    return { ok: false, message: "This question changed since you opened it. Reload the inbox and look again." };
   return replyAndResume(deps, found, requestId, text.data);
 }
 
