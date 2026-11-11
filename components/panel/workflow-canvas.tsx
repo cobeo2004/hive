@@ -48,6 +48,7 @@ export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; 
   const [error, setError] = useState("");
   const [edits, setEdits] = useState<Edit[]>([]); // the step panel's field edits, kept here so Save sees them
   const [raw, setRaw] = useState<Record<string, string>>({}); // files edited as text
+  const [reset, setReset] = useState(0);
   const current = useMemo(() => Object.fromEntries(Object.entries(specs).map(([k, s]) => [k, { ...s, after: after[k] ?? s.after }])), [specs, after]);
   const order = chain(current);
   const diff = diffLines(specs, after);
@@ -60,7 +61,8 @@ export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; 
     setError("");
     setAfter((a) => ({ ...a, ...res.after }));
   };
-  const cancel = () => (setEdits([]), setRaw({}), setAfter({}), setError(""));
+  // bumping reset remounts the step panel, so its uncontrolled inputs (defaultValue/defaultChecked) fall back to the saved values
+  const cancel = () => (setEdits([]), setRaw({}), setAfter({}), setError(""), setReset((n) => n + 1));
   // arrow keys move between the tabs, as a tablist does
   const arrows = (e: KeyboardEvent) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
@@ -140,7 +142,7 @@ export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; 
                   <div role="tabpanel" id="step-tabpanel" aria-labelledby={`step-tab-${tab}`} className="min-h-0 flex-1 p-3 md:overflow-y-auto">
                     {tab === "settings" ? (
                       <WorkflowStepPanel
-                        key={selected}
+                        key={`${selected}:${reset}`}
                         files={files}
                         specs={current}
                         name={selected}

@@ -194,7 +194,8 @@ function Flow({ files, specs, canEdit, selected, onSelect, onMove, cover }: Prop
       nodes={shown}
       edges={edges}
       nodeTypes={nodeTypes}
-      onNodesChange={onNodesChange}
+      onNodesChange={(changes) => onNodesChange(changes.filter((c) => c.type !== "remove"))} // editing never deletes a step
+      deleteKeyCode={null}
       fitView
       fitViewOptions={FIT}
       minZoom={0.4}
