@@ -664,11 +664,15 @@ async function claimDrafts(
           setWhere: draft.reclaimIf ? and(canReclaimSql, draft.reclaimIf) : canReclaimSql,
         })
         .returning({ key: jobs.key })
-        .catch(async () => {
+        .catch(async (error: unknown) => {
+          // Only a unique violation (another job holds the key) is this draft's own; anything else fails the claim, as it did before.
+          const cause = (error as { cause?: { code?: string; message?: string } }).cause;
+          if (cause?.code !== "23505") throw error;
           await tx.execute(sql`rollback to savepoint draft`);
-          refused.push(`${source.source} ${draft.key} was refused by the jobs table (does another job hold its key?)`);
+          refused.push(`${source.source} ${draft.key} was refused by the jobs table: ${cause.message}`);
           return [];
         });
+      await tx.execute(sql`release savepoint draft`);
       if (inserted.length === 0) continue;
       inFlight++;
       claimed.push(draft.key);
@@ -692,7 +696,7 @@ export async function announceClaims() {
 export function launchMessage(job: Job) {
   const ownerNote = ownerNoteSection(job);
   return [
-    `Work ${sourceFor(job.source).describe(job)}: ${job.title}`,
+    `Work ${sourceFor(job.source).describe(job)}: ${job.title.replace(/[\r\n\u2028\u2029]+/g, " ")}`,
     job.url,
     "",
     "This is an unattended Hive run. Follow the factory playbook named under Factory playbook at the end of this message. Report every stage with the report_stage tool, never ask in this thread, never merge yourself: end with a merge assessment and the factory decides. Before you report pr, run factory-verify on the commit you pushed (the report_stage reply for verifying names the command); the factory merges only a head whose checks passed there.",

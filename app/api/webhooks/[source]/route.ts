@@ -3,7 +3,8 @@ import { db } from "@/db/client";
 import { intents, jobs, webhookDeliveries } from "@/db/schema";
 import { isJobSource, sourceFor } from "@/lib/sources";
 import type { JobSource } from "@/lib/sources/types";
-import { githubIntent, githubPushIntent, verifyGithub, type IntentDraft } from "@/lib/webhooks";
+import { linearSettings } from "@/lib/linear-settings";
+import { githubIntent, githubIssueIntent, githubPushIntent, verifyGithub, type IntentDraft } from "@/lib/webhooks";
 
 export const runtime = "nodejs";
 
@@ -62,7 +63,8 @@ async function githubWebhook(request: Request) {
   const event = request.headers.get("x-github-event") ?? "?";
   if (!deliveryId) return Response.json({ error: "missing X-GitHub-Delivery" }, { status: 400 });
   const body = JSON.parse(raw) as unknown;
-  return Response.json(await record("github", deliveryId, event, body, [githubIntent(event, body), githubPushIntent(event, body)]));
+  const issue = event === "issues" || event === "issue_comment" ? githubIssueIntent(event, body, (await linearSettings(db)).label) : null;
+  return Response.json(await record("github", deliveryId, event, body, [githubIntent(event, body), githubPushIntent(event, body), issue]));
 }
 
 /** Linear and GitHub deliveries. The proxy lets them through; each source's signature is the check. */

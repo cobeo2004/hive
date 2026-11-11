@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { FeedbackDetail } from "./inbox";
-import type { JobId } from "./sources/shapes";
+import { type JobId, jobId } from "./sources/shapes";
 
 export const hmacHex = (secret: string, body: string) => createHmac("sha256", secret).update(body).digest("hex");
 
@@ -111,6 +111,29 @@ export function githubPushIntent(event: string, body: unknown): IntentDraft | nu
     ...((partial || files.length > PUSH_FILES_MAX) && { truncated: true }),
   };
   return { kind: "repo_push", key: `repo-push:${push.repository.full_name}:${push.after ?? push.ref}`, detail: JSON.stringify(detail) };
+}
+
+const githubIssueSchema = z.object({
+  action: z.string(),
+  repository: z.object({ full_name: z.string() }),
+  issue: z.object({ number: z.number().int(), pull_request: z.unknown().optional() }),
+  label: z.object({ name: z.string() }).optional(),
+  comment: z.object({ user: z.object({ type: z.string() }).nullable() }).optional(),
+});
+
+/** An issue opened or given the Hive label wakes a claim; a person's new comment wakes the resume of a waiting job. ready() and replies() decide. */
+export function githubIssueIntent(event: string, body: unknown, label: string): IntentDraft | null {
+  if (event !== "issues" && event !== "issue_comment") return null;
+  const parsed = githubIssueSchema.safeParse(body);
+  if (!parsed.success) return null;
+  const { action, repository, issue, label: named, comment } = parsed.data;
+  if (issue.pull_request) return null;
+  if (event === "issues")
+    return action === "opened" || action === "reopened" || (action === "labeled" && named?.name.toLowerCase() === label.toLowerCase())
+      ? { kind: "claim" }
+      : null;
+  if (action !== "created" || !comment?.user || comment.user.type === "Bot") return null;
+  return { kind: "answer", jobId: jobId("github", `${repository.full_name}#${issue.number}`) };
 }
 
 /** What a GitHub delivery means: a merged PR, a person's review to forward, or a push to the default branch that may cause conflicts. */
