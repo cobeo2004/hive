@@ -302,109 +302,34 @@ assert.deepEqual(
 );
 
 // --- what a PR must not edit
-for (const command of ["bun --silent run verify-ci", "bun run --silent verify-ci", "bun --cwd . run verify-ci"])
-  assert.equal(
-    trustedEdits({ files: ["package.json"], required: null, verify: [command], base: { "verify-ci": "false" }, head: { "verify-ci": "true" } }).length,
-    1,
-    `flags don't hide the script a verify command runs: ${command}`,
-  );
-const flip = (verify: string[], name = "format:check") =>
-  trustedEdits({ files: ["package.json"], required: null, verify, base: { [name]: "false" }, head: { [name]: "true" } });
-for (const command of ['bun run format:""check', 'bun run "format:check"', "bun run 'format':check"]) {
-  const reasons = flip([command]);
-  assert.equal(reasons.length, 1, `quoting doesn't hide the script: ${command}`);
-  assert.match(reasons[0]!, /scripts\.format:check/);
-}
-assert.match(flip(["bun run lint && bun run typecheck"], "lint")[0]!, /scripts\.lint\./, "a compound command is split");
-const hiveScripts = { lint: "eslint .", dev: "next dev", "format:check": "prettier --check ." };
-const hiveEdit = (name: string) =>
-  trustedEdits({ files: ["package.json"], required: null, verify: hiveVerify, base: hiveScripts, head: { ...hiveScripts, [name]: "true" } });
-assert.match(hiveEdit("lint")[0]!, /scripts\.lint\./, "this repo's verify list sees lint");
-assert.deepEqual(hiveEdit("dev"), [], "and not dev");
-for (const command of ["bun run $X", "bun run `x`", "bun run $(echo test)", "bun run a\nbun run b", 'bun run "fmt:*"', 'bun run "unterminated']) {
-  const reasons = flip([command], "x");
-  assert.equal(reasons.length, 1, `unreadable: ${JSON.stringify(command)}`);
-  assert.match(reasons[0]!, /can't be read to tell which scripts it runs/);
-}
-assert.deepEqual(
-  trustedEdits({ files: ["src/a.ts"], required: null, verify: ["bun run $X"], base: {}, head: {} }),
-  [],
-  "an unreadable command only matters when package.json is edited",
-);
-assert.match(flip(["echo test"], "test")[0]!, /scripts\.test\./, "over-matching only hands over more");
-for (const command of ['sh -c "bun run verify-ci"', 'concurrently "bun run ci:lint" "bun run ci:unit"']) {
-  const reasons = flip([command], command.includes("concurrently") ? "ci:unit" : "verify-ci");
-  assert.equal(reasons.length, 1, `a quoted subcommand is followed: ${command}`);
-  assert.match(reasons[0]!, /scripts\.(verify-ci|ci:unit)\./);
-}
-{
-  const ciBase = { ci: 'concurrently "bun run ci:lint" "bun run ci:unit"', "ci:lint": "eslint .", "ci:unit": "vitest" };
-  const reasons = trustedEdits({
-    files: ["package.json"],
-    required: null,
-    verify: ["bun run ci"],
-    base: ciBase,
-    head: { ...ciBase, "ci:lint": "true" },
-  });
-  assert.equal(reasons.length, 1, "a script that fans out through quotes");
-  assert.match(reasons[0]!, /scripts\.ci:lint\./);
-}
-for (const command of ["bun run format:{check,}", "bun run format:{check,check}"]) {
-  const reasons = flip([command]);
-  assert.equal(reasons.length, 1, `brace expansion can't be read: ${command}`);
-  assert.match(reasons[0]!, /can't be read to tell which scripts it runs/);
-}
-{
-  const life = (base: Record<string, string>, head: Record<string, string>) =>
-    trustedEdits({ files: ["package.json"], required: null, verify: ["bun run verify-ci"], base, head });
-  const added = life({ "verify-ci": "vitest" }, { "verify-ci": "vitest", "preverify-ci": "exit 0" });
-  assert.equal(added.length, 1, "a head-only pre script runs implicitly");
-  assert.match(added[0]!, /scripts\.preverify-ci\./);
-  const post = life({ "verify-ci": "vitest", "postverify-ci": "vitest" }, { "verify-ci": "vitest", "postverify-ci": "true" });
-  assert.equal(post.length, 1, "a changed post script runs implicitly");
-  assert.match(post[0]!, /scripts\.postverify-ci\./);
-}
-{
-  const reasons = trustedEdits({ files: ["packages/app/package.json"], required: null, verify: [], base: {}, head: {} });
-  assert.deepEqual(reasons, ["The pull request edits a nested package.json (packages/app/package.json), whose scripts the factory can't compare."]);
-}
 const scripts = (over: Record<string, string> = {}) => ({ test: "vitest", lint: "eslint .", dev: "next dev", ...over });
-const recipeChecks = [{ name: "test" as const, command: "bun run test" }];
-const edits = (
-  files: string[],
-  base: Record<string, string> | null = scripts(),
-  head: Record<string, string> | null = scripts(),
-  required: typeof recipeChecks | null = recipeChecks,
-) => trustedEdits({ files, required, base, head });
+const edits = (files: string[], base: Record<string, string> | null = scripts(), head: Record<string, string> | null = scripts()) =>
+  trustedEdits({ files, base, head });
 assert.deepEqual(edits(["src/a.ts"]), [], "an ordinary change");
 assert.match(edits([".factory/setup.json"])[0]!, /edits the recipe the factory trusts: \.factory\/setup\.json/, "the recipe");
 assert.match(edits([".github/workflows/ci.yml"])[0]!, /edits CI workflows \(\.github\/workflows\/ci\.yml\)/, "a workflow");
 assert.deepEqual(
   edits(["package.json"], scripts(), scripts({ test: "true" })),
-  ["The pull request edits the check scripts the factory trusts: package.json scripts.test."],
-  "the script a check runs",
+  ["The pull request edits the package.json scripts the factory's checks run through: package.json scripts.test."],
+  "a changed script",
 );
-assert.deepEqual(edits(["package.json"], scripts(), scripts({ dev: "vite" })), [], "a script no check uses");
+// Deliberate: no command parsing, so any script change hands over, even `dev` that no check names.
+assert.match(edits(["package.json"], scripts(), scripts({ dev: "vite" }))[0]!, /scripts\.dev\./, "any script, used by a check or not");
+assert.match(edits(["package.json"], scripts(), { ...scripts(), build: "true" })[0]!, /scripts\.build\./, "an added script");
+assert.match(edits(["package.json"], scripts(), { test: "vitest", lint: "eslint ." })[0]!, /scripts\.dev\./, "a removed script");
+assert.match(edits(["package.json"], scripts(), scripts({ "preverify-ci": "true" }))[0]!, /scripts\.preverify-ci\./, "a head-only lifecycle script");
+assert.match(edits(["package.json"], scripts({ postinstall: "a" }), scripts({ postinstall: "b" }))[0]!, /scripts\.postinstall\./, "a changed lifecycle script");
+assert.match(
+  edits(["package.json"], scripts(), scripts({ zeta: "1", alpha: "1", b: "1", c: "1", d: "1", e: "1", f: "1" }))[0]!,
+  /scripts\.alpha, package\.json scripts\.b, .*scripts\.e and 2 more\./,
+  "sorted, at most 5 listed",
+);
 assert.deepEqual(edits(["package.json"]), [], "a package.json change outside scripts, such as dependencies");
-const chained = { test: "bun run unit", unit: "vitest" };
-assert.match(edits(["package.json"], scripts(chained), scripts({ ...chained, unit: "true" }))[0]!, /scripts\.unit\./, "a script the used script calls counts");
-assert.match(
-  edits(["package.json"], scripts(), scripts({ lint: "true" }), null)[0]!,
-  /scripts\.lint\./,
-  "without a recipe the scripts named like the checks count",
-);
 assert.match(edits(["package.json"], scripts(), null)[0]!, /couldn't be compared/, "an unreadable head is a handover, not a pass");
-const noBuild = { test: "vitest" };
-assert.match(
-  edits(["package.json"], noBuild, { ...noBuild, build: "true" }, null)[0]!,
-  /scripts\.build\./,
-  "without a recipe, a check script the head adds counts",
-);
-assert.match(
-  edits(["package.json"], scripts(chained), scripts({ ...chained, test: "bun run unit && bun run extra", extra: "true" }))[0]!,
-  /scripts\.extra, package\.json scripts\.test\./,
-  "a script the head adds and a used script calls counts",
-);
+assert.match(edits(["package.json"], null, scripts())[0]!, /couldn't be compared/, "an unreadable base too");
+assert.deepEqual(edits(["packages/app/package.json"]), [
+  "The pull request edits a nested package.json (packages/app/package.json), whose scripts the factory can't compare.",
+]);
 
 const summary = (over: Record<string, unknown> = {}) =>
   parseSummary({

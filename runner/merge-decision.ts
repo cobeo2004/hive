@@ -89,12 +89,12 @@ async function attemptEvidence(job: Job): Promise<EvidenceRow[]> {
 }
 
 /** Whether the PR edits what the trusted checks depend on; package.json is read at the base branch and at the head only when the PR touches it. */
-async function changedTrust(job: Job, detail: { headSha: string; baseRef: string }, pr: PrFacts, { required, verify }: Trusted) {
+async function changedTrust(job: Job, detail: { headSha: string; baseRef: string }, pr: PrFacts) {
   const files = pr.files.map((f) => f.path);
   const [base, head] = files.includes("package.json")
     ? await Promise.all([detail.baseRef, detail.headSha].map((ref) => github.fileAt(job.repo as RepoName, "package.json", ref).then(scriptsOf, () => null)))
     : [null, null];
-  return trustedEdits({ files, required, verify, base, head });
+  return trustedEdits({ files, base, head });
 }
 
 const sameEvidence = (a: HeadEvidence | undefined, b: HeadEvidence) => JSON.stringify(a) === JSON.stringify(b);
@@ -129,7 +129,7 @@ async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | 
     evidence,
     runner,
     browser: job.execution === "modal",
-    trustEdits: await changedTrust(job, detail, pr, trusted),
+    trustEdits: await changedTrust(job, detail, pr),
   });
   return { decision, headSha: detail.headSha, headSeenAt, review: reviewSummary(pr), evidence, runner };
 }
