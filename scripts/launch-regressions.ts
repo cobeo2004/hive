@@ -6,7 +6,8 @@ import type { JobHost } from "../lib/host";
 import type { LaunchPlan } from "../runner/overrides";
 
 const { db } = await import("../db/client");
-const { agentAccounts, jobs, repoSstackConfig, runs: runRows } = await import("../db/schema");
+const { agentAccounts, jobs, linearOptIns, repoSstackConfig, runs: runRows, user } = await import("../db/schema");
+const { explicitGate, launchEnv, planGate } = await import("../lib/plan-gate");
 const { bindThread, claimLaunch, config, deliverStops, pendingLaunches, reconcileStops, releaseLaunch, threads, watchdog } = await import("../runner/ops");
 const { newKeyPair, RATE_LIMITED, seal } = await import("../lib/creds");
 const { rateLimitRuntime } = await import("../runner/account-usage");
@@ -29,10 +30,43 @@ const { canReclaim, canReclaimSql, stopDeliverable, stopDeliverableSql } = await
 const { and, sql } = await import("drizzle-orm");
 const { launchEntries, maybeStarted, MaybeStartedError, mobileRepos, parseThreadId, placeMobile, startThread } = await import("../runner/launch");
 const { launchInSandboxes } = await import("../runner/launch");
+const { startThread: t3ClientStart } = await import("../lib/t3-client");
 const { isMobileSnapshot } = await import("../lib/execution");
 const { hosts, localHost } = await import("../lib/host");
 const { everyAtMost, serialQueue } = await import("../runner/queue");
 const { recheckScheduler } = await import("../runner/recheck");
+
+assert.equal(planGate({ optIn: true, explicit: undefined, autonomy: "auto" }), "inbox");
+assert.equal(planGate({ optIn: false, explicit: "auto", autonomy: "trial" }), "auto");
+assert.equal(planGate({ optIn: false, explicit: undefined, autonomy: "trial" }), "inbox");
+assert.equal(planGate({ optIn: false, explicit: undefined, autonomy: "off" }), "inbox");
+assert.equal(planGate({ optIn: false, explicit: undefined, autonomy: "auto" }), "auto");
+assert.equal(planGate({ optIn: false, explicit: "bogus", autonomy: "auto" }), "auto");
+assert.equal(explicitGate({ ".sstack/config.toml": '[unattended]\nplan_gate = "inbox"' }), "inbox");
+assert.equal(explicitGate({ ".sstack/config.toml": '[unattended]\nplan_gate = "bogus"' }), undefined);
+assert.equal(explicitGate({ ".sstack/config.toml": "[invalid" }), undefined);
+assert.equal(explicitGate({}), undefined);
+
+const gateUser = `plan-gate-${Date.now()}`;
+const gateRepo = `${gateUser}/repo`;
+try {
+  await db.insert(user).values({ id: gateUser, name: gateUser, email: `${gateUser}@example.com` });
+  await db.insert(linearOptIns).values({ user_id: gateUser, plan_approval: true, updated_at: new Date() });
+  await db.insert(repoSstackConfig).values({
+    repo: gateRepo,
+    files: { ".sstack/config.toml": '[unattended]\nplan_gate = "auto"\n' },
+    sha: "test",
+    read_at: new Date(),
+  });
+  assert.deepEqual(await launchEnv(gateUser, gateRepo, "auto"), { SSTACK_UNATTENDED: "1", SSTACK_PLAN_GATE: "inbox" });
+  assert.deepEqual(await launchEnv(null, gateRepo, "trial"), { SSTACK_UNATTENDED: "1", SSTACK_PLAN_GATE: "auto" });
+  assert.deepEqual(await launchEnv(null, `${gateRepo}-missing`, "off"), { SSTACK_UNATTENDED: "1", SSTACK_PLAN_GATE: "inbox" });
+  assert.deepEqual(await launchEnv(null, `${gateRepo}-missing`, "auto"), { SSTACK_UNATTENDED: "1", SSTACK_PLAN_GATE: "auto" });
+} finally {
+  await db.delete(linearOptIns).where(eq(linearOptIns.user_id, gateUser));
+  await db.delete(user).where(eq(user.id, gateUser));
+  await db.delete(repoSstackConfig).where(eq(repoSstackConfig.repo, gateRepo));
+}
 
 const slot = { id: TEST_MACHINE_ID, repos: ["ski043/factory-demo"], maxInFlight: 2 };
 const sent: { threadId: string; message: string }[] = [];
@@ -288,6 +322,21 @@ try {
     ],
     "the launch runs t3 thread start on the job's host, with the message on stdin and the harness as flags",
   );
+  calls.length = 0;
+  const launchEnvVars = { SSTACK_UNATTENDED: "1", SSTACK_PLAN_GATE: "inbox" };
+  await t3ClientStart(fake, {
+    project: "/sandbox/repo",
+    message: "Work FAC-1",
+    worktree: "origin/main",
+    branch: "hive/FAC-1",
+    title: "FAC-1 Title",
+    provider: "codex",
+    model: "gpt-5.5",
+    env: launchEnvVars,
+  });
+  // The deep-equal above narrows `calls` to the no-env call, so read the host's record un-narrowed.
+  const [envCall] = calls as { command: string; args: string[]; options?: ExecOptions }[];
+  assert.deepEqual(envCall?.options?.env, launchEnvVars, "the launch passes SSTACK_UNATTENDED and the plan gate to t3 thread start");
   calls.length = 0;
   assert.equal(await realThreads.state("mcp:fake", fake), "stopped", "an idle thread whose worktree the host has is stopped");
   assert.deepEqual(calls, [{ command: "/sandbox/t3", args: ["thread", "show", "mcp:fake", "--json"], options: { timeoutMs: 20_000 } }]);

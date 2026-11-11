@@ -16,7 +16,8 @@ import { PENDING } from "./binding";
 import { thisMachine } from "./heartbeat";
 import type { JobSource } from "../lib/sources/types";
 import { isMobileSnapshot, type Execution } from "../lib/execution";
-import type { HarnessChoice } from "../lib/settings";
+import { launchEnv } from "../lib/plan-gate";
+import { resolvePolicy, type HarnessChoice } from "../lib/settings";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { jobs as jobsTable, repoSstackConfig, type RepoSettingsRow } from "../db/schema";
@@ -66,8 +67,16 @@ export function parseThreadId(stdout: string) {
   }
 }
 
-export async function startThread(host: JobHost, repo: string, branch: string, title: string, message: string, { provider, model }: HarnessChoice) {
-  return parseThreadId(await t3Start(host, { project: repo, message, worktree: "origin/main", branch, title, provider, model }));
+export async function startThread(
+  host: JobHost,
+  repo: string,
+  branch: string,
+  title: string,
+  message: string,
+  { provider, model }: HarnessChoice,
+  env?: Record<string, string>,
+) {
+  return parseThreadId(await t3Start(host, { project: repo, message, worktree: "origin/main", branch, title, provider, model, env }));
 }
 
 /** T3 prepares the worktree after start returns; wait for it and confirm it sits on fresh origin/main. */
@@ -178,6 +187,8 @@ export type LaunchEntry = {
   /** The harness this job's plan chose; a sandbox may still map it to one it has. */
   harness: HarnessChoice;
   ticket: TicketRecord | null;
+  /** The job's owner (jobs.owner_id); none means no plan opt-in (Q2). */
+  owner?: string | null;
 };
 
 /** Runs once a launch holds the job, before its thread starts. */
@@ -298,7 +309,7 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
         // The claim routed the job already; a Repository label that could not apply is told like any other fallback.
         const routed = routeRepo(asked, registry).problem;
         const ticket = routed ? { ...plan.ticket, notes: [routed, ...(plan.ticket?.notes ?? [])] } : plan.ticket;
-        planned.push({ ...entry, harness: plan.harness, ticket, execution: plan.execution });
+        planned.push({ ...entry, owner: job.owner_id, harness: plan.harness, ticket, execution: plan.execution });
         break;
       }
       case "wait":
@@ -319,7 +330,7 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
   const { local, modal } = splitByExecution(planned);
   return [
     ...recovered,
-    ...(local.length > 0 ? await launchLocal(local, checkouts, slot, claimed, onWorktree) : []),
+    ...(local.length > 0 ? await launchLocal(local, checkouts, slot, claimed, registry, onWorktree) : []),
     ...(modal.length > 0 ? await launchInSandboxes(modal, slot, claimed, registry) : []),
   ];
 }
@@ -330,6 +341,7 @@ async function launchLocal(
   checkouts: ReadonlyMap<string, string>,
   slot: LaunchSlot,
   claimed: Claimed,
+  registry: Registry,
   onWorktree: (check: Record<string, unknown>) => void,
 ) {
   const byKey = new Map(pending.map((entry) => [entry.key, entry]));
@@ -351,7 +363,8 @@ async function launchLocal(
       const host = hosts.forJob(entry);
       const checkout = checkouts.get(entry.repo)!;
       const message = await withPlaybook(await withLocalImages(entry.source, entry.key, entry.message), "local", host, checkout);
-      return startThread(host, checkout, entry.branch, entry.threadTitle, message, entry.harness);
+      const env = await launchEnv(entry.owner, entry.repo, resolvePolicy(registry, entry.repo).autonomy);
+      return startThread(host, checkout, entry.branch, entry.threadTitle, message, entry.harness, env);
     },
     bind: bindThread,
     release: releaseLaunch,
@@ -597,7 +610,8 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
         host,
         REPO_DIR,
       );
-      const threadId = await startThread(host, REPO_DIR, entry.branch, entry.threadTitle, message, ran);
+      const env = await launchEnv(entry.owner, entry.repo, resolvePolicy(registry, entry.repo).autonomy);
+      const threadId = await startThread(host, REPO_DIR, entry.branch, entry.threadTitle, message, ran, env);
       // The thread is running: a failure to note its account must not undo the launch.
       await recordRunAccount(entry.key, threadId, (needsCodexSlot(ran.provider) ? lease.codex : lease.claude)?.id ?? null).catch((error: unknown) =>
         accountError("sandbox:run-account-failed", entry.key, error),
