@@ -311,11 +311,17 @@ export function pullsClient({ api, tokens }: { api: string; tokens: TokenSource 
       return { state: stateOf(pull), mergeable: mergeableOf(pull.mergeable), headSha: pull.head.sha, baseRef: pull.base.ref };
     },
 
-    /** A file's text at a branch or commit, or null when it has none there. */
+    /**
+     * A regular file's text at a branch or commit; null when there is none at exactly that path. The contents API follows a
+     * symlink to its target (answering with the target's `path`) and returns a listing, a symlink, or a submodule for the rest,
+     * so only `type: "file"` at the requested path counts: a link would otherwise compare equal while its target changes.
+     */
     async fileAt(repo: RepoName, path: string, ref: string): Promise<string | null> {
       const { status, json } = await request(repo, "GET", `/repos/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`, { allow: [404] });
       if (status === 404) return null;
-      return Buffer.from(z.object({ content: z.string() }).parse(json).content, "base64").toString("utf8");
+      const file = z.object({ content: z.string(), path: z.string(), type: z.string() }).safeParse(json);
+      if (!file.success || file.data.type !== "file" || file.data.path !== path.replace(/^\/+/, "")) return null;
+      return Buffer.from(file.data.content, "base64").toString("utf8");
     },
 
     async pullFiles(url: string): Promise<ChangedFile[]> {

@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appCredentials, appJwt, installationTokens, readAppFile, tokenSource } from "../lib/github/app";
 import { github, parsePullUrl, pullsClient } from "../lib/github/pulls";
+import { scriptsOf } from "../lib/trusted-checks";
 import { serve } from "./serve";
 
 const { privateKey: pem, publicKey } = generateKeyPairSync("rsa", {
@@ -121,6 +122,16 @@ const stub = await serve(0, async (request) => {
     return Response.json({ ...merging, permissions: { admin: false, maintain: false, push: false, triage: true, pull: true } });
   if (url.pathname === "/repos/o/writer") return Response.json({ ...merging, permissions: { push: true, pull: true } });
   if (url.pathname === "/repos/o/no-permissions") return Response.json(merging);
+  const text = Buffer.from('{"scripts":{"test":"x"}}').toString("base64");
+  const contents: Record<string, unknown> = {
+    "package.json": { type: "file", path: "package.json", content: text },
+    "linked.json": { type: "file", path: "pkg.json", content: text },
+    "symlink.json": { type: "symlink", path: "symlink.json", content: text },
+    "module.json": { type: "submodule", path: "module.json", content: text },
+    dir: [{ type: "file", path: "dir/a.json", name: "a.json" }],
+  };
+  const content = /^\/repos\/o\/r\/contents\/(.+)$/.exec(url.pathname)?.[1]?.replace(/^\/+/, "");
+  if (content !== undefined) return content in contents ? Response.json(contents[content]) : Response.json({ message: "Not Found" }, { status: 404 });
   const pull = /^\/repos\/o\/r\/pulls\/(\d+)(\/merge)?$/.exec(url.pathname);
   if (pull && !pull[2]) return pulls[Number(pull[1])] ? Response.json(pulls[Number(pull[1])]) : Response.json({ message: "Not Found" }, { status: 404 });
   if (pull && request.method === "PUT") {
@@ -207,6 +218,20 @@ try {
   assert.deepEqual(await client.pullRequestForBranch("o/r", "hive/FAC-2"), { url: url(2), state: "open" }, "an open PR wins over a merged one");
   assert.deepEqual(await client.pullRequestForBranch("o/r", "hive/FAC-1"), { url: url(3), state: "merged" }, "else the merged one; a closed one never counts");
   assert.equal(await client.pullRequestForBranch("o/r", "hive/FAC-3"), null, "a branch with only a closed PR has none");
+
+  assert.equal(await client.fileAt("o/r", "package.json", "main"), '{"scripts":{"test":"x"}}', "a regular file at the requested path is its text");
+  assert.equal(await client.fileAt("o/r", "/package.json", "main"), '{"scripts":{"test":"x"}}', "a leading slash is not a different path");
+  assert.equal(await client.fileAt("o/r", "absent.json", "main"), null, "a 404 is no file");
+  for (const [path, why] of [
+    ["linked.json", "a symlink followed to another path"],
+    ["symlink.json", "a symlink"],
+    ["module.json", "a submodule"],
+    ["dir", "a directory listing"],
+  ] as const) {
+    assert.equal(await client.fileAt("o/r", path, "main"), null, `${why} is not a file at that path`);
+  }
+  // Either side unreadable hands over (scriptsOf(null) is null, which trustedEdits reports as "couldn't be compared").
+  assert.equal(scriptsOf(await client.fileAt("o/r", "linked.json", "main")), null, "so a symlinked package.json can't be compared");
 
   assert.deepEqual(await client.mergePull(url(1), "h1"), { kind: "merged", sha: "merge-sha" }, "200 is merged");
   assert.deepEqual(await client.mergePull(url(2), "h2"), { kind: "not_mergeable", message: "Pull Request is not mergeable" }, "405 is not mergeable");
