@@ -2,13 +2,13 @@
 
 import { EllipsisIcon, ExternalLinkIcon, XIcon } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Menu, MenuItem, MenuLinkItem, MenuPopup, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import type { AgentRow, AuditRow, EventRow, JobEvidenceRow, JobRow, MachineRow, RunRow } from "@/db/schema";
 import { sandboxState } from "@/lib/execution";
 import { harnessLabel, type Harness } from "@/lib/harness";
@@ -27,6 +27,7 @@ import { AuditLog } from "./audit-log";
 import { formatUsd, runCost, runTitle, shortId } from "./format";
 import { MergeButton } from "./merge-button";
 import { MergeDecisionSection } from "./merge-decision";
+import { canMessageThread, MessageThread } from "./message-thread";
 import { ModelChip } from "./model-chip";
 import { OpenSandboxT3, useSandboxT3 } from "./open-sandbox-t3";
 import { SandboxSection } from "./sandbox-section";
@@ -172,6 +173,13 @@ function StopBanner({ job, t3Href }: { job: JobRow; t3Href: string | null }) {
   );
 }
 
+// ponytail: restyles the headings and first separator of sections we do not edit (audit-log, sandbox-section) from outside.
+const Panel = ({ children }: { children: ReactNode }) => (
+  <div className="overflow-hidden rounded-xl border bg-card text-sm empty:hidden [&>[data-slot=separator]:first-child]:hidden [&>section>h3]:text-base [&>section>h3]:font-semibold [&>section>h3]:text-foreground">
+    {children}
+  </div>
+);
+
 export function RunDetail({
   run,
   agents,
@@ -230,7 +238,7 @@ export function RunDetail({
       ? { label: machineName ? `Open in T3 on ${machineName}` : "Open in T3", href: t3ThreadLink(run.t3_thread_id, environmentId) }
       : null;
 
-  const summary = (
+  const header = (
     <>
       <div className="flex flex-col gap-2.5 px-4.5 py-4">
         <div className="flex items-center justify-between gap-2 font-mono text-xs text-faint">
@@ -311,53 +319,58 @@ export function RunDetail({
           <p className="mt-1 whitespace-pre-wrap">{run.question}</p>
         </div>
       )}
-      {job && job.t3_thread_id && !sandboxed && WATCHABLE_STAGES.includes(job.stage) && (
-        <DeviceView jobKey={job.key} takenAt={frame?.initialData[0]?.taken_at} recording={eventRows.some((e) => e.kind === "recording")} />
-      )}
-      {job && <MergeDecisionSection job={job} />}
-      {job && evidence && <EvidenceSection feed={evidence} job={job} />}
     </>
   );
+  const live = (
+    <section aria-label="Live" className="flex flex-col gap-3.5 px-4.5 py-3.5">
+      <h3 className="text-sm font-medium text-muted-foreground">Live</h3>
+      <div className="flex flex-wrap gap-4">
+        {job && job.t3_thread_id && !sandboxed && WATCHABLE_STAGES.includes(job.stage) && (
+          <DeviceView jobKey={job.key} takenAt={frame?.initialData[0]?.taken_at} recording={eventRows.some((e) => e.kind === "recording")} />
+        )}
+        <div className="max-h-[430px] min-w-0 flex-[1_1_260px] overflow-auto rounded-lg border bg-muted/40 p-3">
+          <EventFeed events={eventRows} />
+        </div>
+      </div>
+      {job && canMessageThread(job) && <MessageThread job={job} />}
+    </section>
+  );
   const timeline = (
-    <section className="flex flex-col gap-2.5 px-4.5 py-3.5">
+    <section aria-label="Timeline" className="flex flex-col gap-2.5 px-4.5 py-3.5">
       <h3 className="text-sm font-medium text-muted-foreground">Timeline</h3>
       <StageTimeline events={stageRows} />
     </section>
   );
-  const records = audit ? <JobRecords feed={audit} job={job} /> : job && <SandboxSection job={job} audit={[]} />;
-  const activity = (
-    <>
-      <Separator />
-      <section className="flex flex-col gap-2.5 px-4.5 py-3.5">
-        <h3 className="text-sm font-medium text-muted-foreground">Agents · {agentRows.length}</h3>
-        <AgentTree run={run} agents={agentRows} />
-      </section>
-      <Separator />
-      <section className="flex flex-col gap-2.5 px-4.5 py-3.5">
-        <h3 className="text-sm font-medium text-muted-foreground">Live events</h3>
-        <EventFeed events={eventRows} />
-      </section>
-    </>
+  const lineage = (
+    <section aria-label="Lineage" className="flex flex-col gap-2.5 px-4.5 py-3.5">
+      <h3 className="text-sm font-medium text-muted-foreground">Lineage · {agentRows.length}</h3>
+      <AgentTree run={run} agents={agentRows} />
+    </section>
   );
+  const evidencePanel = job && evidence && <EvidenceSection feed={evidence} job={job} />;
+  const merge = job && <MergeDecisionSection job={job} />;
+  const records = audit ? <JobRecords feed={audit} job={job} /> : job && <SandboxSection job={job} audit={[]} />;
 
   if (fullView.full) {
     return (
-      <aside aria-label="Run details" className="flex min-h-0 min-w-0 flex-col bg-card">
-        <div className="min-h-0 flex-1 max-lg:overflow-y-auto lg:grid lg:grid-cols-2 lg:grid-rows-1 lg:divide-x">
-          <ScrollArea className="max-lg:h-auto">
-            <div className="mx-auto w-full max-w-3xl">
-              {summary}
-              {records}
+      <aside aria-label="Run details" className="flex min-h-0 min-w-0 flex-col bg-background">
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4">
+            {header}
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="flex min-w-0 flex-col gap-4">
+                <Panel>{live}</Panel>
+                <Panel>{evidencePanel}</Panel>
+              </div>
+              <div className="flex min-w-0 flex-col gap-4">
+                <Panel>{timeline}</Panel>
+                <Panel>{lineage}</Panel>
+                <Panel>{merge}</Panel>
+                <Panel>{records}</Panel>
+              </div>
             </div>
-          </ScrollArea>
-          <ScrollArea className="max-lg:h-auto">
-            <div className="mx-auto w-full max-w-3xl">
-              <Separator className="lg:hidden" />
-              {timeline}
-              {activity}
-            </div>
-          </ScrollArea>
-        </div>
+          </div>
+        </ScrollArea>
       </aside>
     );
   }
@@ -365,11 +378,15 @@ export function RunDetail({
   return (
     <aside aria-label="Run details" className="flex min-h-0 flex-col border-l bg-card">
       <ScrollArea className="min-h-0 flex-1">
-        {summary}
-        <Separator />
-        {timeline}
-        {records}
-        {activity}
+        {header}
+        <div className="flex flex-col gap-3 p-3.5">
+          <Panel>{live}</Panel>
+          <Panel>{evidencePanel}</Panel>
+          <Panel>{timeline}</Panel>
+          <Panel>{lineage}</Panel>
+          <Panel>{merge}</Panel>
+          <Panel>{records}</Panel>
+        </div>
       </ScrollArea>
     </aside>
   );

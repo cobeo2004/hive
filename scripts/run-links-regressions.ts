@@ -1,5 +1,7 @@
 import "./test-guard";
 import assert from "node:assert/strict";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { jobsHref } from "../components/panel/job-view";
 import { activityHref, fullViewHref, parseSessionId } from "../lib/run-links";
 
@@ -34,6 +36,89 @@ for (const query of [sessionAgentsQuery(CODEX), sessionEventsQuery(CODEX), sessi
   assert.deepEqual(await load<unknown>(query), { initialData: [] }, `a run feed reads ${CODEX}`);
 }
 assert.deepEqual(await runJob(CODEX), { jobKey: undefined, jobId: undefined });
+
+// --- Run detail (R25d): what shows where, and who may message the thread
+const { canMessageThread } = await import("../components/panel/message-thread");
+const { mediaPhase } = await import("../components/panel/evidence");
+const { RunDetail } = await import("../components/panel/run-detail");
+const T = new Date(1_800_000_000_000);
+const SHA = "a".repeat(40);
+const D = { outcome: "handover", reasons: [], autonomy: "auto", evaluatedAt: T.toISOString(), headSha: SHA, headSeenAt: null, stageEventId: null };
+const REVERT = {
+  ...D,
+  merged: { sha: "m", method: "squash", at: T.toISOString(), base: "main", title: "t", commits: 1 },
+  watch: { state: "revert_failed", until: T.toISOString(), failed: ["ci"], revertPr: null, reason: "x" },
+};
+const media = [
+  { file: "before-a.png", caption: "was" },
+  { file: "after-a.png", caption: "now" },
+];
+const assessment = { recommendation: "merge", interpretation: "Read it", assumptions: [], confidence: { confident: true }, media };
+const job = (over: object) =>
+  ({
+    id: "linear:FAC-1",
+    source: "linear",
+    key: "FAC-1",
+    url: "https://x/FAC-1",
+    title: "Fix it",
+    stage: "implementing",
+    stage_at: T,
+    updated_at: T,
+    dismissed_at: null,
+    archived_at: null,
+    attempt: 1,
+    assessment_event_id: "ev1",
+    ...over,
+  }) as never;
+const running = job({ t3_thread_id: "th1", merge_decision: D, merge_assessment: assessment });
+const handover = job({ stage: "pr", pr_url: "https://x/pr/1", merge_decision: D });
+const reverted = job({ stage: "merged", merge_decision: REVERT });
+assert.equal(canMessageThread(running), false, "a running job has no message box");
+assert.equal(canMessageThread(handover), false, "a handover is answered by approve, changes or close, not a follow-up");
+assert.equal(canMessageThread(reverted), true, "a failed revert can file a follow-up");
+assert.equal(canMessageThread(job({ stage: "merged", merge_decision: REVERT, dismissed_at: new Date(T.getTime() + 1) })), false, "a dismissed one is gone");
+for (const [file, phase] of Object.entries({ "before-home.png": "before", "after-x.mp4": "after", "shot.png": null, "xbefore-1.png": null }))
+  assert.equal(mediaPhase(file), phase, file);
+const feed = (...rows: object[]) => ({ initialData: rows as never[] });
+const stage = { eventId: "e1", sessionId: "s1", at: T.getTime(), kind: "stage", stage: "implementing", summary: "Working" };
+const agent = {
+  tool_use_id: "t1",
+  role: "implement",
+  harness: "claude",
+  model: "m",
+  status: "completed",
+  started_at: T,
+  ended_at: new Date(T.getTime() + 30_000),
+};
+const evidence = { job_key: "FAC-1", sha: SHA, attempt: 1, clean: true, producer: "runner", source: "package", checks: [], recorded_at: T };
+const audit = { id: "au1", action: "merge_requested", result: "ok", head_sha: SHA, at: T, actor: OWNER, detail: null };
+const run = { session_id: "s1", job_key: "FAC-1", status: "active", stage: "implementing", model: "m", t3_thread_id: "th1" } as never;
+const render = (j: never, full: boolean) =>
+  renderToStaticMarkup(
+    createElement(RunDetail, {
+      run,
+      job: j,
+      closeHref: "/x",
+      harnesses: [],
+      jobSpend: undefined,
+      machine: undefined,
+      fullView: { full, toggleHref: "/x" },
+      audit: feed(audit),
+      frame: feed({ taken_at: T }),
+      agents: feed(agent),
+      evidence: feed(evidence),
+      events: feed({ event_id: "e0", at: T, kind: "stage", payload: stage, refusal: null }),
+      stages: feed({ event_id: "e1", at: T, kind: "stage", payload: stage, refusal: null }),
+    }),
+  );
+const view = render(running, true);
+const shown = ["Live", "Evidence", "Timeline", "Lineage", "Merge decision", "Audit log", "The agent&#x27;s device screen", "Before", "After", "factory-verify"];
+for (const text of shown) assert.ok(view.includes(text), `the run detail shows ${text}`);
+assert.ok(!view.includes("Message the thread"), "a running job gets no message box");
+assert.ok(render(reverted, false).includes("Message the thread"), "a failed revert gets the message box");
+assert.ok(!render(handover, false).includes("Message the thread"), "a handover gets none");
+assert.doesNotMatch(render(reverted, false).match(/<textarea[^>]*>/)?.[0] ?? "disabled", /disabled/, "an idle message box is editable");
+for (const html of [view, render(reverted, false), render(handover, false)]) assert.doesNotMatch(html, /take over|switch to android|\btap\b/i);
 
 console.log("run links regressions passed");
 process.exit(0);

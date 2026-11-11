@@ -46,7 +46,7 @@ export function StageTimeline({ events }: { events: readonly EventRow[] }) {
     return <p className="text-muted-foreground">No stage reported yet.</p>;
   }
   return (
-    <ol className="ml-1.5 flex flex-col">
+    <ol className="ml-1.5 flex flex-col text-sm">
       {steps(reports).map(({ key, stage, event, refusal, state }) => (
         <li
           key={key}
@@ -74,9 +74,9 @@ export function StageTimeline({ events }: { events: readonly EventRow[] }) {
             )}
           </div>
           {event?.answer && !refusal ? (
-            <blockquote className="mt-1 border-l-2 border-success/60 pl-2 whitespace-pre-wrap text-muted-foreground">{event.answer}</blockquote>
+            <blockquote className="mt-1 border-l-2 text-xs border-success/60 pl-2 whitespace-pre-wrap text-muted-foreground">{event.answer}</blockquote>
           ) : (
-            event && <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{refusal ?? event.question ?? event.summary}</p>
+            event && <p className="mt-0.5 text-xs whitespace-pre-wrap text-muted-foreground">{refusal ?? event.question ?? event.summary}</p>
           )}
         </li>
       ))}
