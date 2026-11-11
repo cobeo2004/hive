@@ -8,6 +8,7 @@ import { SourceGoneError, type Job, type JobDraft, type JobId, type JobSource, t
 import { canTransition, runnerEventId } from "../lib/stages";
 import { subagentTranscripts, sumUsage, transcriptPathFor } from "../lib/transcript";
 import { checkoutRepo, cleanupRepo, cleanupSubagentWorktrees } from "../lib/worktrees";
+import { sweepMedia } from "./cleanup";
 import { github } from "../lib/github/pulls";
 import { claimConflict, conflictMessage, unclaimedRunsWithPr } from "../lib/conflicts";
 import { attemptBranch, isJobKey, isMcpSession } from "../lib/factory";
@@ -712,10 +713,13 @@ export async function cleanup(dryRun = false) {
       }
     }
   }
+  // ponytail: runs with the hourly cleanup; the sweep is idempotent, so a daily timer adds nothing.
+  const mediaSwept = await sweepMedia({ dryRun }).catch((error: unknown) => (errors.push({ repo: "*", step: "media", error: String(error) }), 0));
   return {
     removed: reports.flatMap((r) => r.removed),
     held: reports.flatMap((r) => r.held),
     archive: reports.flatMap((r) => r.archive),
+    mediaSwept,
     errors,
   };
 }
@@ -815,7 +819,7 @@ export async function finishStop(job: Job) {
   return "stopped";
 }
 
-export type LaunchSlot = { id: string; repos: readonly string[]; maxInFlight: number };
+export type LaunchSlot = { id: string; repos: readonly string[]; maxInFlight: number; maxLocal?: number };
 
 /** The harness new threads start on: the panel's saved settings, else this runner's config. */
 export async function effectiveHarness() {
@@ -831,6 +835,7 @@ export async function launchSettings() {
 /**
  * Marks a queued job as being launched by this machine, as one compare-and-set: false when another
  * launch or machine holds the job, the machine has no checkout of its repo, or the machine is full.
+ * A local claim is also refused when the machine already holds `maxLocal` local jobs.
  * The capacity count is read in the same statement, which holds because one machine runs one
  * runner and its launches run one at a time. The harness, where it runs and the ticket's overrides
  * are recorded with the marker, so a launch that launch recovery binds later still says what it ran on.
@@ -863,6 +868,9 @@ export async function claimLaunch(
         isNull(jobs.machine_id),
         inArray(jobs.repo, [...machine.repos]),
         sql`(select count(*) from jobs held where held.machine_id = ${machine.id} and (held.stage in (${working}) or ${heldStoppingSql})) < ${machine.maxInFlight}`,
+        where?.execution === "local" && machine.maxLocal !== undefined
+          ? sql`(select count(*) from jobs held where held.machine_id = ${machine.id} and held.execution is distinct from 'modal' and (held.stage in (${working}) or ${heldStoppingSql})) < ${machine.maxLocal}`
+          : undefined,
       ),
     )
     .returning({ key: jobs.key });

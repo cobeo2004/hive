@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { startTransition, Suspense, use, useMemo, useOptimistic, useSyncExternalStore, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import type { AgentRow, AuditRow, EventRow, JobEvidenceRow, JobRow, MachineRow, RepoSettingsRow, RunRow } from "@/db/schema";
+import type { AccountMeters } from "@/lib/account-meters";
 import { Board } from "./board";
 import { panelCards } from "./cards";
 import { splitArchived } from "@/lib/archive";
@@ -38,19 +39,21 @@ export type DetailProps = {
   audit: Feed<AuditRow> | undefined;
   /** The job's evidence per commit; present when the run belongs to a job. */
   evidence: Feed<JobEvidenceRow> | undefined;
+  /** The job's latest device frame (R26a); present when the run belongs to a job. */
+  frame: Feed<{ taken_at: Date }> | undefined;
 };
 
 /** The open run: its id right away, its feeds once they load. */
 export type OpenRun = { sessionId: string; data: Promise<DetailProps> };
 
-type LoadedDetailProps = Omit<ComponentProps<typeof RunDetail>, "agents" | "events" | "stages" | "audit" | "evidence"> & {
+type LoadedDetailProps = Omit<ComponentProps<typeof RunDetail>, "agents" | "events" | "stages" | "audit" | "evidence" | "frame"> & {
   data: Promise<DetailProps>;
 };
 
 /** Suspends until the run's feeds arrive, so the page around it never waits for them. */
 function LoadedRunDetail({ data, ...props }: LoadedDetailProps) {
-  const { agents, events, stages, audit, evidence } = use(data);
-  return <RunDetail {...props} agents={agents} events={events} stages={stages} audit={audit} evidence={evidence} />;
+  const { agents, events, stages, audit, evidence, frame } = use(data);
+  return <RunDetail {...props} agents={agents} events={events} stages={stages} audit={audit} evidence={evidence} frame={frame} />;
 }
 
 export type PanelView = "inbox" | "jobs" | "activity";
@@ -176,6 +179,7 @@ export function LivePanel({
   jobView: currentJobView,
   owner: currentOwner,
   me,
+  meters,
   repo: currentRepo,
   archived,
   registry,
@@ -193,6 +197,7 @@ export function LivePanel({
   owner: OwnerView;
   /** Who is looking, for Mine; null when signed out. */
   me: Viewer | null;
+  meters: AccountMeters;
   /** The repo the jobs page and the inbox show, from ?repo or the remembered one; null shows all. */
   repo: string | null;
   /** The jobs page shows the archive, from ?archived=1. */
@@ -342,7 +347,7 @@ export function LivePanel({
         }
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <StatsStrip runs={runRows} agentsBySession={agentsBySession} startOfToday={startOfToday} />
+        <StatsStrip runs={runRows} agentsBySession={agentsBySession} startOfToday={startOfToday} meters={meters} />
         <div className={cn("grid min-h-0 flex-1 grid-cols-1", selectedRun && !runFull && "lg:grid-cols-[minmax(0,1fr)_min(600px,46%)]")}>
           {/* Below lg an open run takes the whole width; closing it brings the page back. The class covers the first paint. */}
           {!runCovers && <div className={cn("contents", selectedRun && "max-lg:hidden")}>{content}</div>}

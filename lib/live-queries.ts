@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, getTableColumns, ne } from "drizzle-orm";
 import { db } from "@/db/client";
-import { agents, auditLog, events, jobEvidence, jobs, machines, runs } from "@/db/schema";
+import { agents, auditLog, deviceFrames, events, jobEvidence, jobs, machines, runs } from "@/db/schema";
 import { isJobKey } from "@/lib/factory";
 import type { JobId } from "@/lib/sources/shapes";
 import { assertMember } from "@/lib/auth/server";
@@ -67,6 +67,9 @@ export const jobEvidenceQuery = (jobKey: string) =>
     .where(eq(jobEvidence.job_key, jobKey))
     .orderBy(desc(jobEvidence.recorded_at), desc(jobEvidence.sha))
     .limit(EVIDENCE_LIMIT);
+
+/** When the job's latest device frame was taken (R26a); the bytes come from the device-frame route. */
+export const deviceFrameQuery = (jobKey: string) => db.select({ taken_at: deviceFrames.taken_at }).from(deviceFrames).where(eq(deviceFrames.job_key, jobKey));
 
 export async function jobIdForKey(jobKey: string) {
   await assertMember();

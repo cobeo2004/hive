@@ -15,9 +15,11 @@ import { listThreads, showThread, startThread as t3Start } from "../lib/t3-clien
 import { PENDING } from "./binding";
 import { thisMachine } from "./heartbeat";
 import type { JobSource } from "../lib/sources/types";
-import type { Execution } from "../lib/execution";
+import { isMobileSnapshot, type Execution } from "../lib/execution";
 import type { HarnessChoice } from "../lib/settings";
-import type { RepoSettingsRow } from "../db/schema";
+import { inArray } from "drizzle-orm";
+import { db } from "../db/client";
+import { repoSstackConfig, type RepoSettingsRow } from "../db/schema";
 import { routeRepo, withRepoDefaults, type Registry } from "../lib/repositories";
 import type { TicketRecord } from "../lib/ticket-overrides";
 import { sourceFor } from "../lib/sources";
@@ -38,7 +40,7 @@ import {
   type LaunchSlot,
 } from "./ops";
 import { loginFailed, noteTokenWritten, retireSandbox, sandboxesInFlight } from "./lifecycle";
-import { announceFallbacks, capabilities, overrideRuntime, planLaunch, splitByExecution } from "./overrides";
+import { announceFallbacks, capabilities, overrideRuntime, planLaunch, splitByExecution, type LaunchPlan } from "./overrides";
 import {
   CodexLoginError,
   createJobSandbox,
@@ -229,6 +231,28 @@ export async function launchEntries(entries: readonly LaunchEntry[], deps: Launc
   return results;
 }
 
+/** Repos whose sstack snapshot asks for mobile tests (R22.1); a repo with no snapshot is not mobile. */
+export async function mobileRepos(repos: readonly string[]) {
+  if (repos.length === 0) return new Set<string>();
+  const rows = await db
+    .select()
+    .from(repoSstackConfig)
+    .where(inArray(repoSstackConfig.repo, [...repos]));
+  return new Set(rows.filter((r) => isMobileSnapshot(r.files)).map((r) => r.repo));
+}
+
+/** A mobile job runs on a pool Mac whatever Settings or its ticket say; one that cannot run locally here waits, never Modal (R22.1). */
+export function placeMobile(plan: LaunchPlan, mobile: boolean, noLocal: string | null): LaunchPlan {
+  if (!mobile || plan.kind !== "launch" || plan.execution === "local") return plan;
+  if (noLocal) return { kind: "wait", reason: `a mobile repo runs only on a pool Mac, and ${noLocal}` };
+  const { ticket } = plan;
+  const flipped =
+    ticket?.execution === "modal"
+      ? { ...ticket, execution: undefined, notes: [...ticket.notes, "This repo runs mobile tests, so it runs on a pool Mac."] }
+      : ticket;
+  return { ...plan, execution: "local", ticket: flipped };
+}
+
 /**
  * Starts a T3 thread for every queued job no machine holds, each where its plan says: on this
  * machine or in a Modal sandbox, with the ticket's overrides over the settings. Each launch is
@@ -245,7 +269,8 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
   if ((await machineInFlight(machine.id)) >= config.factory.maxInFlight) return recovered;
   const queued = (await toLaunch()).filter((entry) => repos.includes(entry.repo));
   if (queued.length === 0) return recovered;
-  const slot = { id: machine.id, repos, maxInFlight: config.factory.maxInFlight };
+  const slot = { id: machine.id, repos, maxInFlight: config.factory.maxInFlight, maxLocal: config.factory.maxLocal };
+  const mobile = await mobileRepos([...new Set(queued.map((q) => q.repo))]);
   const settings = await launchSettings();
   const harnesses = await overrideRuntime.harnesses();
   const can = capabilities();
@@ -263,7 +288,11 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
     const row = registry.find((r) => r.repo === job.repo);
     const image = repoImage(row, null);
     const modal = can.modal ?? (image.kind === "blocked" ? image.reason : null);
-    const plan = planLaunch(asked, defaults, harnesses, { ...can, modal, checkout: checkouts.has(job.repo) });
+    const plan = placeMobile(
+      planLaunch(asked, defaults, harnesses, { ...can, modal, checkout: checkouts.has(job.repo) }),
+      mobile.has(job.repo),
+      !can.local ? "this runner's T3 is not running" : !checkouts.has(job.repo) ? "this runner has no checkout of the repo" : null,
+    );
     switch (plan.kind) {
       case "launch": {
         // The claim routed the job already; a Repository label that could not apply is told like any other fallback.
