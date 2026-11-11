@@ -168,13 +168,15 @@ export async function resumeAnswered() {
     await db
       .select()
       .from(jobs)
-      .where(and(await mine(), eq(jobs.stage, "waiting"))),
+      .where(and(await mine(), eq(jobs.stage, "waiting")))
+      .orderBy(jobs.key),
   );
   const resumed: string[] = [];
-  for (const job of waiting) {
+  // One job whose source refuses (an outage, a gone issue) must not hold back the others; its failure comes back in `errors`.
+  const errors = await eachJob(waiting, async (job) => {
     const source = sourceFor(job.source);
     const plan = await source.replies(job);
-    if (plan.kind === "wait") continue;
+    if (plan.kind === "wait") return;
 
     const now = new Date();
     if (plan.kind === "close") {
@@ -193,7 +195,7 @@ export async function resumeAnswered() {
         })
         .where(and(eq(jobs.id, job.id), eq(jobs.stage, "waiting")));
       resumed.push(`${job.key}:closed`);
-      continue;
+      return;
     }
 
     const replyIds = plan.replies.map((r) => r.id);
@@ -203,7 +205,7 @@ export async function resumeAnswered() {
     });
     if (!host) {
       resumed.push(`${job.key}:wake-deferred`);
-      continue;
+      return;
     }
     const alive = await threadAlive(job.t3_thread_id, host);
     // A fresh thread launches in a fresh sandbox, so the dead one's sandbox, snapshot and slot go
@@ -215,7 +217,7 @@ export async function resumeAnswered() {
     // A dead thread is unlinked in the same update that claims the replies, so the relaunch
     // cannot be lost to a later failure in this pass.
     const relaunch = alive ? undefined : qaBlock(plan.question, plan.answer);
-    if (!(await claimReplies(db, job.id, replyIds, plan.answer, now, relaunch))) continue;
+    if (!(await claimReplies(db, job.id, replyIds, plan.answer, now, relaunch))) return;
 
     if (alive) {
       try {
@@ -246,8 +248,8 @@ export async function resumeAnswered() {
     });
     await source.acknowledgeReplies(job, replyIds);
     resumed.push(`${job.key}:${alive ? "sent" : "relaunch"}`);
-  }
-  return resumed;
+  });
+  return { resumed, errors };
 }
 
 /** Nudges stuck runs once, then fails them; see lib/watchdog.ts for when a run counts as stuck. */
@@ -664,11 +666,15 @@ async function claimDrafts(
           setWhere: draft.reclaimIf ? and(canReclaimSql, draft.reclaimIf) : canReclaimSql,
         })
         .returning({ key: jobs.key })
-        .catch(async () => {
+        .catch(async (error: unknown) => {
+          // Only a unique violation (another job holds the key) is this draft's own; anything else fails the claim, as it did before.
+          const cause = (error as { cause?: { code?: string; message?: string } }).cause;
+          if (cause?.code !== "23505") throw error;
           await tx.execute(sql`rollback to savepoint draft`);
-          refused.push(`${source.source} ${draft.key} was refused by the jobs table (does another job hold its key?)`);
+          refused.push(`${source.source} ${draft.key} was refused by the jobs table: ${cause.message}`);
           return [];
         });
+      await tx.execute(sql`release savepoint draft`);
       if (inserted.length === 0) continue;
       inFlight++;
       claimed.push(draft.key);
@@ -692,7 +698,7 @@ export async function announceClaims() {
 export function launchMessage(job: Job) {
   const ownerNote = ownerNoteSection(job);
   return [
-    `Work ${sourceFor(job.source).describe(job)}: ${job.title}`,
+    `Work ${sourceFor(job.source).describe(job)}: ${job.title.replace(/[\r\n\u2028\u2029]+/g, " ")}`,
     job.url,
     "",
     "This is an unattended Hive run. Follow the factory playbook named under Factory playbook at the end of this message. Report every stage with the report_stage tool, never ask in this thread, never merge yourself: end with a merge assessment and the factory decides. Before you report pr, run factory-verify on the commit you pushed (the report_stage reply for verifying names the command); the factory merges only a head whose checks passed there.",

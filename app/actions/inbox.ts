@@ -34,8 +34,8 @@ export async function fileFollowUp(jobId: JobId, requestId: string, body: string
   return followUp(deps, jobId, requestId, body);
 }
 
-export async function answerQuestion(jobId: JobId, requestId: string, body: string) {
-  return answer(deps, jobId, requestId, body);
+export async function answerQuestion(jobId: JobId, requestId: string, body: string, questionEvent: string | null) {
+  return answer(deps, jobId, requestId, body, questionEvent);
 }
 
 export async function closeJob(jobId: JobId, requestId: string, reason: string) {

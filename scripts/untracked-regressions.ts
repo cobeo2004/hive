@@ -165,8 +165,22 @@ try {
       ? { kind: "resume", question: job.question!, replies: [{ id: `reply-${DONE}`, body: "Yes", createdAt: new Date().toISOString() }], answer: "Yes" }
       : { kind: "wait" };
   SOURCES.linear.acknowledgeReplies = async () => {};
-  const resumed = await resumeAnswered();
-  assert.ok(resumed.includes(`${DONE}:sent`), JSON.stringify(resumed));
+  // A GitHub job whose issue GitHub refuses (a 403, a rate limit) sorts before DONE, so a loop that stops at the first refusal never reaches it.
+  const BAD = await insert("AFAIL", {
+    stage: "waiting",
+    question: "Which?",
+    source: "github",
+    id: "github:ski043/factory-demo#1",
+    external_id: "ski043/factory-demo#1",
+    writeback: { kind: "github", repo: "ski043/factory-demo", number: 1 },
+  });
+  const githubReplies = SOURCES.github.replies;
+  SOURCES.github.replies = async () => Promise.reject(new Error("GitHub refused: 403"));
+  const { resumed, errors } = await resumeAnswered();
+  SOURCES.github.replies = githubReplies;
+  assert.ok(resumed.includes(`${DONE}:sent`), JSON.stringify({ resumed, errors }));
+  assert.match(errors.join(), new RegExp(`${BAD}: GitHub refused`), "the refusal comes back for the tick to log");
+  await db.update(jobs).set({ stage: "failed" }).where(eq(jobs.key, BAD));
   assert.equal((await row(DONE)).stage, "queued");
   assert.ok(
     sent.some((s) => s.threadId === `thread-${DONE}` && s.message.includes("Yes")),
