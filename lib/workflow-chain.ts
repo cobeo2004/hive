@@ -11,6 +11,7 @@ export type Spec = {
   role: string;
   kind: "role" | "command" | "inline";
   builtin: boolean;
+  max_loops: number;
 };
 type Chain = { order: string[]; after: Record<string, string> };
 
@@ -74,6 +75,7 @@ export function steps(all: Record<string, string>): Record<string, Spec> {
       // the snapshot has no run.sh or brief.md, so a custom step is a role when it names one
       kind: builtin ? d.kind : role ? "role" : "command",
       builtin,
+      max_loops: typeof t.max_loops === "number" ? t.max_loops : 2, // sstack's default cap
     };
   }
   return out;

@@ -11,6 +11,7 @@ const { parseBranch } = await import("../lib/factory");
 const { mayCreate, runWorkflowPr, runWorkflowSmoke, workflowDeps } = await import("../runner/workflow-pr");
 const { readToml, steps, chain, move, diffLines, meta, tomlError } = await import("../lib/workflow-chain");
 const { changeLines, applyEdits, upsert, stepFile, roleFile, CONFIG: CFG, stepValues, roleValues, fileGate } = await import("../lib/workflow-edits");
+const { graph } = await import("../lib/workflow-graph");
 
 const REPO = "acme/sstack";
 const ROLE = ".sstack/roles/implement.toml";
@@ -248,6 +249,65 @@ try {
   const rv = roleValues({}, "implement");
   assert.deepEqual([rv.harness, rv.effort], ["pi", "high"]);
   assert.deepEqual(roleValues({ [ROLE]: '[hint.ui]\nharness = "codex"\nmodel = "gpt"\n' }, "implement").hints, { ui: { harness: "codex", model: "gpt" } });
+
+  // workflow flow graph: one node per chain step, loop edges for on_fail, member sub-nodes for roles and panels
+  const PANEL = {
+    ".sstack/roles/review.toml": 'mode = "panel"\n[[panel]]\nharness = "claude"\nmodel = "opus"\n[[panel]]\nharness = "codex"\nmodel = "gpt-5-codex"\n',
+  };
+  const ps = steps(PANEL);
+  const g = graph(PANEL, ps);
+  const stepNodes = g.nodes.filter((n) => n.type === "step");
+  const members = (name: string) => g.nodes.filter((n) => n.type === "member" && n.id.startsWith(`${name}/`)).map((n) => n.data.label);
+  const edge = (id: string) => g.edges.find((e) => e.id === id);
+  assert.deepEqual(
+    stepNodes.map((n) => n.id),
+    chain(ps),
+    "one step node per chain() step, in order",
+  );
+  assert.equal(edge("loop:review->implement")?.label, "on_fail · max 2");
+  assert.ok(edge("loop:review->implement")?.style.strokeDasharray && edge("loop:gate->implement")?.style.strokeDasharray, "loops are dashed, gate loops too");
+  assert.deepEqual(
+    g.edges.filter((e) => e.id.startsWith("seq:")).map((e) => [e.source, e.target, e.style.strokeDasharray]),
+    chain(ps)
+      .slice(1)
+      .map((n, i) => [chain(ps)[i], n, undefined]),
+    "solid sequence edges follow the chain",
+  );
+  assert.deepEqual(members("review"), ["claude · opus", "codex · gpt-5-codex"], "review panel members");
+  assert.deepEqual(members("implement"), ["pi · opencode-go/deepseek-v4.1-flash"], "harness · model per role step");
+  assert.deepEqual([members("gate"), members("pr")], [[], []], "no sub-node for command or inline steps");
+  assert.ok(
+    g.edges.filter((e) => e.id.startsWith("member:")).every((e) => e.style.strokeDasharray === "2 4"),
+    "member edges are dotted",
+  );
+  assert.deepEqual(
+    stepNodes.filter((n) => n.data.pinned).map((n) => n.id),
+    ["recon", "pr"],
+  );
+  assert.equal(graph({}, steps({ [STEP]: "max_loops = 3\n" })).edges.find((e) => e.id === "loop:review->implement")?.label, "on_fail · max 3");
+  const custom = { ".sstack/steps/dmm/step.toml": "after = 'implement'\nrole = 'x'\n" };
+  assert.deepEqual(
+    graph(custom, steps(custom))
+      .nodes.filter((n) => n.type === "step")
+      .map((n) => n.id),
+    chain(steps(custom)),
+    "custom step included",
+  );
+  assert.deepEqual(
+    [graph(gated, s).nodes.find((n) => n.id === "plan")?.data.wide, graph({}, s).nodes.find((n) => n.id === "plan")?.data.wide],
+    [true, false],
+    "plan is wide when the gate waits in Inbox",
+  );
+  assert.deepEqual(graph(PANEL, ps), g, "deterministic");
+  const xs = stepNodes.map((n) => n.position.x);
+  assert.ok(
+    xs.every((x, i) => !i || x > xs[i - 1]!),
+    "columns by chain index",
+  );
+  assert.ok(
+    g.nodes.filter((n) => n.type === "member").every((m) => m.position.y > 0),
+    "sub-nodes below their parent",
+  );
 
   console.log("workflow regressions passed");
 } catch (error) {
