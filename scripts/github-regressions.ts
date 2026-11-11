@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appCredentials, appJwt, installationTokens, readAppFile, tokenSource } from "../lib/github/app";
 import { github, parsePullUrl, pullsClient } from "../lib/github/pulls";
+import { scriptsOf } from "../lib/trusted-checks";
 import { serve } from "./serve";
 
 const { privateKey: pem, publicKey } = generateKeyPairSync("rsa", {
@@ -25,6 +26,7 @@ function verifiedClaims(jwt: string) {
 }
 
 const nowMs = 1_800_000_000_000;
+const SHA = "1".repeat(40);
 const { header, claims } = verifiedClaims(appJwt(app, nowMs));
 assert.deepEqual(header, { alg: "RS256", typ: "JWT" });
 assert.deepEqual(
@@ -121,6 +123,42 @@ const stub = await serve(0, async (request) => {
     return Response.json({ ...merging, permissions: { admin: false, maintain: false, push: false, triage: true, pull: true } });
   if (url.pathname === "/repos/o/writer") return Response.json({ ...merging, permissions: { push: true, pull: true } });
   if (url.pathname === "/repos/o/no-permissions") return Response.json(merging);
+  // The git data API the way GitHub answers it: a symlink is a blob of mode 120000 whose content is the link's target text.
+  const b64 = (s: string) => Buffer.from(s).toString("base64");
+  const blobs: Record<string, { content: string; encoding: string }> = {
+    pkg: { content: b64('{"scripts":{"test":"x"}}'), encoding: "base64" },
+    link: { content: b64('{"scripts":{"test":"x"}}'), encoding: "base64" },
+    toml: { content: b64("[project]\n"), encoding: "base64" },
+    odd: { content: "plain text", encoding: "utf-8" },
+  };
+  const entry = (path: string, type: string, mode: string, sha: string) => ({ path, type, mode, sha });
+  const trees: Record<string, { truncated: boolean; tree: object[] }> = {
+    root: {
+      truncated: false,
+      tree: [
+        entry("package.json", "blob", "100644", "pkg"),
+        entry("run.sh", "blob", "100755", "pkg"),
+        entry("linked.json", "blob", "120000", "link"),
+        entry("odd.json", "blob", "100644", "odd"),
+        entry("module", "commit", "160000", "deadbeef"),
+        entry("dir", "tree", "040000", "dir"),
+        entry(".sstack", "tree", "040000", "sstack"),
+      ],
+    },
+    dir: { truncated: false, tree: [entry("a.json", "blob", "100644", "pkg")] },
+    sstack: { truncated: false, tree: [entry("project.toml", "blob", "100644", "toml")] },
+    big: { truncated: true, tree: [entry("package.json", "blob", "100644", "pkg")] },
+  };
+  const treeOfRef: Record<string, string> = { main: "root", "feature/x": "dir", [SHA]: "root", huge: "big" };
+  if (url.pathname === "/repos/o/r/commits") {
+    const tree = treeOfRef[url.searchParams.get("sha") ?? ""];
+    return tree ? Response.json([{ sha: "c", commit: { tree: { sha: tree } } }]) : Response.json([]);
+  }
+  const gitObject = /^\/repos\/o\/r\/git\/(trees|blobs)\/(.+)$/.exec(url.pathname);
+  if (gitObject) {
+    const found = (gitObject[1] === "trees" ? trees : blobs)[gitObject[2]!];
+    return found ? Response.json(found) : Response.json({ message: "Not Found" }, { status: 404 });
+  }
   const pull = /^\/repos\/o\/r\/pulls\/(\d+)(\/merge)?$/.exec(url.pathname);
   if (pull && !pull[2]) return pulls[Number(pull[1])] ? Response.json(pulls[Number(pull[1])]) : Response.json({ message: "Not Found" }, { status: 404 });
   if (pull && request.method === "PUT") {
@@ -207,6 +245,39 @@ try {
   assert.deepEqual(await client.pullRequestForBranch("o/r", "hive/FAC-2"), { url: url(2), state: "open" }, "an open PR wins over a merged one");
   assert.deepEqual(await client.pullRequestForBranch("o/r", "hive/FAC-1"), { url: url(3), state: "merged" }, "else the merged one; a closed one never counts");
   assert.equal(await client.pullRequestForBranch("o/r", "hive/FAC-3"), null, "a branch with only a closed PR has none");
+
+  const pkg = '{"scripts":{"test":"x"}}';
+  assert.equal(await client.fileAt("o/r", "package.json", "main"), pkg, "a regular file (100644) is its text");
+  assert.equal(await client.fileAt("o/r", "run.sh", "main"), pkg, "an executable file (100755) is its text too");
+  assert.equal(await client.fileAt("o/r", "/package.json", "main"), pkg, "a leading slash is not a different path");
+  assert.equal(await client.fileAt("o/r", "dir/a.json", "main"), pkg, "a nested path is walked tree by tree");
+  assert.equal(await client.fileAt("o/r", ".sstack/project.toml", "main"), "[project]\n", "a nested file is read through its trees");
+  assert.equal(await client.fileAt("o/r", "package.json", SHA), pkg, "a commit sha is a ref");
+  assert.equal(await client.fileAt("o/r", "a.json", "feature/x"), pkg, "a branch name with a slash is a ref");
+  assert.deepEqual(
+    seen.find((s) => s.path.startsWith("/repos/o/r/commits?"))?.path,
+    "/repos/o/r/commits?sha=main&per_page=1",
+    "the ref goes in the query, not the path",
+  );
+  for (const [path, ref, why] of [
+    ["linked.json", "main", "a symlink (mode 120000), whatever text it would serve"],
+    ["module", "main", "a submodule (160000)"],
+    ["dir", "main", "a directory"],
+    ["package.json/x", "main", "a path through a file"],
+    ["absent.json", "main", "a missing file"],
+    ["nodir/a.json", "main", "a missing directory"],
+    ["dir/absent.json", "main", "a missing nested file"],
+    ["", "main", "no path"],
+    ["package.json", "huge", "a truncated tree"],
+    ["package.json", "nowhere", "an unknown ref"],
+    ["odd.json", "main", "a blob that is not base64"],
+  ] as const) {
+    assert.equal(await client.fileAt("o/r", path, ref), null, `${why} is no file at that path`);
+  }
+  assert.ok(!seen.some((s) => s.path.endsWith("/git/blobs/link")), "a symlink's blob is never even read");
+  // Either side unreadable hands over (scriptsOf(null) is null, which trustedEdits reports as "couldn't be compared").
+  assert.equal(scriptsOf(await client.fileAt("o/r", "linked.json", "main")), null, "so a symlinked package.json can't be compared");
+  assert.notEqual(scriptsOf(await client.fileAt("o/r", "package.json", "main")), null, "while a regular one can");
 
   assert.deepEqual(await client.mergePull(url(1), "h1"), { kind: "merged", sha: "merge-sha" }, "200 is merged");
   assert.deepEqual(await client.mergePull(url(2), "h2"), { kind: "not_mergeable", message: "Pull Request is not mergeable" }, "405 is not mergeable");

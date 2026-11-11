@@ -11,6 +11,7 @@ import { afterRecipe, modalSecretName, parseDetail, type OnboardingState } from 
 import { REPO_NAME, repoName } from "@/lib/repo-name";
 import { REPOSITORY_GROUP, type Registry } from "@/lib/repositories";
 import { missingEnv } from "@/lib/recipe";
+import { readVerify, SSTACK_PROJECT_PATH } from "@/lib/sstack-verify";
 import type { SettingsOutcome } from "@/lib/settings";
 import type { LabelGroupSpec } from "@/lib/sources/types";
 
@@ -211,8 +212,17 @@ export async function retryOnboarding(deps: RepoActionDeps, input: unknown): Pro
   }
 }
 
-/** Builds the warm image again from the recipe on the row; the current image serves until it is ready. */
-export async function rebuildRepoImage(deps: RepoActionDeps, input: unknown): Promise<SettingsOutcome> {
+export type RebuildDeps = RepoActionDeps & {
+  /** The default branch's .sstack/project.toml text; null when it has none. */
+  projectToml: (repo: string) => Promise<string | null>;
+  saveVerify: (repo: string, verify: string[] | null) => Promise<void>;
+};
+
+/**
+ * Builds the warm image again from the recipe on the row; the current image serves until it is
+ * ready. It also re-records the trusted verify list from the default branch's project.toml (R17).
+ */
+export async function rebuildRepoImage(deps: RebuildDeps, input: unknown): Promise<SettingsOutcome> {
   const user = await deps.user();
   if (!user || !isAdmin(user)) return FORBIDDEN;
   const parsed = repoInput.safeParse(input);
@@ -224,11 +234,26 @@ export async function rebuildRepoImage(deps: RepoActionDeps, input: unknown): Pr
   const missing = missingEnv(detail.recipe, detail.secretsSet ?? []);
   if (missing.length > 0) return invalid(`Save ${missing.join(", ")} first.`);
   try {
+    const toml = await deps.projectToml(row.repo);
+    await deps.saveVerify(row.repo, toml === null ? null : readVerify(toml));
+  } catch (error) {
+    return failed(`re-record the checks in ${SSTACK_PROJECT_PATH}`, error);
+  }
+  try {
     await deps.request("rebuild_repo_image", row.repo);
     return { ok: true };
   } catch (error) {
     return failed("request the rebuild", error);
   }
+}
+
+/** Records the trusted verify list on the row; null drops it. */
+export async function writeVerify(database: Db, repo: string, verify: string[] | null) {
+  const detail = sql`coalesce(${repoSettings.onboarding_detail}, '{}'::jsonb)`;
+  await database
+    .update(repoSettings)
+    .set({ onboarding_detail: verify ? sql`${detail} || ${JSON.stringify({ verify })}::jsonb` : sql`${detail} - 'verify'` })
+    .where(eq(repoSettings.repo, repo));
 }
 
 /** Retry resets the row to analyzing with the intent; a rebuild leaves the state to the runner. */
