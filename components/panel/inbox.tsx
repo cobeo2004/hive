@@ -2,17 +2,15 @@
 
 import { ExternalLinkIcon, XIcon } from "lucide-react";
 import Link from "next/link";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { JobRow } from "@/db/schema";
 import { parseAssessment } from "@/lib/assessment";
-import { INBOX_LABELS, inboxItems, inboxReason, type InboxItem, type InboxKind, type OwnerView } from "@/lib/inbox";
+import { inboxItems, inboxReason, type InboxItem, type OwnerView } from "@/lib/inbox";
 import { stopLine, stopView } from "@/lib/stop";
 import { AUTONOMY_LABELS, type ReviewSummary } from "@/lib/merge-decision";
 import { sourceLink } from "@/lib/sources/shapes";
@@ -21,20 +19,24 @@ import type { BoardCard } from "./cards";
 import { Media } from "./media";
 import { EvidenceSummaryList } from "./evidence";
 import { InboxActions } from "./inbox-actions";
+import { type BadgeTone, type Block, BLOCK_LABEL, dangerBlock, inboxBlocks, kindBadge } from "./inbox-model";
 import { FullViewToggle, useEscapeToSidePanel, type FullView } from "./full-view";
 import { inboxHref, jobsHref } from "./job-view";
 import { Confidence } from "./merge-decision";
 import { useRowKeys } from "./row-keys";
 import { ShortTime } from "./time";
 
-const KIND_DOT: Record<InboxKind, string> = {
-  question: "bg-warning",
-  plan_approval: "bg-warning",
-  revert_failed: "bg-destructive",
-  handover: "bg-primary",
-  failed: "bg-destructive",
-  stop_unconfirmed: "bg-warning",
+/** Badge colours: lime is PR ready only (Q66), and selection is Unibuz blue. */
+const TONE: Record<BadgeTone, string> = {
+  input: "bg-(--primary-soft) text-primary",
+  ready: "bg-(--lime) text-(--on-lime)",
+  testing: "bg-(--warning-soft) text-warning",
+  failed: "bg-(--danger-soft) text-destructive",
 };
+
+const Pill = ({ tone, children }: { tone: BadgeTone; children: ReactNode }) => (
+  <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", TONE[tone])}>{children}</span>
+);
 
 type Item = InboxItem<JobRow>;
 
@@ -53,7 +55,8 @@ function Row({
   onFocus: () => void;
   repoLabels: ReadonlyMap<string, string> | undefined;
 }) {
-  const { job, kind } = item;
+  const { job } = item;
+  const badge = kindBadge(item);
   return (
     <Link
       href={href}
@@ -62,33 +65,29 @@ function Row({
       onFocus={onFocus}
       aria-current={open ? "true" : undefined}
       className={cn(
-        "relative flex h-9 w-full items-center gap-3 px-4 text-left outline-none transition-colors duration-150 hover:bg-accent/60 focus-visible:bg-accent @3xl:px-5",
-        open ? "bg-accent" : cursor && "bg-accent/60",
+        "flex flex-col gap-1.5 rounded-2xl border-[1.5px] border-transparent p-3.5 text-left transition-colors duration-150 hover:bg-(--surface-2) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        open ? "border-primary bg-(--primary-soft)" : cursor && "bg-(--surface-2)",
       )}
     >
-      {cursor && <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-foreground" />}
-      <span className={cn("size-2 shrink-0 rounded-full", KIND_DOT[kind])} />
-      <span className="hidden w-24 shrink-0 truncate font-mono text-xs text-muted-foreground @lg:block">{job.key}</span>
-      <span className="min-w-0 flex-1 truncate">{job.title}</span>
-      {repoLabels && <span className="hidden w-28 shrink-0 truncate text-xs text-muted-foreground @2xl:block">{repoLabels.get(job.repo)}</span>}
-      <span className="hidden w-32 shrink-0 truncate text-xs text-muted-foreground @sm:block @xl:w-56 @3xl:w-72">{inboxReason(item)}</span>
-      <span className="hidden w-36 shrink-0 truncate text-xs text-muted-foreground @2xl:block">{INBOX_LABELS[kind]}</span>
-      <span className="hidden w-12 shrink-0 text-right text-xs text-muted-foreground tabular-nums @md:block">
-        <ShortTime date={item.at} />
+      <span className="flex items-center justify-between gap-2">
+        <Pill tone={badge.tone}>{badge.label}</Pill>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          <ShortTime date={item.at} />
+        </span>
       </span>
+      <span className="font-medium">{job.title}</span>
+      <span className="text-xs text-muted-foreground">{`${job.key} · ${repoLabels?.get(job.repo) ?? job.repo} · ${inboxReason(item)}`}</span>
     </Link>
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+/** A labelled block of the detail; the first one sits in a well, on `--danger-soft` for a failure. */
+function Section({ title, well = false, danger = false, children }: { title: string; well?: boolean; danger?: boolean; children: ReactNode }) {
   return (
-    <>
-      <Separator />
-      <section className="flex flex-col gap-2 px-4.5 py-3.5">
-        <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
-        {children}
-      </section>
-    </>
+    <section className={cn("flex flex-col gap-2", well && ["rounded-xl p-3.5", danger ? "bg-(--danger-soft)" : "bg-(--surface-2)"])}>
+      <h3 className={cn("text-xs font-medium tracking-wide uppercase", well && danger ? "text-destructive" : "text-muted-foreground")}>{title}</h3>
+      {children}
+    </section>
   );
 }
 
@@ -109,8 +108,7 @@ function Why({ item }: { item: Item }) {
     }
     case "stop_unconfirmed":
       return (
-        <Alert variant="warning">
-          <AlertTitle>Stop not confirmed — check the thread in T3</AlertTitle>
+        <Alert variant="warning" className="border-0 bg-transparent p-0">
           <AlertDescription className="flex flex-col gap-1">
             <span>{inboxReason(item)}</span>
             <span>
@@ -123,9 +121,8 @@ function Why({ item }: { item: Item }) {
     case "revert_failed": {
       const watch = decision?.watch;
       return (
-        <Alert variant="error">
-          <AlertTitle>Main went red after the factory merged this, and the revert failed</AlertTitle>
-          <AlertDescription className="flex flex-col gap-1">
+        <Alert variant="error" className="border-0 bg-transparent p-0">
+          <AlertDescription className="flex flex-col gap-1 text-foreground">
             {watch?.reason && <span>{watch.reason}</span>}
             {watch && watch.failed.length > 0 && (
               <span>
@@ -164,34 +161,22 @@ function Why({ item }: { item: Item }) {
   }
 }
 
-function Assessment({ job }: { job: JobRow }) {
-  const assessment = parseAssessment(job.merge_assessment);
-  if (!assessment) return null;
+function Reading({ assessment }: { assessment: NonNullable<ReturnType<typeof parseAssessment>> }) {
   return (
-    <>
-      <Section title="Confidence">
-        <Confidence assessment={assessment} />
-      </Section>
-      {assessment.media?.length ? (
-        <Section title="Media">
-          <Media job={job} assessment={assessment} />
-        </Section>
-      ) : null}
-      {assessment.notes && (
-        <Section title="Notes">
-          <p className="whitespace-pre-wrap">{assessment.notes}</p>
-        </Section>
-      )}
+    <div className="flex flex-col gap-2">
+      <Confidence assessment={assessment} />
+      {assessment.notes && <p className="whitespace-pre-wrap">{assessment.notes}</p>}
       {assessment.assumptions.length > 0 && (
-        <Section title="Assumptions">
-          <ul className="list-disc pl-4">
+        <>
+          <h4 className="mt-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">Assumptions it made</h4>
+          <ul className="list-disc pl-4 text-muted-foreground">
             {assessment.assumptions.map((a, i) => (
               <li key={i}>{a}</li>
             ))}
           </ul>
-        </Section>
+        </>
       )}
-    </>
+    </div>
   );
 }
 
@@ -237,7 +222,7 @@ function bugbotLine(bugbot: ReviewSummary["bugbot"]) {
 function Review({ loaded, prUrl }: { loaded: Loaded; prUrl: string }) {
   if (loaded.kind === "loading") {
     return (
-      <Section title="Changes">
+      <Section title={BLOCK_LABEL.changes}>
         <div className="flex flex-col gap-1.5">
           <Skeleton className="h-4 w-2/3" />
           <Skeleton className="h-4 w-1/2" />
@@ -248,36 +233,28 @@ function Review({ loaded, prUrl }: { loaded: Loaded; prUrl: string }) {
   }
   if (loaded.kind === "failed") {
     return (
-      <Section title="Changes">
+      <Section title={BLOCK_LABEL.changes}>
         <p className="text-muted-foreground">{loaded.message}</p>
       </Section>
     );
   }
   const review = loaded.review;
   if (!review) return null;
-  const bugbot = bugbotLine(review.bugbot);
   const added = review.files.reduce((sum, f) => sum + f.additions, 0);
   const removed = review.files.reduce((sum, f) => sum + f.deletions, 0);
   const files = `${prUrl}/files`;
   return (
     <>
-      <Section title="Bugbot">
-        <p className={bugbot.tone}>{bugbot.text}</p>
-      </Section>
-      <Section title={`Changed files · ${review.fileCount}`}>
-        <p className="text-xs text-muted-foreground">
-          <span className="text-success">+{added}</span> <span className="text-destructive">−{removed}</span> at{" "}
-          <span className="font-mono">{review.headSha.slice(0, 7)}</span>
-        </p>
+      <Section title={`${BLOCK_LABEL.changes} · +${added} −${removed}`}>
         <ul className="flex flex-col">
           {review.files.map((f) => (
-            <li key={f.path}>
-              <a href={files} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-sm py-0.5 font-mono text-xs hover:bg-accent/60">
-                <span className="min-w-0 flex-1 truncate" title={f.path}>
+            <li key={f.path} className="border-t first:border-t-0">
+              <a href={files} target="_blank" rel="noreferrer" className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2.5 py-1.5 font-mono text-xs">
+                <span className="truncate" title={f.path}>
                   {f.path}
                 </span>
-                <span className="shrink-0 tabular-nums text-success">+{f.additions}</span>
-                <span className="w-10 shrink-0 text-right tabular-nums text-destructive">−{f.deletions}</span>
+                <span className="tabular-nums text-success">+{f.additions}</span>
+                <span className="tabular-nums text-destructive">−{f.deletions}</span>
               </a>
             </li>
           ))}
@@ -299,13 +276,49 @@ function Detail({ item, card, fullView, owner }: { item: Item; card: BoardCard |
   const wantsReview = kind !== "question" && kind !== "plan_approval" && job.pr_url !== null;
   const loaded = useReview(job, wantsReview);
   const review = loaded.kind === "ready" ? loaded.review : null;
+  const assessment = parseAssessment(job.merge_assessment);
+  const badge = kindBadge(item);
+  const bugbot = review && kind === "handover" ? bugbotLine(review.bugbot) : null;
+  // A block's body; null leaves the block out.
+  const body = (block: Block): ReactNode => {
+    switch (block) {
+      case "evidence": {
+        const evidence = job.stage === "pr" ? <EvidenceSummaryList job={job} /> : null;
+        const media = assessment?.media?.length ? <Media job={job} assessment={assessment} /> : null;
+        return evidence || media ? (
+          <>
+            {evidence}
+            {media}
+          </>
+        ) : null;
+      }
+      case "reading":
+        return assessment && <Reading assessment={assessment} />;
+      case "changes":
+        return wantsReview && job.pr_url ? <Review loaded={loaded} prUrl={job.pr_url} /> : null;
+      case "asked":
+      case "plan":
+      case "why":
+      case "failed":
+      case "revert":
+      case "stop":
+        return <Why item={item} />;
+      default: {
+        const never: never = block;
+        throw new Error(`unknown inbox block ${String(never)}`);
+      }
+    }
+  };
+  const blocks = inboxBlocks(kind)
+    .map((id) => ({ id, node: body(id) }))
+    .filter((b) => b.node);
   return (
-    <aside aria-label={`${job.key} details`} className={cn("flex min-h-0 min-w-0 flex-col bg-card", !fullView.full && "border-l")}>
+    <aside aria-label={`${job.key} details`} className="m-3 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border bg-card">
       <ScrollArea className="min-h-0 flex-1">
-        <div className={cn(fullView.full && "mx-auto w-full max-w-3xl")}>
-          <div className="flex flex-col gap-2 px-4.5 py-4">
+        <div className={cn("flex flex-col gap-4 px-4.5 py-4", fullView.full && "mx-auto w-full max-w-3xl")}>
+          <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between font-mono text-xs text-faint">
-              <span>{job.key}</span>
+              <span>{`${job.key} · ${job.repo}`}</span>
               <span className="flex items-center gap-0.5">
                 <FullViewToggle {...fullView} />
                 <Button render={<Link href={inboxHref(owner)} scroll={false} />} variant="ghost" size="icon-sm" aria-label="Close">
@@ -313,13 +326,9 @@ function Detail({ item, card, fullView, owner }: { item: Item; card: BoardCard |
                 </Button>
               </span>
             </div>
-            <h2 className="text-base font-semibold">{job.title}</h2>
+            <h2 className="text-2xl font-semibold">{job.title}</h2>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="gap-1.5 rounded-md font-normal">
-                <span className={cn("size-1.5 rounded-full", KIND_DOT[kind])} />
-                {INBOX_LABELS[kind]}
-              </Badge>
-              <span className="text-muted-foreground">{job.repo}</span>
+              <Pill tone={badge.tone}>{badge.label}</Pill>
               <span className="ml-auto flex flex-wrap gap-2">
                 {card?.latest && (
                   <Button render={<Link href={jobsHref("list", card.latest.session_id, false, owner)} scroll={false} />} variant="ghost" size="sm">
@@ -339,20 +348,16 @@ function Detail({ item, card, fullView, owner }: { item: Item; card: BoardCard |
               </span>
             </div>
           </div>
-          <Section title="Why it's here">
-            <Why item={item} />
-          </Section>
-          {kind === "handover" && job.stage === "pr" && (
-            <Section title="Evidence">
-              <EvidenceSummaryList job={job} />
-            </Section>
+          {bugbot && <p className={cn("w-fit rounded-full bg-(--surface-2) px-2 py-0.5 text-xs font-medium", bugbot.tone)}>{bugbot.text}</p>}
+          {blocks.map(({ id, node }, i) =>
+            id === "changes" ? (
+              <Fragment key={id}>{node}</Fragment>
+            ) : (
+              <Section key={id} title={BLOCK_LABEL[id]} well={i === 0} danger={dangerBlock(kind)}>
+                {node}
+              </Section>
+            ),
           )}
-          <Assessment job={job} />
-          {wantsReview && job.pr_url && <Review loaded={loaded} prUrl={job.pr_url} />}
-        </div>
-      </ScrollArea>
-      <div className="shrink-0 border-t">
-        <div className={cn("px-4.5 py-3.5", fullView.full && "mx-auto w-full max-w-3xl")}>
           <InboxActions
             job={job}
             kind={kind}
@@ -361,7 +366,7 @@ function Detail({ item, card, fullView, owner }: { item: Item; card: BoardCard |
             reviewReady={!wantsReview || loaded.kind !== "loading"}
           />
         </div>
-      </div>
+      </ScrollArea>
     </aside>
   );
 }
@@ -411,9 +416,9 @@ export function Inbox({
     <div className={cn("grid min-h-0 flex-1", open && !full ? "grid-cols-[minmax(0,1fr)_440px] xl:grid-cols-[minmax(0,1fr)_520px]" : "grid-cols-1")}>
       {!full && (
         <div ref={listRef} className="@container min-h-0 min-w-0 overflow-y-auto">
-          <ul aria-label="Needs you">
+          <ul aria-label="Needs you" className="flex flex-col gap-1 p-3">
             {items.map((item) => (
-              <li key={item.job.key} className="border-b">
+              <li key={item.job.key}>
                 <Row
                   item={item}
                   href={itemHref(item.job.key)}
