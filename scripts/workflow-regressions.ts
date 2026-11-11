@@ -5,6 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+declare const Bun: { TOML: { parse(text: string): unknown } }; // no bun-types in tsc
 const { patch } = await import("../lib/toml-patch");
 const { parseBranch } = await import("../lib/factory");
 const { mayCreate, runWorkflowPr, runWorkflowSmoke, workflowDeps } = await import("../runner/workflow-pr");
@@ -63,10 +64,6 @@ try {
   // 1. a role change is one line, with its comment and spacing kept
   const role = patch(implement, "", "harness", "codex");
   assert.equal(role, '# implement role\n\nharness = "codex"  # who implements\nmodel = "opus"\n');
-  assert.equal(lines(role).length, lines(implement).length);
-
-  // 2. a reorder is one `after` line
-  assert.equal(patch(step, "", "after", "plan"), "id = 'review'\nafter = \"plan\"\n");
 
   // 3. a missing key goes to the end of its section, ahead of the blank line before the next header
   assert.equal(patch("[a]\nx = 1\n\n[b]\ny = 2\n", "a", "z", true), "[a]\nx = 1\nz = true\n\n[b]\ny = 2\n");
@@ -76,46 +73,55 @@ try {
   assert.equal(patch("[a]\nx = 1", "a", "z", 2), "[a]\nx = 1\nz = 2\n", "a last line without an EOL gets one");
   assert.equal(patch("[a]\n[b]\n", "a", "z", 2), "[a]\nz = 2\n[b]\n", "an empty section takes it after its header");
 
-  // 4. a missing section is appended with its key, and a key in another section is not matched
   assert.equal(patch("x = 1", "new", "k", "v"), 'x = 1\n\n[new]\nk = "v"\n');
   assert.equal(patch("[a]\nk = 1\n", "b", "k", "v"), '[a]\nk = 1\n\n[b]\nk = "v"\n');
 
   // 5. every other line stays byte-identical
-  const messy = [
-    "# top comment\n",
-    'name   =   "a # not a comment"   # real comment\n',
-    "[[array]]\n",
-    "x = 1\n",
-    "[meta]\n",
-    "  keep =  [1,   2]   # arr\n",
-    '  harness="old"\n',
-    "tail = 'x'\n",
-  ];
+  const messy = lines(
+    '# top comment\nname   =   "a # not a comment"   # real comment\n[[array]]\nx = 1\n[meta]\n  keep =  [1,   2]   # arr\n  harness="old"\ntail = \'x\'\n',
+  );
   const patched = lines(patch(messy.join(""), "meta", "harness", "new"));
   assert.equal(patched.length, messy.length);
   patched.forEach((line, i) => assert.equal(line, i === 6 ? '  harness="new"\n' : messy[i]));
   assert.equal(patch(messy.join(""), "", "name", "b").split("\n")[1], 'name   =   "b"   # real comment');
-  assert.equal(
-    patch('note = """\nharness = "x"\n[a]\n"""\nharness = "claude"\n', "", "harness", "codex"),
-    'note = """\nharness = "x"\n[a]\n"""\nharness = "codex"\n',
-    "lines inside a multi-line string are not keys or headers",
-  );
+  const multi = 'note = """\nharness = "x"\n[a]\n"""\nharness = "claude"\n';
+  assert.equal(patch(multi, "", "harness", "codex"), multi.replace("claude", "codex"), "lines inside a multi-line string are not keys or headers");
   assert.equal(patch("[a]", "a", "k", 1), "[a]\nk = 1\n", "a header with no EOL gets one before the key");
   assert.equal(patch('x = ["#"]  # c\n', "", "x", 2), "x = 2  # c\n", "a # inside a quoted value is not a comment");
-  for (const text of ['a = """\nx\n"""\n', "a = [\n1,\n]\n"]) assert.throws(() => patch(text, "", "a", "b"), /multi-line/);
   const swap = (text: string, section = "a") => patch(text, section, "k", 2);
-  assert.equal(swap('# """\n[a]\nk = 1\n'), '# """\n[a]\nk = 2\n', "triple quotes in a comment open nothing");
-  assert.equal(swap('s = "a \\"\\"\\" b"\n[a]\nk = 1\n'), 's = "a \\"\\"\\" b"\n[a]\nk = 2\n', "escaped quotes in a string");
-  assert.equal(swap('s = \'"""\'\n[a]\nk = 1\n'), 's = \'"""\'\n[a]\nk = 2\n', "triple quotes in a literal string");
-  assert.equal(swap("a = [\n [1]\n]\n[b]\nk = 1\n", "b"), "a = [\n [1]\n]\n[b]\nk = 2\n", "array rows are not headers");
-  for (const text of ['[a]\n"k" = 1\n', "[a]\n'k' = 1\n", "[a]\nk.x = 1\n"]) assert.throws(() => swap(text), /quoted key unsupported: k/);
-  assert.throws(() => swap('["a.b"]\nx = 1\n', "a.b"), /may already exist/);
-  assert.throws(() => swap("a = { x = 1 }\n"), /may already exist/);
-  assert.throws(() => swap("[[a]]\nk = 1\n"), /may already exist/);
-  assert.throws(() => patch('"\\u006b" = 1\n', "", "k", 9), /escape sequence/, "an escaped quoted key could be the key");
-  assert.throws(() => patch("a = { b = { k = 1 } }\n", "a.b", "k", 9), /may already exist: a\.b/, "an inline table defines its sections");
-  assert.throws(() => patch("", "", "a.b", "b"), /bare/);
-  assert.throws(() => patch("", "", "a", Number.NaN), /finite/);
+  const keeps = (text: string, section = "a", why = "") => assert.equal(swap(text, section), text.replace("k = 1", "k = 2"), why);
+  keeps('# """\n[a]\nk = 1\n', "a", "triple quotes in a comment open nothing");
+  keeps('s = "a \\"\\"\\" b"\n[a]\nk = 1\n', "a", "escaped quotes in a string");
+  keeps('s = \'"""\'\n[a]\nk = 1\n', "a", "triple quotes in a literal string");
+  keeps("a = [\n [1]\n]\n[b]\nk = 1\n", "b", "array rows are not headers");
+  assert.equal(swap('["a.b"]\nx = 1\n', "a.b"), '["a.b"]\nx = 1\n\n[a.b]\nk = 2\n', "a quoted dotted name is a different table");
+  // the parser is the arbiter: what the line patch cannot do exactly throws (rows of `text~section~key`)
+  const refuse =
+    'a = """\nx\n"""\n~~a|a = [\n1,\n]\n~~a|[a]\n"k" = 1\n~a~k|[a]\n\'k\' = 1\n~a~k|[a]\nk.x = 1\n~a~k|"\\u006b" = 1\n~~k|a = { x = 1 }\n~a~k|a = { b = { k = 1 } }\n~a.b~k|[[a]]\nk = 1\n~a~k|["a . b"]\nk = 1\n~"a.b"~k|["a . b"]\nk = 1\n~"a . b"~k|k = 1\n~~a.b|k = [1\n~~k|a = 1\n~a~k|[[a]]\n[a.b]\n~a.b~k';
+  for (const row of refuse.split("|")) assert.throws(() => patch(...(row.split("~") as [string, string, string]), 2), /^Error: toml-patch: /, row);
+  for (const v of ["\ud800", Number.NaN]) assert.throws(() => patch("k = 1\n", "", "k", v), /^Error: toml-patch: /);
+  // differential: every call throws, or returns text that parses to the original with that one value set
+  const raw =
+    '|\n|k = 1|k = 1\r\n|# c\n[a]\nk = 1 # c\n|[a]\n[a.b]\nk = 1\n|[a.b]\nk = 1\n[c]\n|[a]\nx = { k = 1 }\n|[[a]]\nk = 1\n[b]\n|a.b.k = 1\n|[a]\nb.k = 1\n|x = [\n 1,\n]\nk = 3\n|x = """\nk = 1\n[a]\n"""\n|\'k\' = 1\n|"k" = 1\n|[ a . b ]\nk=1|[a]\n[b]\nk = \'v\' # c\n|k = "a # b"\n[a]\n|[a]\r\nk = 1\r\n[b]\r\n|d = 1979-05-27T07:32:00Z\n[a]\n|[a]\nk = 1\n[a.b]\nk = 2\n|a = { b = 1 }\n|["a"]\nk = 1\n|x = [[1], [2]]\n[a]\n|[a] # c\n|k = 0x10\n[a]\nk = 1.5\n|[a]\nk = [1,\n2]\n|[a.b.c]\nz = 1\n|[a]\nz = \'\'\'\nk = 1\n\'\'\'\n|k=1\n[k]\n';
+  const json = (text: string) => JSON.parse(JSON.stringify(Bun.TOML.parse(text)));
+  let done = 0;
+  for (const text of raw.split("|"))
+    for (const target of "/k a/k a.b/k b/z a.b.c/k /a".split(" "))
+      for (const v of ["v", 7, true]) {
+        const [section, k] = target.split("/") as [string, string];
+        try {
+          const out = json(patch(text, section, k, v));
+          const want = json(text);
+          let t = want;
+          for (const part of section.split(".")) if (part) t = t[part] ??= {};
+          t[k] = v;
+          assert.deepEqual(out, want, JSON.stringify([text, section, k, v]));
+          done++;
+        } catch (error) {
+          if (!/^toml-patch: /.test((error as Error).message)) throw error; // refusing is fine, a wrong result is not
+        }
+      }
+  assert.ok(done > 100, `differential: only ${done} patched`);
 
   // 6. a failing doctor opens no PR and pushes nothing, and its output reaches the error
   doctor = { code: 1, output: "roles/implement.toml: unknown harness" };
