@@ -30,6 +30,7 @@ const { serve } = await import("./serve");
 const { memberByEmail } = await import("../lib/members");
 const { user: users } = await import("../db/schema");
 const { inArray: within } = await import("drizzle-orm");
+const { PLAN_APPROVED, planQuestion } = await import("../lib/plan-approval");
 const hiveUser = (id: string, email: string, role: string) => ({ id, name: email, email, role, twoFactorEnabled: true, setupDoneAt: new Date() });
 await db.delete(users).where(within(users.email, [OWNER, ENGINEER]));
 await db.insert(users).values([hiveUser(`slack-owner-${Date.now()}`, OWNER, "admin"), hiveUser(`slack-eng-${Date.now()}`, ENGINEER, "engineer")]);
@@ -495,6 +496,43 @@ try {
   await drain();
   assert.equal((await intentsFor(hand.id)).length, 1, "still only the one approval");
   assert.equal(filed.length, 0);
+
+  // --- plan approval: Approve plan has no merge confirm, and both buttons answer the plan as the engineer who clicked
+  const planJob = { ...pureJob, stage: "waiting", question: planQuestion("# plan") } as JobRow;
+  const planButtons = (
+    renderMessage({ id: "e", kind: "plan_approval", job: planJob, reason: "r" }, facts).blocks.at(-1) as {
+      elements: { action_id: string; text: { text: string }; confirm?: unknown }[];
+    }
+  ).elements;
+  const planApprove = planButtons.find((b) => b.action_id === SLACK_ACTION_IDS.approve)!;
+  assert.equal(planApprove.text.text, "Approve plan");
+  assert.equal(planApprove.confirm, undefined, "no merge confirm: approving a plan merges nothing");
+  const planA = await item("PA", { stage: "waiting", question: planQuestion("# plan") });
+  assert.equal((await db.select().from(slackMessages).where(eq(slackMessages.id, planA.eventId)))[0]!.kind, "plan_approval", "a waiting plan notifies as one");
+  await click(planA.eventId, SLACK_ACTION_IDS.approve, ENGINEER_SLACK).sent;
+  await drain();
+  const planAIntents = await intentsFor(planA.id);
+  assert.deepEqual(
+    planAIntents.map((i) => i.id),
+    [`panel:answer:${slackRequestId(planA.eventId, "approve")}`],
+    "one answer intent, no approve_merge",
+  );
+  assert.equal(JSON.parse(planAIntents[0]!.detail!).actor, ENGINEER, "recorded as the engineer");
+  assert.equal(replies.at(-1)!.body, PLAN_APPROVED);
+
+  const planB = await item("PB", { stage: "waiting", question: planQuestion("# plan") });
+  await click(planB.eventId, SLACK_ACTION_IDS.request_changes, ENGINEER_SLACK).sent;
+  await drain();
+  await submit(modalView(), "Split step 2.", ENGINEER_SLACK);
+  await drain();
+  const planBIntents = await intentsFor(planB.id);
+  assert.deepEqual(
+    planBIntents.map((i) => i.kind),
+    ["answer"],
+    "one answer intent, no request_changes",
+  );
+  assert.equal(JSON.parse(planBIntents[0]!.detail!).actor, ENGINEER);
+  assert.equal(replies.at(-1)!.body, "Split step 2.");
 
   console.log("slack actions regressions passed");
 } finally {
