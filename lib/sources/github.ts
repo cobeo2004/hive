@@ -132,7 +132,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
           }
         } catch (error) {
           // One repo's outage (a revoked installation) must not stop intake from the others.
-          console.error(`github ${repo}:`, error);
+          console.error("github: could not read issues of", repo, error);
           errors.push(error);
         }
       }
