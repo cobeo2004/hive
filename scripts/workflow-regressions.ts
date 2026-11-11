@@ -298,6 +298,19 @@ try {
     [true, false],
     "plan is wide when the gate waits in Inbox",
   );
+  assert.deepEqual(
+    stepNodes.map((n) => [n.id, n.data.sub]),
+    [
+      ["recon", "investigate"],
+      ["plan", "plan"],
+      ["implement", "implement"],
+      ["gate", "command"],
+
+      ["review", "review"],
+      ["pr", "inline"],
+    ],
+    "a step node's sub-label is its role, or its kind",
+  );
   assert.deepEqual(graph(PANEL, ps), g, "deterministic");
   const xs = stepNodes.map((n) => n.position.x);
   assert.ok(

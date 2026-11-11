@@ -15,10 +15,11 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
+  useStore,
   useViewport,
 } from "@xyflow/react";
 import { Bot, Cpu, GitPullRequestArrow, Minus, Pin, Plus, SquareTerminal } from "lucide-react";
-import { type KeyboardEvent, useEffect, useMemo } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import type { Spec } from "@/lib/workflow-chain";
 import { graph, type NodeData } from "@/lib/workflow-graph";
@@ -27,15 +28,21 @@ type FlowNode = Node<NodeData>;
 const ICON = { role: Bot, command: SquareTerminal, inline: GitPullRequestArrow } as const;
 // RF's stylesheet is unlayered and sets the handle's look, so hiding it is inline; the handles only anchor edges.
 const HIDDEN = { opacity: 0 } as const;
+const FIT = { padding: 0.15, maxZoom: 1 } as const;
 const chip = "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs";
 
 function StepNode({ data, selected }: NodeProps<FlowNode>) {
   const Icon = ICON[data.kind];
   const ring = selected && "ring-2 ring-ring";
   return (
-    <div className={cn("relative flex flex-col items-center gap-1", data.wide ? "w-60" : "w-[120px]")}>
+    <div className={cn("relative flex flex-col items-center gap-1", data.wide ? "w-[220px]" : "w-[110px]")}>
       {data.wide ? (
-        <div className={cn("tile relative flex h-14 w-full items-center gap-2 rounded-lg border border-[var(--lime)] bg-card px-2", ring)}>
+        <div
+          className={cn(
+            "tile relative flex h-14 w-full items-center gap-2 rounded-lg border-2 border-[var(--lime)] bg-card px-2 outline outline-1 outline-[var(--border-strong)]",
+            ring,
+          )}
+        >
           <Icon aria-hidden className="size-5 shrink-0 text-foreground" />
           <span className="flex min-w-0 flex-1 flex-col text-left">
             <span className="truncate font-medium text-foreground text-sm">{data.name}</span>
@@ -86,7 +93,7 @@ function Ports() {
 
 function MemberNode({ data }: NodeProps<FlowNode>) {
   return (
-    <div className="flex w-[120px] flex-col items-center gap-1">
+    <div className="flex w-[110px] flex-col items-center gap-1">
       <div className="relative grid size-9 place-items-center rounded-full border bg-card">
         <Cpu aria-hidden className="size-4 text-muted-foreground" />
         <Handle id="top" type="target" position={Position.Top} isConnectable={false} style={HIDDEN} />
@@ -107,7 +114,7 @@ function Zoom() {
       <button type="button" aria-label="Zoom out" className={btn} onClick={() => zoomOut()}>
         <Minus aria-hidden className="size-4" />
       </button>
-      <button type="button" aria-label="Fit view" className={cn(btn, "w-12 tabular-nums")} onClick={() => fitView({ padding: 0.2 })}>
+      <button type="button" aria-label="Fit view" className={cn(btn, "w-12 tabular-nums")} onClick={() => fitView({ ...FIT, duration: 200 })}>
         {Math.round(zoom * 100)}%
       </button>
       <button type="button" aria-label="Zoom in" className={btn} onClick={() => zoomIn()}>
@@ -129,8 +136,14 @@ type Props = {
 function Flow({ files, specs, canEdit, selected, onSelect, onMove }: Props) {
   const built = useMemo(() => graph(files, specs), [files, specs]);
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>(built.nodes);
-  const { getIntersectingNodes } = useReactFlow();
+  const { getIntersectingNodes, fitView } = useReactFlow();
+  const width = useStore((s) => s.width);
+  const grab = useRef<{ at: { x: number; y: number }; members: Record<string, { x: number; y: number }> } | null>(null);
   useEffect(() => setNodes(built.nodes), [built, setNodes]); // free positions last until the chain or specs change
+  // the panel opening or closing resizes the canvas: re-fit so the graph always fills the width that is left
+  useEffect(() => {
+    if (width) void fitView({ ...FIT, duration: 200 });
+  }, [width, fitView]);
   // the canvas owns which step is open, so the ring follows it (closing the panel clears it)
   const shown = useMemo(() => nodes.map((n) => (n.selected === (n.id === selected) ? n : { ...n, selected: n.id === selected })), [nodes, selected]);
   // loop labels read violet on a card chip, like the edge itself
@@ -139,6 +152,17 @@ function Flow({ files, specs, canEdit, selected, onSelect, onMove }: Props) {
     [built],
   );
 
+  // members follow their step while it is free-dragged (visual only)
+  const pick = (_: unknown, node: FlowNode) => {
+    const members = Object.fromEntries(nodes.filter((n) => n.type === "member" && n.id.startsWith(`${node.id}/`)).map((n) => [n.id, n.position]));
+    grab.current = { at: node.position, members };
+  };
+  const follow = (_: unknown, node: FlowNode) => {
+    const g = grab.current;
+    if (!g) return;
+    const [dx, dy] = [node.position.x - g.at.x, node.position.y - g.at.y];
+    setNodes((ns) => ns.map((n) => (g.members[n.id] ? { ...n, position: { x: g.members[n.id]!.x + dx, y: g.members[n.id]!.y + dy } } : n)));
+  };
   const drop = (_: unknown, node: FlowNode) => {
     const onto = getIntersectingNodes(node).find((n) => n.type === "step" && n.id !== node.id);
     if (!onto) return; // free drag is visual only: it stays where it was dropped
@@ -158,11 +182,14 @@ function Flow({ files, specs, canEdit, selected, onSelect, onMove }: Props) {
       nodeTypes={nodeTypes}
       onNodesChange={onNodesChange}
       fitView
+      fitViewOptions={FIT}
       minZoom={0.4}
       nodesDraggable={canEdit}
       nodesConnectable={false}
       edgesFocusable={false}
       onNodeClick={(_, n) => n.type === "step" && onSelect(n.id)}
+      onNodeDragStart={pick}
+      onNodeDrag={follow}
       onNodeDragStop={drop}
       onKeyDown={enter}
       aria-label="Workflow steps"

@@ -54,11 +54,19 @@ export function graph(files: Record<string, string>, specs: Record<string, Spec>
       id: name,
       type: "step",
       position: { x, y: 0 },
-      data: { name, kind: spec.kind, sub: m.model, gate: spec.gate, pinned, wide, badge: wide ? "Plan gate · Inbox" : undefined },
+      data: {
+        name,
+        kind: spec.kind,
+        sub: (spec.kind === "role" && spec.role) || spec.kind,
+        gate: spec.gate,
+        pinned,
+        wide,
+        badge: wide ? "Plan gate · Inbox" : undefined,
+      },
       ariaLabel: `${name}, ${spec.kind} step${pinned ? ", pinned" : ""}`,
     });
 
-    // a panel review shows one member per entry; any other role step shows its own harness · model
+    // a panel review shows one member per entry; any other role step shows its own harness · model. The step node itself says its role.
     const panel = spec.kind === "role" ? roleValues(files, spec.role).panel : [];
     const labels = spec.kind !== "role" ? [] : panel.length ? panel.map((p) => [p.harness, p.model].filter(Boolean).join(" · ")) : [m.model];
     labels.forEach((label, j) => {
@@ -66,7 +74,7 @@ export function graph(files: Record<string, string>, specs: Record<string, Spec>
       nodes.push({
         id,
         type: "member",
-        position: { x: wide ? x + 60 : x, y: 140 + 100 * j },
+        position: { x: wide ? x + 50 : x, y: 120 + 80 * j },
         data: { name, kind: spec.kind, sub: "", gate: false, pinned: false, wide: false, label },
         draggable: false,
         selectable: false,
@@ -74,7 +82,7 @@ export function graph(files: Record<string, string>, specs: Record<string, Spec>
       });
       edge({ id: `member:${id}`, source: name, target: id, sourceHandle: "members", targetHandle: "top", style: DOTTED });
     });
-    x += wide ? 280 : 180;
+    x += wide ? 250 : 150;
   }
 
   order.forEach((a, i) => {

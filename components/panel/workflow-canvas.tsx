@@ -1,8 +1,8 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Lock, X } from "lucide-react";
 import dynamic from "next/dynamic";
-import { type KeyboardEvent, useMemo, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { chain, diffLines, meta, move, steps, tomlError } from "@/lib/workflow-chain";
@@ -19,6 +19,20 @@ const WorkflowFlow = dynamic(() => import("./workflow-flow").then((m) => m.Workf
 // ponytail: Save as PR and Smoke test need the workflow_pr / workflow_smoke intent kinds, whose migration is held. Flip this when it merges.
 const INTENTS_READY = false;
 const NOTE = "Save as PR and Smoke test arrive with the workflow intents.";
+// a locked button must not pass for an active one: dashed, muted, full-opacity text (so contrast holds), a lock, and the note on hover.
+// The span carries the note and the cursor: a disabled button swallows pointer events, so its own title never shows.
+const LOCKED = "border-dashed bg-muted text-muted-foreground shadow-none disabled:opacity-100! dark:bg-muted";
+function Gated({ children, disabled = false }: { children: ReactNode; disabled?: boolean }) {
+  return (
+    <span title={INTENTS_READY ? undefined : NOTE} className={cn(!INTENTS_READY && "cursor-not-allowed")}>
+      <Button variant={INTENTS_READY ? "default" : "outline"} size="sm" disabled={disabled || !INTENTS_READY} className={cn(!INTENTS_READY && LOCKED)}>
+        {!INTENTS_READY && <Lock aria-hidden className="size-3" />}
+        {children}
+      </Button>
+    </span>
+  );
+}
+
 const TABS = ["settings", "wiring"] as const;
 type Tab = (typeof TABS)[number];
 
@@ -70,19 +84,8 @@ export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; 
                 This repo · .sstack/
               </span>
             </nav>
-            {/* the span carries the note: a disabled button swallows pointer events, so its own title never shows */}
-            <span title={NOTE}>
-              <Button variant="outline" size="sm" disabled={!INTENTS_READY}>
-                Smoke test
-              </Button>
-            </span>
-            {canEdit && (
-              <span title={NOTE}>
-                <Button variant={INTENTS_READY ? "default" : "outline"} size="sm" disabled={!dirty || !INTENTS_READY}>
-                  Save as PR
-                </Button>
-              </span>
-            )}
+            <Gated>Smoke test</Gated>
+            {canEdit && <Gated disabled={!dirty}>Save as PR</Gated>}
           </>
         }
       />
@@ -100,87 +103,9 @@ export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; 
               {error}
             </p>
           )}
-          <p className="text-muted-foreground text-xs">{NOTE}</p>
-        </div>
-        <aside className="flex shrink-0 flex-col gap-4 md:min-h-0 md:w-80 md:overflow-y-auto">
-          <div className="rounded-lg border text-sm">
-            {spec ? (
-              <>
-                <div className="flex items-center gap-2 border-b p-3">
-                  <h2 className="min-w-0 flex-1 truncate font-medium">{selected}</h2>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground text-xs">{spec.kind}</span>
-                  <button
-                    type="button"
-                    aria-label="Close"
-                    onClick={() => setSelected("")}
-                    className="grid size-6 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <X aria-hidden className="size-4" />
-                  </button>
-                </div>
-                <div role="tablist" aria-label="Step details" onKeyDown={arrows} className="flex gap-4 border-b px-3">
-                  {TABS.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      role="tab"
-                      id={`step-tab-${t}`}
-                      aria-selected={tab === t}
-                      aria-controls="step-tabpanel"
-                      tabIndex={tab === t ? 0 : -1}
-                      onClick={() => setTab(t)}
-                      className={cn(
-                        "-mb-px border-b-2 py-2 capitalize outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        tab === t ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-                <div role="tabpanel" id="step-tabpanel" aria-labelledby={`step-tab-${tab}`} className="p-3">
-                  {tab === "settings" ? (
-                    <WorkflowStepPanel
-                      key={selected}
-                      files={files}
-                      specs={current}
-                      name={selected}
-                      canEdit={canEdit}
-                      edits={edits}
-                      setEdits={setEdits}
-                      raw={raw}
-                      setRaw={setRaw}
-                    />
-                  ) : (
-                    <dl className="flex flex-col gap-2">
-                      {wiring?.map(([k, v]) => (
-                        <div key={k} className="flex justify-between gap-2">
-                          <dt className="text-muted-foreground">{k}</dt>
-                          <dd className="min-w-0 truncate text-right">{v}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  )}
-                </div>
-                {canEdit && (
-                  <div className="flex justify-end gap-2 border-t p-3">
-                    <Button variant="outline" size="sm" disabled={!dirty} onClick={cancel}>
-                      Cancel
-                    </Button>
-                    <span title={NOTE}>
-                      <Button variant={INTENTS_READY ? "default" : "outline"} size="sm" disabled={!dirty || !INTENTS_READY}>
-                        Save
-                      </Button>
-                    </span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="p-3 text-muted-foreground">Select a step.</p>
-            )}
-          </div>
+          <p className="text-muted-foreground text-xs">{spec ? NOTE : `Select a step to edit it. ${NOTE}`}</p>
           {diff.length > 0 && (
-            <pre className="overflow-x-auto rounded-lg border p-3 font-mono text-xs">
+            <pre className="max-h-32 shrink-0 overflow-auto rounded-lg border p-3 font-mono text-xs">
               {diff.map((d) => (
                 <span key={d.path} className="block">
                   <span className="block text-muted-foreground">{d.path}</span>
@@ -190,7 +115,78 @@ export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; 
               ))}
             </pre>
           )}
-        </aside>
+        </div>
+        {spec && (
+          <aside className="flex shrink-0 flex-col md:min-h-0 md:w-80">
+            <div className="flex min-h-0 flex-1 flex-col rounded-lg border bg-card text-sm">
+              <div className="flex shrink-0 items-center gap-2 border-b p-3">
+                <h2 className="min-w-0 flex-1 truncate font-medium">{selected}</h2>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground text-xs">{spec.kind}</span>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  onClick={() => setSelected("")}
+                  className="grid size-6 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <X aria-hidden className="size-4" />
+                </button>
+              </div>
+              <div role="tablist" aria-label="Step details" onKeyDown={arrows} className="flex shrink-0 gap-4 border-b px-3">
+                {TABS.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    role="tab"
+                    id={`step-tab-${t}`}
+                    aria-selected={tab === t}
+                    aria-controls="step-tabpanel"
+                    tabIndex={tab === t ? 0 : -1}
+                    onClick={() => setTab(t)}
+                    className={cn(
+                      "-mb-px border-b-2 py-2 capitalize outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      tab === t ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              {!admin && <p className="shrink-0 border-b px-3 py-2 text-muted-foreground text-xs">Read-only: only admins edit workflows.</p>}
+              <div role="tabpanel" id="step-tabpanel" aria-labelledby={`step-tab-${tab}`} className="min-h-0 flex-1 p-3 md:overflow-y-auto">
+                {tab === "settings" ? (
+                  <WorkflowStepPanel
+                    key={selected}
+                    files={files}
+                    specs={current}
+                    name={selected}
+                    canEdit={canEdit}
+                    edits={edits}
+                    setEdits={setEdits}
+                    raw={raw}
+                    setRaw={setRaw}
+                  />
+                ) : (
+                  <dl className="flex flex-col gap-2">
+                    {wiring?.map(([k, v]) => (
+                      <div key={k} className="flex justify-between gap-2">
+                        <dt className="text-muted-foreground">{k}</dt>
+                        <dd className="min-w-0 truncate text-right">{v}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+              </div>
+              {canEdit && (
+                <div className="flex shrink-0 justify-end gap-2 border-t p-3">
+                  <Button variant="outline" size="sm" disabled={!dirty} onClick={cancel}>
+                    Cancel
+                  </Button>
+                  <Gated disabled={!dirty}>Save</Gated>
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
       </div>
     </>
   );
