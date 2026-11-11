@@ -265,7 +265,7 @@ function runAction(inbox: InboxDeps, action: InboxAction, job: JobRow, requestId
       return answerQuestion(inbox, job.id, requestId, text);
     case "approve": {
       const decision = mergeDecisionSchema.safeParse(job.merge_decision).data;
-      return approveMerge(inbox, job.id, requestId, decision?.review?.headSha ?? decision?.headSha ?? null);
+      return approveMerge(inbox, job.id, requestId, decision?.review?.headSha ?? decision?.headSha ?? null, inboxKind(job) === "plan_approval");
     }
     case "request_changes":
       return requestChanges(inbox, job.id, requestId, text);
