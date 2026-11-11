@@ -14,6 +14,9 @@ const { transcriptRateLimited } = await import("../lib/transcript");
 const { parseRollout } = await import("../lib/codex-usage");
 const { relaunchRateLimited } = await import("../runner/inbox");
 const { inferUntracked } = await import("../runner/untracked");
+const { ingestClient } = await import("../runner/ingest-client");
+const { ingest } = await import("../lib/ingest");
+const { eventSchema } = await import("../lib/events");
 const { github } = await import("../lib/github/pulls");
 const { pinnedVersions } = await import("../lib/sandbox");
 const { sandboxHarness, sandboxRuntime } = await import("../runner/sandbox");
@@ -586,7 +589,6 @@ try {
 
   // 1.3: a rate-limited thread fails through the watchdog, and the failure is relaunched on the retry path.
   const rl = `${id}-rl`;
-  const rlJid = jobId("linear", rl);
   const rlAccount = `${id}-acct`;
   await db.insert(jobs).values(linearJob(rl, rl, { stage: "implementing", t3_thread_id: "mcp:rl", machine_id: TEST_MACHINE_ID, attempt: 1 }));
   await db
@@ -603,11 +605,20 @@ try {
   // The failure row is written before the event posts, which a regression cannot do.
   await assert.rejects(watchdog(), /deployed ingest function/);
 
-  // 1.3 on an untracked harness: inference fails a failed thread before the watchdog sees it, so it reads the signal too.
+  // 1.3 on an untracked harness: inference runs before the watchdog, so it reads the signal before finalising a stopped thread, whatever status T3 settled on.
   github.pullRequestForBranch = async () => null;
-  threads.read = async () => ({ state: "stopped", status: "failed", lastMessage: null });
-  for (const signal of [false, true]) {
-    const cx = `${id}-cx${signal}`;
+  const post = ingestClient.post;
+  ingestClient.post = async (event) => ingest(db, [eventSchema.parse(event)]); // the waiting post goes through the real projection
+  const rows = [
+    { status: "failed", signal: false, stage: "failed" },
+    { status: "failed", signal: true, stage: "failed" },
+    { status: "completed", signal: true, stage: "failed" },
+    { status: "interrupted", signal: true, stage: "failed" },
+    { status: "completed", signal: false, stage: "waiting" },
+  ];
+  for (const { status, signal, stage } of rows) {
+    const cx = `${id}-cx-${status}-${signal}`;
+    threads.read = async () => ({ state: "stopped", status, lastMessage: null });
     await db
       .insert(jobs)
       .values(linearJob(cx, cx, { stage: "implementing", provider: "codex", t3_thread_id: `t-${cx}`, machine_id: TEST_MACHINE_ID, stage_at: new Date(0) }));
@@ -617,11 +628,18 @@ try {
     await watchdog();
     const retried: string[] = [];
     await relaunchRateLimited((async (jid: string) => (retried.push(jid), {})) as never);
-    const summary = (await db.select().from(jobs).where(eq(jobs.key, cx)))[0]!.stage_summary ?? "";
-    assert.ok(summary.includes(signal ? RATE_LIMITED : "its T3 thread failed"), summary);
-    const want = signal ? [rlJid, jobId("linear", cx)] : [rlJid];
-    assert.deepEqual(retried.filter((j) => j.includes(id)).sort(), want.sort(), "each rate-limited attempt that ran on an account is retried, once");
+    const row = (await db.select().from(jobs).where(eq(jobs.key, cx)))[0]!;
+    const summary = row.stage_summary ?? "";
+    assert.equal(row.stage, stage, `${status}/${signal}: ${summary}`);
+    assert.equal(summary.includes(RATE_LIMITED), signal, summary);
+    if (stage === "failed") assert.ok(summary.includes(signal ? RATE_LIMITED : "its T3 thread failed"), summary);
+    assert.equal(
+      retried.filter((j) => j === jobId("linear", cx)).length,
+      signal ? 1 : 0,
+      `${status}/${signal}: a rate-limited attempt is retried once, any other is not`,
+    );
   }
+  ingestClient.post = post;
 
   // 1.4: with the pool at its threshold the job stays queued with no thread, and the summary is written once.
   const waiting = `${id}-wait`;

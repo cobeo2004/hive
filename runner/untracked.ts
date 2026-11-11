@@ -73,13 +73,13 @@ async function inferJob(job: Job, now: number): Promise<string | undefined> {
   const thread = await threads.read(job.t3_thread_id, hosts.forJob(job));
   // A gone thread is the watchdog's to fail.
   if (thread.state !== "stopped") return undefined;
+  // R10a: this pass runs before the watchdog, which skips waiting jobs, so a rate-limited attempt
+  // must fail here whatever status T3 settled on, or it would be finalised as waiting or pr first.
+  if (await rateLimitedRun(job, hosts.forJob(job))) return (await watchdogFail(job, `${RATE_LIMITED} (stage ${job.stage})`)) ? "failed" : undefined;
   const settled = settledAs(thread.status);
   switch (settled) {
     case "failed":
-      // R10a: this pass runs before the watchdog, so it reads the provider's rate-limit signal too.
-      return (await watchdogFail(job, `${(await rateLimitedRun(job, hosts.forJob(job))) ? RATE_LIMITED : "its T3 thread failed"} (stage ${job.stage})`))
-        ? "failed"
-        : undefined;
+      return (await watchdogFail(job, `its T3 thread failed (stage ${job.stage})`)) ? "failed" : undefined;
     case "completed":
     case "interrupted":
       if (job.pr_url) {
