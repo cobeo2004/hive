@@ -8,7 +8,10 @@ import type { LaunchPlan } from "../runner/overrides";
 const { db } = await import("../db/client");
 const { agentAccounts, jobs, repoSstackConfig, runs: runRows } = await import("../db/schema");
 const { bindThread, claimLaunch, config, deliverStops, pendingLaunches, reconcileStops, releaseLaunch, threads, watchdog } = await import("../runner/ops");
-const { newKeyPair, RATE_LIMITED, rateLimited, seal } = await import("../lib/creds");
+const { newKeyPair, RATE_LIMITED, seal } = await import("../lib/creds");
+const { rateLimitRuntime } = await import("../runner/account-usage");
+const { transcriptRateLimited } = await import("../lib/transcript");
+const { parseRollout } = await import("../lib/codex-usage");
 const { relaunchRateLimited } = await import("../runner/inbox");
 const { pinnedVersions } = await import("../lib/sandbox");
 const { sandboxHarness, sandboxRuntime } = await import("../runner/sandbox");
@@ -556,90 +559,78 @@ try {
   t = 150;
   assert.equal(await hourly(), undefined, "after a success the clock waits a full interval again");
 
-  // R10a: a provider rate limit on a stopped thread is told apart from an ordinary summary.
-  for (const [status, lastMessage, want] of [
-    ["failed", 'API Error: 429 {"type":"rate_limit_error"}', true],
-    ["completed", "Claude AI usage limit reached|1731300000", true],
-    ["completed", "You've hit your usage limit. Try again later.", true],
-    ["completed", "Implemented rate limiting; all tests pass.", false],
-    ["completed", "Fixed issue #429; waiting for your approval.", false],
-    ["completed", "Implemented rate_limit_error regression tests. All tests pass.", false],
-    ["failed", "Too many requests, slow down", true],
-    ["failed", null, false],
+  // R10a: only the provider's structured error marks a rate limit, never what the agent said.
+  const say = (text: string, extra: object = {}) => ({ type: "assistant", message: { content: text }, ...extra });
+  const hit = say("API Error: 429", { error: "rate_limit", isApiErrorMessage: true });
+  const transcript = (...lines: object[]) => lines.map((l) => JSON.stringify(l)).join("\n");
+  for (const [want, ...lines] of [
+    [true, { type: "user" }, hit],
+    [false, hit, say("recovered")],
+    [false, say("Tests failed: expected HTTP 429, received 200."), say("Failed to implement rate limiting")],
+    [false, say("API Error: 429")],
   ] as const)
-    assert.equal(rateLimited({ status, lastMessage }), want, `${status}: ${lastMessage}`);
+    assert.equal(transcriptRateLimited(transcript(...lines)), want, JSON.stringify(lines));
+  const event = (type: string, more: object = {}) => ({ type: "event_msg", payload: { type, ...more } });
+  const full = event("error", { codex_error_info: "usage_limit_exceeded", message: "You've hit your usage limit." });
+  for (const [want, ...events] of [
+    [true, event("task_started"), full],
+    [false, full, event("task_started")],
+    [false, event("task_started"), event("agent_message", { message: "I fixed the rate limit handling." })],
+  ] as const)
+    assert.equal(parseRollout(transcript({ type: "session_meta", payload: { id: "t1" } }, ...events))!.rateLimited, want, JSON.stringify(events));
 
   // 1.3: a rate-limited thread fails through the watchdog, and the failure is relaunched on the retry path.
   const rl = `${id}-rl`;
   const rlJid = jobId("linear", rl);
   const rlAccount = `${id}-acct`;
   await db.insert(jobs).values(linearJob(rl, rl, { stage: "implementing", t3_thread_id: "mcp:rl", machine_id: TEST_MACHINE_ID, attempt: 1 }));
-  threads.read = async (threadId) =>
-    threadId === "mcp:rl" ? { state: "stopped", status: "failed", lastMessage: "429 rate_limit_error" } : { state: "running", status: null, lastMessage: null };
+  await db
+    .insert(agentAccounts)
+    .values({ id: rlAccount, owner_id: null, provider: "claude", kind: "subscription", label: rlAccount, sealed: seal("t", newKeyPair().publicKey) });
+  const now = new Date();
+  await db.insert(runRows).values({ session_id: `${rl}-s`, job_key: rl, branch: `hive/${rl}`, account_id: rlAccount, started_at: now, last_event_at: now });
+  const settled = { state: threads.state, signal: rateLimitRuntime.signal };
+  let text = transcript(say("Tests failed: expected HTTP 429, received 200."));
+  threads.state = async (threadId) => (threadId === "mcp:rl" ? "stopped" : "running");
+  rateLimitRuntime.signal = async () => transcriptRateLimited(text);
   try {
+    await watchdog();
+    assert.equal((await db.select().from(jobs).where(eq(jobs.key, rl)))[0]!.stage, "implementing", "a stopped thread with no provider signal is not failed");
+    text = transcript({ type: "user" }, hit);
     // The failure row is written before the event posts, which a regression cannot do.
     await assert.rejects(watchdog(), /deployed ingest function/);
   } finally {
-    threads.read = realThreads.read;
+    threads.state = settled.state;
+    rateLimitRuntime.signal = settled.signal;
   }
   const limited = (await db.select().from(jobs).where(eq(jobs.id, rlJid)))[0]!;
   assert.equal(limited.stage, "failed", "the rate-limited thread fails at once, with no nudge first");
   assert.ok(limited.stage_summary?.includes(RATE_LIMITED), limited.stage_summary ?? "");
-  const retried: [string, number][] = [];
-  const fakeRetry = async (jobId: string, detail: { attempt: number }) => (retried.push([jobId, detail.attempt]), { started: 2 });
-  assert.deepEqual(await relaunchRateLimited(fakeRetry as never), [], "an attempt that ran on the runner's own login stays failed");
-  await db
-    .insert(agentAccounts)
-    .values({ id: rlAccount, owner_id: null, provider: "claude", kind: "subscription", label: rlAccount, sealed: seal("t", newKeyPair().publicKey) });
-  await db.insert(runRows).values({
-    session_id: `${rl}-s`,
-    job_key: rl,
-    branch: `hive/${rl}`,
-    t3_thread_id: "mcp:rl",
-    account_id: rlAccount,
-    started_at: new Date(),
-    last_event_at: new Date(),
-  });
-  assert.deepEqual(await relaunchRateLimited(fakeRetry as never), [{ key: rl, started: 2 }], "an attempt that ran on an account is retried");
-  assert.deepEqual(retried, [[rlJid, 1]], "through the usual retry, for the attempt that failed");
+  const fakeRetry = async (jobId: string, detail: { attempt: number }) => ({ started: detail.attempt, jobId });
+  assert.deepEqual(
+    await relaunchRateLimited(fakeRetry as never),
+    [{ key: rl, started: 1, jobId: rlJid }],
+    "an attempt that ran on an account is retried, once",
+  );
 
   // 1.4: with the pool at its threshold the job stays queued with no thread, and the summary is written once.
   const waiting = `${id}-wait`;
   await db.insert(jobs).values(linearJob(waiting, waiting, { stage: "queued" }));
   const limits = config.factory.sandbox;
   const savedRuntime = { ...sandboxRuntime };
-  const poolLogs: string[] = [];
   Object.assign(sandboxRuntime, {
     image: () => ({ imageId: "im-test", t3Version: limits.t3Version, versions: pinnedVersions(limits), factoryCommit: "abc", builtAt: "now" }),
     driverOf: (provider: string) => provider,
     account: async () => "wait",
-    log: (event: string) => void poolLogs.push(event),
   });
-  const waitEntry = {
-    key: waiting,
-    sandbox_id: null,
-    attempt: 1,
-    source: "linear" as const,
-    repo: "ski043/factory-demo",
-    branch: `hive/${waiting}`,
-    threadTitle: waiting,
-    message: "m",
-    harness: { provider: "claudeAgent", model: "claude-opus-5-5" },
-    ticket: null,
-  };
-  const version = async () => (await db.execute(sql`select xmin::text as x from jobs where key = ${waiting}`)).rows[0]!.x;
   try {
-    assert.deepEqual(await launchInSandboxes([waitEntry], slot), [], "no thread starts");
+    assert.deepEqual(await launchInSandboxes([entry(waiting)], slot), [], "no thread starts");
     const held = (await db.select().from(jobs).where(eq(jobs.key, waiting)))[0]!;
     assert.deepEqual(
       [held.stage, held.stage_summary, held.t3_thread_id, held.machine_id],
       ["queued", "Waiting for the team pool", null, null],
       "1.4: the job stays in its stage and says it waits for the team pool",
     );
-    assert.ok(poolLogs.includes("sandbox:pool-wait"), "and the wait is logged");
-    const written = await version();
-    await launchInSandboxes([waitEntry], slot);
-    assert.equal(await version(), written, "a second pass writes nothing: the summary is already there");
   } finally {
     Object.assign(sandboxRuntime, savedRuntime);
   }

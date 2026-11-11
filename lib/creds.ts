@@ -70,12 +70,7 @@ export type AccountRow = Pick<typeof agentAccounts.$inferSelect, "id" | "owner_i
 export const OWNER_CUTOFF_PCT = 95;
 export type PoolLimits = { threshold: number; pauseInstead: boolean };
 
-/**
- * R10a: the owner's account while under 95% of its 5h window, else the pool account with the lowest 5h
- * use, else "wait" when every pool account is at or above the threshold and pauseInstead is on. With no
- * pool row it returns undefined, and the runner default stands in for the pool (Q17). A missing meter
- * counts as 0%. The provider comes from the caller's harness, never from the accounts (Q19).
- */
+/** R10a: the owner's account under 95% of its 5h window, else the lowest-use pool account, else "wait" (pool full, pauseInstead on). No pool row: undefined (Q17). */
 export function pickAccount(
   rows: readonly AccountRow[],
   ownerId: string | null,
@@ -93,17 +88,11 @@ export function pickAccount(
   const shared = live.filter((r) => r.owner_id === null);
   if (shared.length === 0) return undefined;
   if (pool.pauseInstead && shared.every((r) => pct(r) >= pool.threshold)) return "wait";
-  return shared.reduce((best, r) => (pct(r) < pct(best) ? r : best)); // stable: the oldest wins a tie
+  return shared.reduce((best, r) => (pct(r) < pct(best) ? r : best));
 }
 
-/** The failure summary the watchdog writes for a rate-limited run, and the marker accountFor and the relaunch read back. */
+/** The failure summary the watchdog writes for a rate-limited run; accountFor and the relaunch read it back. */
 export const RATE_LIMITED = "the provider rate-limited its account";
-
-const RATE_LIMIT = /\b429\b|rate[ _-]?limit|usage limit|too many requests/i;
-const PROVIDER_ERROR = /^\s*(API Error: 429|Claude AI usage limit reached|You(?:'|’)ve hit your usage limit)/i;
-/** A stopped thread that ended on the provider's rate limit: a failed run that says so, or a message that starts with the provider's error. */
-export const rateLimited = ({ status, lastMessage }: { status: string | null; lastMessage: string | null }) =>
-  !!lastMessage && ((status === "failed" && RATE_LIMIT.test(lastMessage)) || PROVIDER_ERROR.test(lastMessage));
 
 /** An unsealed account; id null is the runner's own default login. */
 export type Account = { id: string | null; secret: string };
@@ -112,10 +101,9 @@ export type Account = { id: string | null; secret: string };
 export const runnerDefaultClaudeToken = (env: Env = process.env) => env.CLAUDE_CODE_OAUTH_TOKEN || undefined;
 
 /**
- * The login a job's sandbox runs on (R10a): see pickAccount, then the runner's default when the pool has
- * no row (null when nothing is left), or "wait" for the team pool. After a rate-limited attempt it skips
- * every account an earlier attempt ran on in the last 5h; an attempt keeps its account across wakes. The DB client and config load here, not at import, so the panel
- * can import this file without them.
+ * The login a job's sandbox runs on (R10a): see pickAccount, else the runner default (null when none), or "wait" for the pool.
+ * After a rate limit it skips accounts earlier attempts ran on in the last 5h; an attempt keeps its account across wakes.
+ * The DB client and config load here, not at import, so the panel can import this file.
  */
 export async function accountFor(jobKey: string, provider: CredsProvider, runnerDefault: string | undefined, env: Env = process.env) {
   const { db } = await import("../db/client");

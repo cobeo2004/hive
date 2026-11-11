@@ -48,6 +48,7 @@ assert.deepEqual(
     startedAt: Date.parse("2026-10-27T10:00:00.000Z"),
     lastUsageAt: Date.parse("2026-10-27T10:04:00.000Z"),
     settled: false,
+    rateLimited: false,
     // 30000 input, of it 21000 cached and 1000 cache writes; reasoning is inside the 2500 output.
     usage: { input: 8000, output: 2500, cacheRead: 21000, cacheWrite: 1000, model: "gpt-6.1-sol" },
   },

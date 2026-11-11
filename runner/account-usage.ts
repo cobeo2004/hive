@@ -1,10 +1,14 @@
-import { and, eq, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, isNull, lt } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
-import { accountUsage, agentAccounts } from "../db/schema";
+import { accountUsage, agentAccounts, runs, type RunRow } from "../db/schema";
 import { unseal } from "../lib/creds";
-import type { Limits, Rollout } from "../lib/codex-usage";
+import { codexUsage, readRollouts, ROLLOUT_SLACK_MS, type Limits, type Rollout } from "../lib/codex-usage";
+import { attemptBranch, isMcpSession } from "../lib/factory";
+import type { JobHost } from "../lib/host";
+import { transcriptPathFor, transcriptRateLimited } from "../lib/transcript";
 import { forbidInTest } from "../lib/test-mode";
+import { codexHomeOf } from "./codex-usage";
 
 // The 5h and 7d meters of each subscription account (R11a): Claude's are polled from Anthropic's
 // OAuth usage endpoint, Codex's ride on the rollouts the runner already reads. API-key accounts
@@ -109,4 +113,34 @@ export async function recordCodexLimits(accountId: string, limits: Limits, at?: 
     .from(agentAccounts)
     .where(and(eq(agentAccounts.id, accountId), eq(agentAccounts.kind, "subscription")));
   if (account) await upsertUsage(accountId, limits, new Date(at));
+}
+
+/** The provider's structured record of a run (Claude transcript, Codex rollout): was it ended by a rate limit? Replaced in regressions. */
+export const rateLimitRuntime = {
+  async signal(run: RunRow, host: JobHost) {
+    if (!isMcpSession(run.session_id)) {
+      const path = transcriptPathFor(run);
+      const text = path ? await host.readFile(path) : null;
+      return text !== null && transcriptRateLimited(text);
+    }
+    const startedAt = run.started_at.getTime();
+    const rollouts = await readRollouts(host, codexHomeOf(host), startedAt - ROLLOUT_SLACK_MS);
+    return codexUsage(rollouts, { cwd: run.cwd, branch: run.branch, startedAt })?.main.rateLimited ?? false;
+  },
+};
+
+/** R10a: did the provider rate-limit the job's current attempt? Anything unreadable is no, so a tick never breaks on it. */
+export async function rateLimitedRun(job: { key: string; attempt: number }, host: JobHost) {
+  const branch = attemptBranch(job.key, job.attempt);
+  try {
+    const [run] = await db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.job_key, job.key), eq(runs.branch, branch)))
+      .orderBy(desc(runs.started_at))
+      .limit(1);
+    return !!run && (await rateLimitRuntime.signal(run, host));
+  } catch {
+    return false;
+  }
 }
