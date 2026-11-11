@@ -312,16 +312,39 @@ export function pullsClient({ api, tokens }: { api: string; tokens: TokenSource 
     },
 
     /**
-     * A regular file's text at a branch or commit; null when there is none at exactly that path. The contents API follows a
-     * symlink to its target (answering with the target's `path`) and returns a listing, a symlink, or a submodule for the rest,
-     * so only `type: "file"` at the requested path counts: a link would otherwise compare equal while its target changes.
+     * A regular file's text at a branch or commit; null when the ref's git tree holds no regular file at exactly that path:
+     * missing, a symlink, a submodule, a directory, or unreadable (truncated tree, unexpected shape). The contents API can't
+     * tell: it answers a symlink as `type: "file"` at the requested path with the target's text, so the tree entry's mode decides.
      */
     async fileAt(repo: RepoName, path: string, ref: string): Promise<string | null> {
-      const { status, json } = await request(repo, "GET", `/repos/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`, { allow: [404] });
-      if (status === 404) return null;
-      const file = z.object({ content: z.string(), path: z.string(), type: z.string() }).safeParse(json);
-      if (!file.success || file.data.type !== "file" || file.data.path !== path.replace(/^\/+/, "")) return null;
-      return Buffer.from(file.data.content, "base64").toString("utf8");
+      const get = async <T extends z.ZodType>(schema: T, url: string): Promise<z.infer<T> | null> => {
+        const { status, json } = await request(repo, "GET", url, { allow: [404] });
+        const parsed = status === 404 ? undefined : schema.safeParse(json);
+        return parsed?.success ? parsed.data : null;
+      };
+      const commits = await get(
+        z.array(z.object({ commit: z.object({ tree: z.object({ sha: z.string() }) }) })),
+        `/repos/${repo}/commits?${new URLSearchParams({ sha: ref, per_page: "1" })}`,
+      );
+      let sha = commits?.[0]?.commit.tree.sha;
+      const segments = path.replace(/^\/+/, "").split("/");
+      for (const [i, segment] of segments.entries()) {
+        if (!sha) return null;
+        const tree = await get(
+          z.object({ truncated: z.boolean(), tree: z.array(z.object({ path: z.string(), type: z.string(), mode: z.string(), sha: z.string() })) }),
+          `/repos/${repo}/git/trees/${sha}`,
+        );
+        const entry = tree && !tree.truncated ? tree.tree.find((e) => e.path === segment) : undefined;
+        if (!entry) return null;
+        if (i < segments.length - 1) {
+          if (entry.type !== "tree") return null;
+        } else if (entry.type !== "blob" || (entry.mode !== "100644" && entry.mode !== "100755")) {
+          return null;
+        }
+        sha = entry.sha;
+      }
+      const blob = await get(z.object({ content: z.string(), encoding: z.string() }), `/repos/${repo}/git/blobs/${sha}`);
+      return blob?.encoding === "base64" ? Buffer.from(blob.content, "base64").toString("utf8") : null;
     },
 
     async pullFiles(url: string): Promise<ChangedFile[]> {
