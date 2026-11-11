@@ -10,8 +10,8 @@
   --color-violet: var(--violet);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --font-heading: var(--font-sans);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
@@ -108,78 +108,90 @@
 }
 
 /*
- * Neutral greys with one accent, after Behance: Cod Gray #191919, white, and Blue Ribbon #0057FF.
- * The greys carry no hue, so the panel reads as graphite rather than blue.
+ * Hive's look, from design/screens/hive.css: T3 Code's shell with Unibuz accents. Blue is selection and
+ * focus; lime is only for PR ready and the Inbox count. The Hive tokens come first with hive.css's
+ * values, then the shadcn variables point at them. The one change is light --success-soft (see there).
+ * hive.css has no faint text level, so --faint is the muted text: anything fainter fails AA. hive.css's --muted is text, so it lives in
+ * --muted-foreground here; shadcn's --muted stays a surface. scripts/contrast-regressions.ts checks both.
+ * --radius is hive's 10px: the scale above gives sm 6px, lg 10px, xl 14px and 2xl 18px, as hive.css does.
  */
 :root {
-  --background: #ffffff;
-  --foreground: #191919;
+  --bg: #fcfcfd;
+  --surface-1: #fafafa;
+  --surface-2: #f4f4f5;
+  --border-strong: #a1a1aa;
+  --ink: #18181b;
+  --ink-2: #3f3f46;
+  --primary-text: #3224f2;
+  --primary-soft: #ecebfe;
+  --on-primary: #ffffff;
+  --lime: #cbfd80;
+  --on-lime: #1d1580;
+  --danger: #c62834;
+  /* hive.css has #e7f6ec, where --success reads at 4.49:1; one step lighter clears AA. */
+  --success-soft: #e8f7ed;
+  --warning-soft: #fdf3e1;
+  --danger-soft: #fde8ea;
+  --focus: #3224f2;
+
+  --background: var(--bg);
+  --foreground: var(--ink);
   --card: #ffffff;
-  --card-foreground: #191919;
-  --popover: #ffffff;
-  --popover-foreground: #191919;
-  --primary: #0057ff;
-  --primary-foreground: #ffffff;
-  --secondary: #f3f3f3;
-  --secondary-foreground: #191919;
-  --muted: #f3f3f3;
-  --muted-foreground: #6b6b6b;
-  --accent: #f0f0f0;
-  --accent-foreground: #191919;
-  --destructive: #d92d20;
-  --border: #e5e5e5;
-  --input: #dedede;
-  --ring: #0057ff;
-  --chart-1: #0057ff;
-  --chart-2: #16a34a;
-  --chart-3: #d97706;
-  --chart-4: #737373;
-  --chart-5: #191919;
-  --radius: 0.625rem;
-  --faint: #9b9b9b;
-  --success: #16a34a;
-  --warning: #d97706;
-  --info: #0057ff;
+  --card-foreground: var(--ink);
+  --popover: var(--card);
+  --popover-foreground: var(--ink);
+  --primary: #3224f2;
+  --primary-foreground: var(--on-primary);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--ink);
+  --muted: var(--surface-2);
+  --muted-foreground: #6b6b74;
+  --accent: var(--surface-2);
+  --accent-foreground: var(--ink);
+  --destructive: var(--danger);
+  --border: #e4e4e7;
+  --input: var(--border);
+  --ring: var(--focus);
+  --chart-1: var(--primary);
+  --chart-2: var(--success);
+  --chart-3: var(--warning);
+  --chart-4: var(--muted-foreground);
+  --chart-5: var(--ink);
+  --radius: 10px;
+  --faint: var(--muted-foreground);
+  --success: #15803d;
+  --warning: #a15c00;
+  --info: var(--primary-text);
   --violet: #7c3aed;
-  --destructive-foreground: var(--color-red-700);
-  --info-foreground: var(--color-blue-700);
-  --success-foreground: var(--color-emerald-700);
-  --warning-foreground: var(--color-amber-700);
+  --destructive-foreground: var(--danger);
+  --info-foreground: var(--primary-text);
+  --success-foreground: var(--success);
+  --warning-foreground: var(--warning);
 }
 
 .dark {
-  --background: #191919;
-  --foreground: #f2f2f2;
-  --card: #1f1f1f;
-  --card-foreground: #f2f2f2;
-  --popover: #222222;
-  --popover-foreground: #f2f2f2;
-  --primary: #0057ff;
-  --primary-foreground: #ffffff;
-  --secondary: #262626;
-  --secondary-foreground: #f2f2f2;
-  --muted: #262626;
-  --muted-foreground: #a3a3a3;
-  --accent: #2a2a2a;
-  --accent-foreground: #f2f2f2;
-  --destructive: #f2554a;
-  --border: #2e2e2e;
-  --input: #383838;
-  --ring: #3d7bff;
-  --chart-1: #3d7bff;
-  --chart-2: #34c26b;
-  --chart-3: #f0a43a;
-  --chart-4: #8c8c8c;
-  --chart-5: #f2f2f2;
-  --faint: #6e6e6e;
-  --success: #34c26b;
-  --warning: #f0a43a;
-  --info: #5c8fff;
+  --bg: #09090b;
+  --surface-1: #0e0e10;
+  --surface-2: #161617;
+  --border-strong: rgba(255, 255, 255, 0.28);
+  --ink: #f5f5f5;
+  --ink-2: #cfcfd2;
+  --primary-text: #a7a0ff;
+  --primary-soft: rgba(91, 79, 255, 0.16);
+  --on-lime: #0b0b0c;
+  --danger: #ff7a83;
+  --success-soft: rgba(74, 222, 128, 0.12);
+  --warning-soft: rgba(251, 191, 36, 0.12);
+  --danger-soft: rgba(255, 122, 131, 0.12);
+  --focus: #a7a0ff;
+
+  --card: #0d0d0e;
+  --primary: #5b4fff;
+  --muted-foreground: #9a9aa2;
+  --border: rgba(255, 255, 255, 0.09);
+  --success: #4ade80;
+  --warning: #fbbf24;
   --violet: #a78bfa;
-  --destructive-foreground: var(--color-red-400);
-  --info-foreground: var(--color-blue-400);
-  --success-foreground: var(--color-emerald-400);
-  --warning-foreground: var(--color-amber-400);
 }
 
 @layer base {
