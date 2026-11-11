@@ -238,6 +238,9 @@ try {
     comments(ON, 8).some((c) => c.body.startsWith("<!-- hive:note:k2 -->")),
     "a marker quoted mid-comment is not Hive's comment",
   );
+  gh.get(`${ON}#8`)!.labels.push({ name: WAITING_LABEL });
+  await adapter.writeBack(await job(8), { stage: "implementing", eventId: "w1b" });
+  assert.deepEqual(names(8), ["hive"], "a write-back after resuming clears a hive:waiting an acknowledgement failed to remove");
   await adapter.note(await job(8), "k", "hello");
   await adapter.note(await job(8), "k", "hello");
   assert.equal(comments(ON, 8).filter((c) => c.body.includes("hello")).length, 1, "a note is posted once per key");

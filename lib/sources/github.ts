@@ -224,7 +224,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
         if (stage === "waiting") {
           await postOnce(d, job, mark("question", eventId), `**Hive needs an answer**\n\n${job.question ?? job.stage_summary}`);
           await d.request(repo, "POST", `${issuePath(job)}/labels`, { labels: [WAITING] });
-        } else if (stage === "failed" || stage === "merged") await dropLabel(d, job, WAITING);
+        } else await dropLabel(d, job, WAITING); // any other stage clears it, so an acknowledgement that failed is made good by the next write-back
         // Back to unstarted without the label, so the poll does not claim it again in a loop; the label retries it.
         if (stage === "failed") await dropLabel(d, job, label);
         return true;
