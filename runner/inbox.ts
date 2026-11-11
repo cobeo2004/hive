@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, like, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, like, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { auditLog, intents, jobs, runs, type IntentRow } from "../db/schema";
 import { RATE_LIMITED } from "../lib/creds";
@@ -227,9 +227,12 @@ export async function relaunchRateLimited(retry: typeof retryJob = retryJob) {
   const failed = await db
     .select()
     .from(jobs)
-    .where(and(eq(jobs.stage, "failed"), like(jobs.stage_summary, `%${RATE_LIMITED}%`)));
+    .where(and(eq(jobs.stage, "failed"), like(jobs.stage_summary, `%${RATE_LIMITED}%`), isNull(jobs.pr_url))); // no account fallback once a PR exists
   const out: { key: string; started?: number; refused?: string }[] = [];
-  for (const job of failed) {
+  for (const listed of failed) {
+    // Re-read: the row may have moved (a PR opened, a retry started) since the list was taken.
+    const [job] = await db.select().from(jobs).where(eq(jobs.id, listed.id));
+    if (!job || job.stage !== "failed" || job.pr_url || !job.stage_summary?.includes(RATE_LIMITED)) continue;
     // ponytail: the runner's own login is the last resort; a rate limit there just stays failed (nothing to exclude, no loop).
     const [ran] = await db
       .select({ id: runs.account_id })

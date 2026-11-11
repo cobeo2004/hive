@@ -652,6 +652,18 @@ try {
   const held = (await db.select().from(jobs).where(eq(jobs.key, hold)))[0]!;
   assert.deepEqual([held.stage, /rate limit/.test(held.stage_summary ?? "")], ["pr", true], "a tracked rate-limited job with a PR stays at pr, never failed");
   assert.equal(posted.filter((e) => e.jobKey === hold && e.stage === "pr").length, 1, "its note is posted once");
+  // R10a: a failed, rate-limited attempt that already has a PR is never relaunched; the same job without one is, once.
+  const [withPr, noPr] = [`${id}-relaunch-pr`, `${id}-relaunch-nopr`];
+  await seed(withPr, { stage: "failed", stage_summary: RATE_LIMITED, attempt: 1, pr_url: openPr });
+  await seed(noPr, { stage: "failed", stage_summary: RATE_LIMITED, attempt: 1 });
+  const relaunched: string[] = [];
+  const result = await relaunchRateLimited((async (jid: string) => (relaunched.push(jid), {})) as never);
+  assert.deepEqual(
+    relaunched.filter((j) => j.endsWith("-relaunch-pr") || j.endsWith("-relaunch-nopr")),
+    [jobId("linear", noPr)],
+    "only the job with no PR is retried, once",
+  );
+  assert.ok(!result.some((r) => r.key === withPr) && result.some((r) => r.key === noPr), "the result has no entry for the job with a PR");
   const lead = { provider: "claudeAgent", model: "claude-opus-5-5" };
   assert.deepEqual(sandboxHarness(lead, "claudeAgent", true, limits.codexModel), { choice: lead }, "1.5: a pool Claude account keeps the Claude harness");
   console.log("launch regressions passed");
