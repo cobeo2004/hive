@@ -18,6 +18,7 @@ const ON = "owner/on";
 const OFF = "owner/off";
 const DEFAULT = "owner/default";
 const GONE = "owner/gone";
+const CASED = "Owner/Cased";
 type Comment = { id: number; body: string; created_at: string; user?: { login: string; type: string } };
 type Issue = { state: string; labels: { name: string }[]; comments: Comment[]; pull_request?: object; events: object[]; [k: string]: unknown };
 const gh = new Map<string, Issue>();
@@ -40,7 +41,7 @@ const request = async (repo: string, method: string, path: string, input?: unkno
     throw new Error("boom");
   }
   if (repo === limit) throw new GitHubError("rate limit", 403, 60_000);
-  if (![ON, OFF, DEFAULT].includes(repo)) throw new Error(`the adapter reached ${repo}, which is not registered`);
+  if (![ON, OFF, DEFAULT, CASED].includes(repo)) throw new Error(`the adapter reached ${repo}, which is not registered`);
   const list = path.match(/\/issues\?.*labels=([^&]+)/);
   if (list)
     return [...gh]
@@ -82,7 +83,7 @@ const names = (n: number) => gh.get(`${ON}#${n}`)!.labels.map((l) => l.name);
 
 try {
   await db.delete(jobs).where(like(jobs.id, "github:%"));
-  await db.delete(repoSettings).where(inArray(repoSettings.repo, [ON, OFF, DEFAULT, GONE]));
+  await db.delete(repoSettings).where(inArray(repoSettings.repo, [ON, OFF, DEFAULT, GONE, CASED]));
   const meta = { updated_at: new Date(), updated_by: "regress" };
   await db.insert(repoSettings).values([
     { repo: ON, enabled: true, ...meta },
@@ -342,14 +343,27 @@ try {
   assert.equal((await (await post(comment, "gh-src-4", undefined, "issue_comment")).json()).intent, null, "a comment on a job not waiting wakes nothing");
   await patch(8, { stage: "waiting" });
   assert.equal((await (await post(comment, "gh-src-5", undefined, "issue_comment")).json()).intent, "answer", "a comment on a waiting job does");
-  const cased = JSON.stringify({ action: "created", comment: { user: { type: "User" } }, repository: { full_name: "OWNER/On" }, issue: { number: 8 } });
+  // The registry spells a repo as it was entered; the job is filed under that spelling, so an answer finds it whatever case the delivery uses.
+  await db.insert(repoSettings).values({ repo: CASED, enabled: true, ...meta });
+  put(CASED, 9);
+  assert.ok((await claim()).claimed.includes(githubKey(CASED, 9)));
+  await db
+    .update(jobs)
+    .set({ stage: "waiting" })
+    .where(eq(jobs.id, `github:${CASED}#9`));
+  const cased = JSON.stringify({
+    action: "created",
+    comment: { user: { type: "User" } },
+    repository: { full_name: CASED.toLowerCase() },
+    issue: { number: 9 },
+  });
   await post(cased, "gh-src-6", undefined, "issue_comment");
   const [woken] = await db.select().from(intents).where(eq(intents.id, "github:gh-src-6"));
-  assert.equal(woken?.job_id, id(8), "the answer is for the job filed under the registry's spelling of the repo, whatever case the delivery uses");
+  assert.equal(woken?.job_id, `github:${CASED}#9`, "the answer is for the job filed under the registry's spelling");
   for (let n = 300; n <= 400; n++) put(DEFAULT, n);
   down = [ON];
   assert.equal((await adapter.ready()).filter((d) => d.repo === DEFAULT).length, 101, "one repo down does not stop the others");
-  down = [ON, DEFAULT];
+  down = [ON, DEFAULT, CASED];
   await assert.rejects(adapter.ready(), /could not read issues of/, "every enabled repo down is an error, not an empty poll");
   down = [];
   limit = DEFAULT;
@@ -365,6 +379,6 @@ try {
   await db.delete(jobs).where(like(jobs.id, "github:%"));
   await db.delete(intents).where(like(intents.id, "github:gh-src-%"));
   await db.delete(webhookDeliveries).where(like(webhookDeliveries.delivery_id, "github:gh-src-%"));
-  await db.delete(repoSettings).where(inArray(repoSettings.repo, [ON, OFF, DEFAULT, GONE]));
+  await db.delete(repoSettings).where(inArray(repoSettings.repo, [ON, OFF, DEFAULT, GONE, CASED]));
   process.exit(process.exitCode ?? 0);
 }
