@@ -3,19 +3,22 @@ import { inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
 import { agents, runs, type RunRow } from "../db/schema";
-import { parseRollout } from "../lib/codex-usage";
+import { readRollouts } from "../lib/codex-usage";
 import { isMcpSession } from "../lib/factory";
 import { HostAsleepError, HostGoneError, localHost, type JobHost } from "../lib/host";
 import type { Usage } from "../lib/events";
+import { nativeSessionOf } from "../lib/t3-client";
 import { sumUsage, transcriptPathFor } from "../lib/transcript";
 import { codexHomeOf } from "./codex-usage";
 
 // sstack logs each ended child it dispatched to <worktree>/.sstack/runs/index.jsonl. Each line becomes an `agents` row `sstack:<run_dir>#<harness>/<model>[#<variant>]@<job>`
-// (R19/Q31): a panel's members and jobs share a run_dir, so those make the id unique. Its cost is read from the child's own Claude transcript or
-// Codex rollout when exactly one is found; the rest has no tokens. A codex lead's codex child also shows as its `codex:<thread>` row, which counts its cost.
+// (R19/Q31): a panel's members and jobs share a run_dir, so those make the id unique. Its cost is read from the session sstack records on the line
+// (`session: {id, kind}`), never matched by time or text: no session, a pi/other child or an id nothing answers to has no tokens ("—").
 
 const SLACK_MS = 2 * 60_000;
+const SAFE_ID = /^[A-Za-z0-9-]{8,64}$/;
 
+const sessionOf = z.object({ id: z.string().min(1).max(200), kind: z.string() });
 const line = z.object({
   ts: z.string(),
   role: z.string(),
@@ -25,54 +28,42 @@ const line = z.object({
   secs: z.number().nonnegative(),
   run_dir: z.string().min(1),
   variant: z.string().nullish(),
+  session: sessionOf.nullish().catch(undefined), // a malformed one is no session, not a skipped line
 });
 
 /** `ts` is naive in real sstack: this machine's clock locally, UTC in a sandbox. An offset is used as written. */
 export const parseTs = (ts: string, host: JobHost) => Date.parse(/(Z|[+-]\d\d:?\d\d)$/.test(ts) || host === localHost ? ts : `${ts}Z`);
 
-// sstack's task text is "Read the brief at <worktree>/<run_dir>/brief.skills.md". A child's transcript or rollout is the one whose
-// prompt (the user text before the first reply: Codex puts AGENTS.md first) names that absolute path, in whichever worktree it ran.
 type Own = { child: z.infer<typeof line>; start: number; end: number };
-// The files at most `$2` deep under `$1` (a Claude subagent's are deeper), written to in the last `$3` minutes, naming any `-e` needle.
-const NAMED = `r=$1 d=$2 m=$3; shift 3; find "$r" -maxdepth "$d" -name '*.jsonl' -mmin "-$m" -exec grep -lF "$@" {} + 2>/dev/null; true`;
 
-function promptOf(text: string) {
-  let prompt = "";
-  for (const raw of text.split("\n")) {
-    try {
-      const o = JSON.parse(raw);
-      const role = o.type === "response_item" ? o.payload?.role : o.type;
-      if (role === "assistant") break;
-      const c = role === "user" ? (o.message ?? o.payload)?.content : "";
-      prompt += typeof c === "string" ? c : Array.isArray(c) ? c.map((p) => p?.text ?? "").join("\n") : "";
-    } catch {} // not json
+/** Each child's usage by its session id: one `find` for every Claude transcript, one rollout read for every Codex thread. Ids a `runs` row owns are not a child's. */
+async function usageOf(run: RunRow, host: JobHost, own: Own[]) {
+  const ids = new Map<Own, string>();
+  for (const o of own) {
+    // The recorded id itself (claude, codex) or, for a T3 thread, the provider session T3 says it ran. Null is "—".
+    const { session: s, harness } = o.child;
+    let id: string | null = null;
+    if (s && (harness === "claude" || harness === "codex")) id = s.kind === "t3-thread" ? await nativeSessionOf(host, s.id) : s.kind === harness ? s.id : null;
+    if (id && SAFE_ID.test(id)) ids.set(o, id);
   }
-  return prompt;
-}
-
-/** Each child's usage, only where exactly one file names it, with its model, and that file names no other child: ambiguity is no match. */
-async function usageOf(run: RunRow, host: JobHost, kids: Own[], harness: "claude" | "codex", root: string | undefined, depth: string, skip?: string) {
-  const needle = (o: Own) => `${run.cwd!.replace(/\/$/, "")}/${o.child.run_dir}/brief`;
-  if (!kids.length || !root) return new Map<Own, Usage>();
-  const minutes = String(Math.max(1, Math.ceil((Date.now() - Math.min(...kids.map((k) => k.start)) + SLACK_MS) / 60_000)));
-  const args = ["-c", NAMED, "sh", root, depth, minutes, ...kids.flatMap((k) => ["-e", needle(k)])];
-  const paths = (await host.run("sh", args, { timeoutMs: 60_000 })).stdout.split("\n").filter((p) => p && p !== skip);
-  const files = [];
-  for (const path of paths) {
-    const text = (await host.readFile(path)) ?? "";
-    const roll = harness === "codex" ? parseRollout(text) : undefined;
-    const id = roll ? (roll.threadId === roll.sessionId ? roll.threadId : "") : basename(path, ".jsonl");
-    files.push({ path, id, prompt: promptOf(text), usage: roll ? roll.usage : sumUsage(text) });
+  const all = [...ids.values()];
+  const taken = new Set(all.length ? (await db.select({ id: runs.session_id }).from(runs).where(inArray(runs.session_id, all))).map((r) => r.id) : []);
+  const want = (harness: string) => [...ids].filter(([o, id]) => o.child.harness === harness && !taken.has(id));
+  const usage = new Map<string, Usage>();
+  const [claude, lead] = [want("claude"), transcriptPathFor(run)];
+  if (claude.length && lead) {
+    const names = claude.flatMap(([, id], i) => [...(i ? ["-o"] : []), "-name", `${id}.jsonl`]);
+    const args = ["-c", 'find "$@" 2>/dev/null; true', "sh", dirname(dirname(lead)), "-maxdepth", "2", "(", ...names, ")"];
+    for (const path of (await host.run("sh", args, { timeoutMs: 60_000 })).stdout.split("\n").filter(Boolean))
+      usage.set(basename(path, ".jsonl"), sumUsage((await host.readFile(path)) ?? ""));
   }
-  const ids = files.map((f) => f.id);
-  const owned = new Set(ids.length ? (await db.select({ id: runs.session_id }).from(runs).where(inArray(runs.session_id, ids))).map((o) => o.id) : []);
-  const live = files.filter((f) => f.id && f.usage.model !== "unknown" && !owned.has(f.id));
-  // The index records aliases such as `haiku`; the transcript names the real model.
-  const fit = (k: Own, m: string) => (harness === "codex" ? m === k.child.model : m.includes(k.child.model));
-  const fits = new Map(kids.map((k) => [k, live.filter((f) => f.prompt.includes(needle(k)) && fit(k, f.usage.model))]));
-  const all = [...fits.values()].flat();
-  const once = (k: Own) => fits.get(k)!.length === 1 && all.filter((f) => f === fits.get(k)![0]).length === 1;
-  return new Map(kids.filter(once).map((k) => [k, fits.get(k)![0]!.usage] as const));
+  // An `mcp:` lead already counts its codex children.
+  const codex = isMcpSession(run.session_id) ? [] : want("codex");
+  if (codex.length) {
+    const rollouts = await readRollouts(host, codexHomeOf(host), Math.min(...codex.map(([o]) => o.start)));
+    for (const r of rollouts) if (codex.some(([, id]) => id === r.threadId)) usage.set(r.threadId, r.usage);
+  }
+  return new Map(own.flatMap((o) => ((usage.get(ids.get(o)!)?.model ?? "unknown") === "unknown" ? [] : [[o, usage.get(ids.get(o)!)!] as const])));
 }
 
 /** Upserts one agents row per child sstack logged for this run's worktree, with its cost where it can be read. */
@@ -96,16 +87,10 @@ export async function recordSstackLineage(run: RunRow, host: JobHost) {
     const own = children
       .filter(({ start, end }) => [start, end].every((ms) => Math.abs(ms) <= 8.64e15) && start >= after && end <= before)
       .sort((a, b) => a.start - b.start);
-    const lead = transcriptPathFor(run);
-    const of = (h: string) => own.filter((c) => c.child.harness === h);
-    // Every worktree's transcripts sit side by side under the projects root; an `mcp:` lead already counts its codex children.
-    const reads = new Map([
-      ...(await usageOf(run, host, of("claude"), "claude", lead && dirname(dirname(lead)), "2", lead)),
-      ...(await usageOf(run, host, isMcpSession(run.session_id) ? [] : of("codex"), "codex", `${codexHomeOf(host)}/sessions`, "4")),
-    ]);
+    const reads = await usageOf(run, host, own);
     for (const o of own) {
       const { child, start, end } = o;
-      // No match (none, several, no usage or no model) keeps what was stored.
+      // No match (no session, no transcript or rollout, no usage or no model) keeps what was stored.
       const found = reads.get(o);
       const model = found?.model ?? child.model;
       const id = `sstack:${child.run_dir}#${child.harness}/${child.model}${child.variant ? `#${child.variant}` : ""}@${run.job_key ?? run.session_id}`;

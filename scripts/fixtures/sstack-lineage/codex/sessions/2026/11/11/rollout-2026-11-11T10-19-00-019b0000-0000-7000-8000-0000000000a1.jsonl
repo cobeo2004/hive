@@ -1,4 +1,3 @@
-{"timestamp":"__START__","type":"session_meta","payload":{"id":"019b0000-0000-7000-8000-0000000000a1","session_id":"019b0000-0000-7000-8000-0000000000a1","timestamp":"__START__","originator":"codex_exec","cli_version":"0.164.0","source":"exec","model_provider":"openai","cwd":"__WORKTREE__"}}
-{"timestamp":"__START__","type":"turn_context","payload":{"turn_id":"t","cwd":"__WORKTREE__","model":"gpt-6-luna","effort":"medium"}}
-{"timestamp":"__START__","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":20000,"cached_input_tokens":15000,"cache_write_input_tokens":0,"output_tokens":800,"reasoning_output_tokens":300,"total_tokens":20800}}}}
-{"timestamp":"__START__","type":"response_item","payload":{"role":"user","content":"Read the brief at __WORKTREE__/.sstack/runs/20261111-1019-review/brief.skills.md"}}
+{"timestamp":"2026-11-11T10:19:00Z","type":"session_meta","payload":{"id":"019b0000-0000-7000-8000-0000000000a1","session_id":"019b0000-0000-7000-8000-0000000000a1","timestamp":"2026-11-11T10:19:00Z","originator":"codex_exec","cli_version":"0.164.0","source":"exec","model_provider":"openai","cwd":"/w"}}
+{"timestamp":"2026-11-11T10:19:00Z","type":"turn_context","payload":{"turn_id":"t","cwd":"/w","model":"gpt-6-luna","effort":"medium"}}
+{"timestamp":"2026-11-11T10:19:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":20000,"cached_input_tokens":15000,"cache_write_input_tokens":0,"output_tokens":800,"reasoning_output_tokens":300,"total_tokens":20800}}}}

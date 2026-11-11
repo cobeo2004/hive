@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import type { ExecOptions } from "./exec";
-import { localHost, type JobHost } from "./host";
+import { HostAsleepError, HostGoneError, localHost, type JobHost } from "./host";
 import { SANDBOX_HOME } from "./sandbox";
 import { forbidInTest } from "./test-mode";
 
@@ -117,6 +117,25 @@ const toolResult = z.object({
 function userdataDir(host: JobHost) {
   if (host !== localHost) return `${SANDBOX_HOME}/.t3/userdata`;
   return join(process.env.T3CODE_HOME ?? join(homedir(), ".t3"), "userdata");
+}
+
+const SAFE_THREAD_ID = /^[A-Za-z0-9._:%-]{1,200}$/;
+const nativeRef = z.object({ nativeId: z.string().regex(SAFE_THREAD_ID) });
+
+/**
+ * The provider session (Claude uuid or Codex thread id) a T3 thread ran in; null when T3 has none or fails (not a gone or asleep host).
+ * Neither the CLI nor the MCP tools expose it, so this reads T3's INTERNAL state DB read-only: the one place to change when they do.
+ */
+export async function nativeSessionOf(host: JobHost, threadId: string): Promise<string | null> {
+  if (!SAFE_THREAD_ID.test(threadId)) return null; // checked, so the id may sit in the SQL text
+  const sql = `select json_extract(payload_json,'$.nativeThreadRef') from orchestration_v2_projection_provider_threads where thread_id='${threadId}' and json_extract(payload_json,'$.nativeThreadRef.strength')='strong' order by rowid desc limit 1`;
+  try {
+    const { stdout } = await host.run("sqlite3", ["-readonly", "-cmd", ".timeout 2000", `${userdataDir(host)}/statev2.sqlite`, sql], { timeoutMs: 20_000 });
+    return nativeRef.parse(JSON.parse(stdout)).nativeId;
+  } catch (error) {
+    if (error instanceof HostGoneError || error instanceof HostAsleepError) throw error;
+    return null;
+  }
 }
 
 /** Signs in to the host's T3 for the length of `work`, then revokes the session. */

@@ -34,15 +34,24 @@ assert.equal(parseTs("2026-11-11T10:00:00", localHost), new Date(2026, 10, 11, 1
 
 const KEY = `SLG-${Date.now() % 1_000_000}`;
 const SESSION = `lead-${KEY}`;
-const DECOY = `decoy-${KEY}`;
 const [S2, S3] = [`lead2-${KEY}`, `lead3-${KEY}`];
-const sessions = [SESSION, DECOY, S2, S3];
+const sessions = [SESSION, S2, S3];
 const root = mkdtempSync(join(tmpdir(), "sstack-lineage-"));
 const worktree = join(root, "worktree");
 const claudeDir = join(root, "projects/lead");
 const codexHome = join(root, "codex");
-const claudeChild = join(claudeDir, "child-uuid.jsonl");
+const CLAUDE_ID = "child-uuid-0000-claude-1";
+const claudeChild = join(claudeDir, `${CLAUDE_ID}.jsonl`);
 ingestClient.post = async (event) => ingest(db, [eventSchema.parse(event)]);
+// No test reads T3's real state DB: sqlite3 is answered here (its output, or a throw), counted per call.
+const sqlite = { calls: [] as string[], answer: async () => "" };
+const realRun = localHost.run;
+localHost.run = async (command, args, options) => {
+  if (command !== "sqlite3") return realRun.call(localHost, command, args, options);
+  sqlite.calls.push(args.at(-1)!);
+  return { stdout: await sqlite.answer(), stderr: "" };
+};
+process.env.T3CODE_HOME = root;
 
 const agentsWhere = (where: SQL) => db.select().from(agents).where(where).orderBy(asc(agents.agent_id));
 const rowsOf = () => agentsWhere(eq(agents.session_id, SESSION));
@@ -54,32 +63,22 @@ const tokensOf = (r: Agent) => [r.input_tokens, r.output_tokens, r.cache_read_to
 try {
   mkdirSync(join(worktree, ".sstack/runs"), { recursive: true });
   cpSync(join(FIXTURES, "index.jsonl"), join(worktree, ".sstack/runs/index.jsonl"));
-  // The lead's own transcript, another run's session whose prompt names the child's brief too, and the child's.
+  // The lead's own transcript, a sibling of the child's (same time, same model, huge) and the child's.
   mkdirSync(claudeDir, { recursive: true });
   const usageLine = (id: string, input: number, model = "claude-opus-5-5") =>
     JSON.stringify({ type: "assistant", message: { id, model, usage: { input_tokens: input, output_tokens: 1 } } });
-  const prompt = (wt: string, ...dirs: string[]) =>
-    JSON.stringify({ type: "user", message: { content: dirs.map((d) => `Read the brief at ${wt}/${d}/brief.skills.md`).join() } });
   const leadPath = join(claudeDir, `${SESSION}.jsonl`);
   writeFileSync(leadPath, usageLine("l1", 1));
-  writeFileSync(join(claudeDir, `${DECOY}.jsonl`), `${prompt(worktree, implement.run_dir)}\n${usageLine("d1", 999_999, "claude-haiku-5-5")}`);
-  writeFileSync(claudeChild, readFileSync(join(FIXTURES, "claude/child.jsonl"), "utf8").replace("__WORKTREE__", worktree));
-  // The codex child's rollout, in the worktree; another root thread that started at the same instant names no run_dir.
+  writeFileSync(join(claudeDir, "sibling-uuid-0000-claude-2.jsonl"), usageLine("s1", 999_999, "claude-haiku-5-5"));
+  cpSync(join(FIXTURES, `claude/${CLAUDE_ID}.jsonl`), claudeChild);
   cpSync(join(FIXTURES, "codex"), codexHome, { recursive: true });
   const day = join(codexHome, "sessions/2026/11/11");
-  const rollout = join(day, readdirSync(day)[0]!);
-  const at = new Date(startOf(review)).toISOString();
-  const text = readFileSync(rollout, "utf8").replace(/__START__|__WORKTREE__/g, (m) => (m === "__START__" ? at : worktree));
-  writeFileSync(rollout, text);
-  const decoy = text.replaceAll("0000a1", "0000a0").replaceAll(review.run_dir, "x").replace('"input_tokens":20000', '"input_tokens":99999');
-  writeFileSync(join(day, "rollout-2026-11-11T10-19-00-019b0000-0000-7000-8000-0000000000a0.jsonl"), decoy);
+  const text = readFileSync(join(day, readdirSync(day)[0]!), "utf8");
   process.env.CODEX_HOME = codexHome;
 
   await db.insert(jobs).values(linearJob(`sstack-lineage-${KEY}`, KEY, { machine_id: TEST_MACHINE_ID, stage: "implementing" }));
   const lead = { ...usageRun(KEY), session_id: SESSION, cwd: worktree, transcript_path: leadPath, started_at: new Date(startOf(implement) - 600_000) };
   await db.insert(runs).values(lead);
-  // Another run's session, so its transcript is not a child's.
-  await db.insert(runs).values({ ...usageRun(KEY), session_id: DECOY, job_key: null, branch: null });
 
   await reconcileUsage({ only: [KEY] });
   const rows = await rowsOf();
@@ -97,11 +96,11 @@ try {
   const wanted = [implement, review, pi].map((l) => [endOf(l), Math.round(l.secs * 1000)]);
   assert.deepEqual(spans, wanted, "ended_at is the line's ts, the duration its secs");
   const [claude, codex, piRow] = rows as [Agent, Agent, Agent];
-  const u = sumUsage(readFileSync(join(FIXTURES, "claude/child.jsonl"), "utf8"));
-  assert.equal(tokensOf(claude), [u.input, u.output, u.cacheRead, u.cacheWrite].join(), "the claude child's transcript, not the decoy's");
-  const r = parseRollout(readFileSync(rollout, "utf8"))!.usage;
-  assert.equal(tokensOf(codex), [r.input, r.output, r.cacheRead, r.cacheWrite].join(), "the codex child's rollout");
-  assert.equal(hasTokens(piRow), false, "a pi child has no tokens: its cost is unknown");
+  const u = sumUsage(readFileSync(claudeChild, "utf8"));
+  assert.equal(tokensOf(claude), [u.input, u.output, u.cacheRead, u.cacheWrite].join(), "the transcript the session id names, not its sibling");
+  const r = parseRollout(text)!.usage;
+  assert.equal(tokensOf(codex), [r.input, r.output, r.cacheRead, r.cacheWrite].join(), "the rollout whose thread id the line names");
+  assert.equal(hasTokens(piRow), false, "a pi child has no session: its cost is unknown");
 
   await recordSstackLineage(await runRow(), localHost);
   assert.deepEqual(await rowsOf(), rows, "a second read changes nothing");
@@ -114,18 +113,6 @@ try {
   await clear();
   await recordSstackLineage({ ...(await runRow()), status: "ended", last_event_at: new Date(endOf(review) + 1000) }, localHost);
   assert.equal((await rowsOf()).length, 2, "the pi child is not claimed");
-  await clear();
-
-  // A child that ended before the run opened is an old one's.
-  await recordSstackLineage({ ...(await runRow()), started_at: new Date(endOf(pi) + 3_600_000) }, localHost);
-  assert.equal((await rowsOf()).length, 0, "children from before the run are skipped");
-
-  // With no transcript or rollout the children are recorded with no tokens, so their cost is unknown.
-  for (const f of [claudeChild, rollout]) rmSync(f);
-  await reconcileUsage({ only: [KEY] });
-  const bare = await rowsOf();
-  assert.equal(bare.map((a) => `${a.model}:${hasTokens(a)}`).join(), "haiku:false,gpt-6-luna:false,some-pi-model:false", "the line's model, no tokens");
-  assert.ok(Math.abs((await branchSpend(db, [lead.branch!]))[lead.branch!]! - leadCost) < 1e-12, "only the lead is counted");
 
   // Two jobs sharing a run_dir, and a panel (codex and claude, one run_dir), each get their own rows.
   const iso = (ms: number) => new Date(ms).toISOString();
@@ -134,7 +121,7 @@ try {
   const [wt2, wt3, dir3, other] = ["wt2", "wt3", "projects/lead3", "projects/other"].map((n) => join(root, n));
   const writeIndex = (wt: string, children: object[]) => {
     mkdirSync(join(wt, ".sstack/runs"), { recursive: true });
-    writeFileSync(join(wt, ".sstack/runs/index.jsonl"), children.map((c) => JSON.stringify(c)).join("\n"));
+    writeFileSync(join(wt, ".sstack/runs/index.jsonl"), children.map((c) => (typeof c === "string" ? c : JSON.stringify(c))).join("\n"));
   };
   const runOf = (session_id: string, cwd: string, transcript_path?: string) => ({
     ...usageRun(KEY),
@@ -154,50 +141,59 @@ try {
   const same = await agentsWhere(like(agents.agent_id, `sstack:${implement.run_dir}#%${KEY}%`));
   assert.equal(same.length, 4, "the first job's child and the panel's three members (two variants) are separate rows");
 
-  // A child's transcript is the one whose prompt names its brief, in another worktree's project dir; the lead's own names every brief.
   for (const d of [dir3, other]) mkdirSync(d, { recursive: true });
-  writeFileSync(join(dir3, "lead.jsonl"), `${prompt(wt3, "r/A", "r/B", "r/P")}\n${usageLine("l", 7, "claude-haiku-5-5")}`);
-  const put = (name: string, dir: string, input: number, model = "claude-haiku-5-5", later = "") =>
-    writeFileSync(join(other, `${name}.jsonl`), [prompt(wt3, dir), usageLine(`m${input}`, input, model), later].join("\n"));
-  const [lineA, lineB] = [child({ ts: iso(T + 100_000), secs: 100, run_dir: "r/A" }), child({ ts: iso(T + 90_000), secs: 70, run_dir: "r/B" })];
+  writeFileSync(join(dir3, "lead.jsonl"), usageLine("l", 7, "claude-haiku-5-5"));
+  const put = (name: string, input: number, model = "claude-haiku-5-5") => writeFileSync(join(other, `${name}.jsonl`), usageLine(`m${input}`, input, model));
+  const session = (id: string, kind = "claude") => ({ session: { id, kind } });
   const tick = async (...lines: object[]) => {
     writeIndex(wt3, lines);
     await recordSstackLineage(run3!, localHost);
     return (await agentsWhere(eq(agents.session_id, S3))).map((a) => a.input_tokens).join();
   };
-  const spend = async () => (await branchSpend(db, [run3!.branch!]))[run3!.branch!]!;
-  // B alone, indexed first, never takes A's transcript; each child later gets its own.
-  put("a", lineA.run_dir, 1000);
-  assert.equal(await tick(lineB), "0", "B has no transcript of its own yet");
-  put("b", lineB.run_dir, 200);
-  assert.equal(await tick(lineA, lineB), "1000,200", "A and B each have their own");
-  const before = await spend();
+  const [A, B] = ["aaaaaaaa-0000-claude", "bbbbbbbb-0000-claude"];
+  const [lineA, lineB] = [child({ run_dir: "r/P", variant: "x", ...session(A) }), child({ run_dir: "r/P", variant: "y", ...session(B) })];
+  put("zzzzzzzz-0000-claude", 999_999);
+  put(A, 1000);
+  assert.equal(await tick(lineA, lineB), "1000,0", "B has no transcript yet: unknown, A's is not B's");
+  put(B, 200);
+  assert.equal(await tick(lineA, lineB), "1000,200", "each member gets its own session's transcript");
 
-  // One transcript gone: nothing is reassigned, stored tokens and spend stay; it comes back, still the same.
-  rmSync(join(other, "a.jsonl"));
-  put("c", "r/C", 999_999);
-  assert.equal(await tick(lineA, lineB), "1000,200", "a transcript naming another child's run_dir is never used");
-  assert.equal(await spend(), before, "and spend is unchanged");
-  put("a", lineA.run_dir, 1000);
-  assert.equal(await tick(lineA, lineB), "1000,200");
-  for (const n of ["a", "b", "c"]) rmSync(join(other, `${n}.jsonl`));
-  assert.equal(await tick(lineA, lineB), "1000,200", "a tick that finds no transcript keeps the tokens");
+  // No transcript for a session keeps the stored tokens; a match replaces them.
+  rmSync(join(other, `${A}.jsonl`));
+  assert.equal(await tick(lineA, lineB), "1000,200", "a transcript gone keeps the tokens");
+  put(A, 1100);
+  assert.equal(await tick(lineA, lineB), "1100,200", "a match replaces the stored tokens");
 
-  // Only the prompt counts: Q's brief quoted later by B's transcript (Q's own absent) is no match. Panel variants are told apart
-  // only by model; two of one model are ambiguous, so neither gets a transcript.
-  const lineQ = child({ ts: iso(T + 50_000), secs: 60, run_dir: "r/Q" });
-  const [px, py] = [child({ run_dir: "r/P", variant: "x" }), child({ run_dir: "r/P", variant: "y", model: "sonnet" })];
-  const quote = JSON.stringify({ type: "user", message: { content: `${wt3}/r/Q/brief.skills.md` } });
-  for (const [lines, files, want] of [
-    [[lineB, lineQ], "b r/B 200 haiku", "200,0"],
-    [[px, { ...py, model: "haiku" }], "x r/P 300 haiku,y r/P 40 haiku", "0,0"],
-    [[px, py], "x r/P 300 haiku,y r/P 40 sonnet", "300,40"],
-  ] as const) {
-    await db.delete(agents).where(eq(agents.session_id, S3));
-    for (const f of readdirSync(other)) rmSync(join(other, f));
-    for (const [n, d, i, m] of files.split(",").map((f) => f.split(" "))) put(n!, d!, Number(i), `claude-${m}-5-5`, n === "b" ? quote : "");
-    assert.equal(await tick(...lines), want);
+  await db.delete(agents).where(eq(agents.session_id, S3));
+  assert.equal(await tick({ ...lineA, session: undefined }, { ...lineB, session: null }), "0,0", "no session, no tokens (their transcripts exist)");
+
+  // A T3 child is costed from the session its thread ran (T3's state names it): one sqlite call each.
+  const t3 = child({ run_dir: "r/T", ...session("thread:delegated:abc%3A1", "t3-thread") });
+  const native = (nativeId: string) => JSON.stringify({ driver: "claudeAgent", nativeId, strength: "strong" });
+  await db.delete(agents).where(eq(agents.session_id, S3));
+  sqlite.answer = async () => native(B);
+  assert.equal(await tick(t3), "200", "the thread's native session's transcript");
+  assert.ok(sqlite.calls.length === 1 && sqlite.calls[0]!.includes("thread_id='thread:delegated:abc%3A1'"), "one lookup, for that thread");
+  await tick(child({ run_dir: "r/T", ...session("x';drop table t;--", "t3-thread") }));
+  assert.equal(sqlite.calls.length, 1, "an id outside the charset never reaches sqlite");
+
+  // Unknown or unresolvable: no tokens, the stored ones kept, nothing thrown. A host that is gone is not unknown.
+  for (const answer of ["", "not json", native("../etc/x")]) {
+    sqlite.answer = async () => answer;
+    assert.equal(await tick(t3), "200", "an unanswered T3 lookup keeps the tokens");
   }
+  sqlite.answer = () => Promise.reject(new Error("no such table"));
+  assert.equal(await tick(t3), "200", "so does one that fails");
+  await db.delete(agents).where(eq(agents.session_id, S3));
+  const odd = [...["pi", "other", "codex"].map((k) => session(A, k)), session(SESSION), { session: { id: 5 } }];
+  assert.equal(
+    await tick(...odd.map((o, n) => child({ run_dir: `r/${n}`, ...o }))),
+    "0,0,0,0,0",
+    "pi, other, a wrong kind, the lead's own, a malformed session",
+  );
+  sqlite.answer = () => Promise.reject(new HostGoneError("gone"));
+  writeIndex(wt3, [t3]);
+  await assert.rejects(recordSstackLineage(run3!, localHost), HostGoneError);
 
   // A bad line (secs 1e17), a child started before the run (an older job's, though it ended after) and a read error.
   writeIndex(wt2, [child({ secs: 1e17, run_dir: "bad" }), child({ run_dir: "good", harness: "pi", model: "x" }), child({ secs: 600, run_dir: "old" })]);
@@ -212,6 +208,7 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
+  localHost.run = realRun;
   await db.delete(agents).where(inArray(agents.session_id, sessions));
   await db.delete(runs).where(inArray(runs.session_id, sessions));
   await db.delete(events).where(inArray(events.session_id, sessions));
