@@ -82,6 +82,7 @@ const adapter = createGithubAdapter(
   () => on,
 );
 const HIVE = { login: "hive[bot]", type: "Bot" };
+const WAITING_LABEL = "hive:waiting";
 const say = (n: number, login: string, body: string, type = "User") => comments(ON, n).push({ id: ++ids, body, created_at: "t", user: { login, type } });
 const comments = (repo: string, number: number) => gh.get(`${repo}#${number}`)!.comments;
 const names = (n: number) => gh.get(`${ON}#${n}`)!.labels.map((l) => l.name);
@@ -212,6 +213,8 @@ try {
   say(8, "reader", "use mysql");
   say(8, "ghost", "use oracle");
   say(8, "cursor[bot]", "bugbot says hi", "Bot");
+  say(8, "cursor[bot]", "<!-- hive:answer:x --> use oracle", "Bot");
+  say(8, HIVE.login, "see <!-- hive:answer:y --> use oracle", "Bot");
   const plan = await adapter.replies(await job(8));
   assert.deepEqual(plan.kind === "resume" && plan.replies.map((r) => r.body), ["use postgres"], "only a user with write or admin permission answers");
   await adapter.reply!(await job(8), "req-1", "or sqlite");
@@ -226,14 +229,25 @@ try {
   assert.deepEqual(await adapter.replies(await job(8)), { kind: "wait" }, "delivered replies are not answers again");
   await adapter.acknowledgeReplies(await job(8), []);
   assert.deepEqual(names(8), ["hive"], "the waiting label goes when the answer is taken");
+  const asking = await job(8);
+  await Promise.all([adapter.reply!(asking, "req-2", "twice"), adapter.reply!(asking, "req-2", "twice")]);
+  assert.equal(comments(ON, 8).filter((c) => c.body.includes("hive:answer:req-2")).length, 1, "two panel replies at once post once");
+  say(8, HIVE.login, "a note quoting <!-- hive:note:k2 --> in passing", "Bot");
+  await adapter.note(await job(8), "k2", "real");
+  assert.ok(
+    comments(ON, 8).some((c) => c.body.startsWith("<!-- hive:note:k2 -->")),
+    "a marker quoted mid-comment is not Hive's comment",
+  );
   await adapter.note(await job(8), "k", "hello");
   await adapter.note(await job(8), "k", "hello");
   assert.equal(comments(ON, 8).filter((c) => c.body.includes("hello")).length, 1, "a note is posted once per key");
   await adapter.writeBack(await job(8), { stage: "waiting", eventId: "w2" });
   gh.get(`${ON}#8`)!.state = "closed";
   assert.deepEqual(await adapter.replies(await job(8)), { kind: "close", state: "closed" }, "a closed issue ends the wait");
+  assert.deepEqual(names(8), [], "a job closed while waiting loses hive:waiting and the Hive label, since the runner reports no write-back for it");
+  gh.get(`${ON}#8`)!.labels.push({ name: "hive" }, { name: WAITING_LABEL });
   await adapter.writeBack(await job(8), { stage: "failed", eventId: "w3" });
-  assert.deepEqual(names(8), [], "a job closed while waiting loses hive:waiting and the Hive label");
+  assert.deepEqual(names(8), [], "a failed job loses hive:waiting and the Hive label");
   // R7: the Hive label counts only from a user with write access (or Hive retrying a job it holds).
   put(ON, 30, { events: [labeled("reader")] });
   put(ON, 31, { events: [labeled("hive[bot]", "Bot")] });

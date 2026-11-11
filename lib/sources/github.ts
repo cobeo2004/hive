@@ -35,8 +35,10 @@ const commentSchema = z.object({
 const WAITING = "hive:waiting";
 /** Hive's comments carry a hidden marker, so a retry finds the one it posted and never posts it twice. */
 const mark = (kind: string, id: string) => `<!-- hive:${kind}:${id} -->`;
-const ANSWER = /<!-- hive:answer:\S+ -->/;
+const ANSWER = /^<!-- hive:answer:\S+ -->/;
 const bot = (c: z.infer<typeof commentSchema>) => c.user?.type === "Bot";
+/** Hive's marker opens its comment; one quoted further down, in a question or a note, is not a mark. */
+const marked = (c: z.infer<typeof commentSchema>, marker: string) => bot(c) && !!c.body?.startsWith(marker);
 
 export type GithubDeps = {
   /** One GitHub call as the repo's installation; a 404 throws GitHubError like any other refusal. */
@@ -89,11 +91,24 @@ async function listAll<T extends z.ZodType>(d: GithubDeps, repo: string, path: s
 
 const issuePath = (job: Pick<Job, "writeback">) => `/repos/${job.writeback.repo}/issues/${job.writeback.number}`;
 
-/** Posts `text` under a hidden marker unless Hive's own comment with that marker is already there. */
+const posting = new Map<string, Promise<unknown>>();
+
+/** Posts `text` under a hidden marker unless Hive's own comment with that marker is already there; two calls for one marker in this process run one after the other. */
 async function postOnce(d: GithubDeps, job: Job, marker: string, text: string) {
   const path = `${issuePath(job)}/comments`;
-  if ((await listAll(d, job.writeback.repo, path, commentSchema)).some((c) => bot(c) && c.body?.includes(marker))) return;
-  await d.request(job.writeback.repo, "POST", path, { body: `${marker}\n${text}` });
+  const key = `${path}${marker}`;
+  const run = (posting.get(key) ?? Promise.resolve())
+    .catch(() => {})
+    .then(async () => {
+      if ((await listAll(d, job.writeback.repo, path, commentSchema)).some((c) => marked(c, marker))) return;
+      await d.request(job.writeback.repo, "POST", path, { body: `${marker}\n${text}` });
+    });
+  posting.set(key, run);
+  try {
+    await run;
+  } finally {
+    if (posting.get(key) === run) posting.delete(key);
+  }
 }
 
 const dropLabel = (d: GithubDeps, job: Job, name: string) =>
@@ -129,7 +144,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
     let id = job.source_state.statusAttempt === job.attempt ? job.source_state.statusCommentId : null;
     if (id && (await edit(id))) return;
     // A crash between the POST and the save below leaves a comment Hive never recorded; its marker finds it again.
-    id = (await listAll(d, repo, `${issuePath(job)}/comments`, commentSchema)).find((c) => bot(c) && c.body?.includes(marker))?.id ?? null;
+    id = (await listAll(d, repo, `${issuePath(job)}/comments`, commentSchema)).find((c) => marked(c, marker))?.id ?? null;
     if (id) await edit(id);
     else id = z.object({ id: z.number().int() }).parse(await d.request(repo, "POST", `${issuePath(job)}/comments`, { body: `${marker}\n${text}` })).id;
     const patch = JSON.stringify({
@@ -221,17 +236,21 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
     async replies(job) {
       const d = await deps();
       const { repo } = job.writeback;
-      if (z.object({ state: z.string() }).parse(await d.request(repo, "GET", issuePath(job))).state === "closed") return { kind: "close", state: "closed" };
+      if (z.object({ state: z.string() }).parse(await d.request(repo, "GET", issuePath(job))).state === "closed") {
+        // The runner marks a closed job as already reported, so no write-back follows to clear its labels.
+        await Promise.all([dropLabel(d, job, WAITING), d.label().then((label) => dropLabel(d, job, label))]);
+        return { kind: "close", state: "closed" };
+      }
       const all = await listAll(d, repo, `${issuePath(job)}/comments`, commentSchema);
-      const asked = all.find((c) => bot(c) && job.stage_event_id && c.body?.includes(mark("question", job.stage_event_id)));
+      const asked = all.find((c) => bot(c) && job.stage_event_id && marked(c, mark("question", job.stage_event_id)));
       if (!asked) return { kind: "wait" };
       const skip = new Set([...job.source_state.factoryCommentIds, ...job.delivered_reply_ids]);
       const after = all.filter((c) => c.id > asked.id && !skip.has(String(c.id)) && c.user);
       const people = [...new Set(after.filter((c) => !bot(c)).map((c) => c.user!.login))];
       const writers = new Map(await Promise.all(people.map(async (login) => [login, await isWriter(d, repo, login)] as const)));
-      // The panel posts as the App, so its answer is a bot's comment carrying the marker; any other bot is ignored.
+      // The panel posts as the App, which also posted the question: an answer is a comment from that login opening with the marker; any other bot is ignored.
       const replies: Reply[] = after
-        .filter((c) => (bot(c) ? ANSWER.test(c.body ?? "") : writers.get(c.user!.login)))
+        .filter((c) => (bot(c) ? c.user!.login === asked.user!.login && ANSWER.test(c.body ?? "") : writers.get(c.user!.login)))
         .map((c) => ({ id: String(c.id), body: (c.body ?? "").replace(ANSWER, "").trim(), createdAt: c.created_at }));
       if (replies.length === 0) return { kind: "wait" };
       return { kind: "resume", question: job.question ?? asked.body ?? "", replies, answer: replies.map((r) => r.body).join("\n\n") };
