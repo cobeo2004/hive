@@ -130,19 +130,19 @@ try {
     await then();
     const { attempt } = await job(7);
     await ops.claim({ sources: [{ ...adapter, ready: async () => poll }], repos: async () => [DEFAULT], registry });
-    assert.equal((await job(7)).attempt, attempt, "not reclaimed from a poll taken before it failed again, or before its failure was written back");
+    assert.equal((await job(7)).attempt, attempt, "not reclaimed from a stale poll, nor when its failure has no event id");
   };
   await patch(7, { stage: "failed", stage_event_id: "e2", synced_event_id: null });
-  await fromPoll(async () => {
-    await adapter.writeBack(await job(7), { stage: "failed", eventId: "e2" });
-    await patch(7, { synced_event_id: "e2" });
-  });
+  await fromPoll(async () => (await adapter.writeBack(await job(7), { stage: "failed", eventId: "e2" })) && patch(7, { synced_event_id: "e2" }));
   await adapter.requeue(await job(7));
-  await patch(7, { stage: "implementing", stage_event_id: null, synced_event_id: null });
+  await patch(7, { stage: "implementing", stage_event_id: "e5", synced_event_id: "e5" });
   await fromPoll(() => patch(7, { stage: "failed" }));
+  await patch(7, { stage: "failed", stage_event_id: null, synced_event_id: null });
+  await fromPoll(async () => {});
+  await patch(7, { stage_event_id: "e5", synced_event_id: "e5" });
   const old = await adapter.ready();
   await claim();
-  await fromPoll(() => patch(7, { stage: "failed" }), old);
+  await fromPoll(() => patch(7, { stage: "failed", stage_event_id: "e5", synced_event_id: "e5" }), old);
   await adapter.requeue(await job(7));
   assert.deepEqual((await claim()).claimed, ["GH-owner-on-7"], "the label added again is a retry");
   for (let n = 300; n <= 400; n++) put(DEFAULT, n);

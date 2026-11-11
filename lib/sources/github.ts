@@ -103,7 +103,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       const d = await deps();
       const label = await d.label();
       const { readRegistry } = await import("../repositories");
-      // Each job as it was before the poll reads GitHub: a retry is allowed only if its attempt, stage and events are unchanged and the failure was written back (see reclaimIf).
+      // Each job as it was before the poll reads GitHub: a retry is allowed only if its attempt, stage and synced event are unchanged and the failure was written back (a failure with no event id never was) (see reclaimIf).
       const rows = await d.db.select().from(jobs).where(eq(jobs.source, "github"));
       const seen = new Map(rows.map((j) => [j.external_id, j]));
       const drafts: JobDraft<"github">[] = [];
@@ -120,7 +120,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
               writeback: { kind: "github", repo, number: issue.number },
               sourceState: { labels: issue.labels.map((l) => l.name) },
               repo, // R2: the claim refuses it rather than route it elsewhere
-              reclaimIf: sql`${jobs.stage}::text is not distinct from ${was?.stage ?? null} and ${jobs.attempt} is not distinct from ${was?.attempt ?? null}::int and ${jobs.stage_event_id} is not distinct from ${was?.stage_event_id ?? null}::text and ${jobs.synced_event_id} is not distinct from ${was?.synced_event_id ?? null}::text and ${jobs.synced_event_id} is not distinct from ${jobs.stage_event_id}`,
+              reclaimIf: sql`${jobs.stage}::text is not distinct from ${was?.stage ?? null} and ${jobs.attempt} is not distinct from ${was?.attempt ?? null}::int and ${jobs.synced_event_id} is not distinct from ${was?.synced_event_id ?? null}::text and ${jobs.synced_event_id} = ${jobs.stage_event_id}`,
             });
           }
         } catch (error) {
