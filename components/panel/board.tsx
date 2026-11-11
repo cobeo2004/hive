@@ -30,17 +30,24 @@ export function Board({
   const columns = STAGES.filter((stage) => stage !== "failed" || cards.some((c) => c.stage === "failed"));
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 divide-x overflow-x-auto overflow-y-hidden">
+    <div className="flex min-h-0 min-w-0 flex-1 gap-2.5 overflow-x-auto overflow-y-hidden p-3">
       {columns.map((stage) => {
         const items = cards.filter((c) => c.stage === stage);
         return (
-          <section key={stage} data-stage={stage} aria-label={STAGE_META[stage].label} className="flex h-full w-80 shrink-0 flex-col last:border-e">
-            <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-muted/72 px-3 font-medium">
-              <span className={cn("size-2 rounded-full", STAGE_META[stage].dot)} />
-              {STAGE_META[stage].label}
+          <section
+            key={stage}
+            data-stage={stage}
+            aria-label={STAGE_META[stage].label}
+            className="flex h-full w-[236px] shrink-0 flex-col rounded-lg border bg-(--surface-1) p-2.5"
+          >
+            <div className="flex shrink-0 items-center justify-between px-1 pb-1">
+              <span className="flex items-center gap-2 text-xs font-medium text-(--ink-2)">
+                <span className={cn("size-2 rounded-full", STAGE_META[stage].dot)} />
+                {STAGE_META[stage].label}
+              </span>
               <span className="text-xs text-muted-foreground tabular-nums">{items.length}</span>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overscroll-y-contain p-2">
+            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-y-contain">
               {items.length === 0 && <p className="px-1 text-xs text-faint">None</p>}
               {items.map((card) => (
                 <StageCard
