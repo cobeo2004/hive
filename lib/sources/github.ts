@@ -141,23 +141,15 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
   let loaded: GithubDeps | undefined;
   const deps = async () => (loaded ??= await load());
   /** R5: the attempt's one status comment, edited in place; made once if the attempt has none yet. */
-  const setStatus = (d: GithubDeps, job: Job, text: string) =>
-    serial(`${issuePath(job)}${mark("status", String(job.attempt))}`, () => writeStatus(d, job, text));
-  async function writeStatus(d: GithubDeps, job: Job, text: string) {
+  async function setStatus(d: GithubDeps, job: Job, text: string) {
     const { repo } = job.writeback;
-    const marker = mark("status", String(job.attempt));
-    const own = await d.login();
-    const edit = (id: number) => soft(d.request(repo, "PATCH", `/repos/${repo}/issues/comments/${id}`, { body: `${marker}\n${text}` }));
-    let id = job.source_state.statusAttempt === job.attempt ? job.source_state.statusCommentId : null;
-    if (id && (await edit(id))) return;
-    // A crash between the POST and the save below leaves a comment Hive never recorded; its marker finds it again.
-    id = (await listAll(d, repo, `${issuePath(job)}/comments`, commentSchema)).find((c) => marked(c, own, marker))?.id ?? null;
-    if (id) await edit(id);
-    else id = z.object({ id: z.number().int() }).parse(await d.request(repo, "POST", `${issuePath(job)}/comments`, { body: `${marker}\n${text}` })).id;
+    const id = job.source_state.statusAttempt === job.attempt ? job.source_state.statusCommentId : null;
+    if (id && (await soft(d.request(repo, "PATCH", `/repos/${repo}/issues/comments/${id}`, { body: text })))) return;
+    const made = z.object({ id: z.number().int() }).parse(await d.request(repo, "POST", `${issuePath(job)}/comments`, { body: text }));
     const patch = JSON.stringify({
-      statusCommentId: id,
+      statusCommentId: made.id,
       statusAttempt: job.attempt,
-      factoryCommentIds: [...new Set([...job.source_state.factoryCommentIds, String(id)])],
+      factoryCommentIds: [...job.source_state.factoryCommentIds, String(made.id)],
     });
     await d.db
       .update(jobs)

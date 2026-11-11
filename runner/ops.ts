@@ -169,6 +169,7 @@ export async function resumeAnswered() {
       .select()
       .from(jobs)
       .where(and(await mine(), eq(jobs.stage, "waiting")))
+      // Load-bearing for the isolation regression (untracked): its failing job must come before the Linear one it must not block.
       .orderBy(jobs.key),
   );
   const resumed: string[] = [];

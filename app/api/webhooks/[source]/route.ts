@@ -56,11 +56,7 @@ async function sourceWebhook(source: JobSource, request: Request) {
   return Response.json(await record(source, deliveryId, request.headers.get(webhook.eventHeader) ?? "?", body, intent));
 }
 
-/**
- * An issue delivery wakes the runner only when the runner can act on it: the switch is on, the repo is
- * registered and enabled, and a comment answers a job that is waiting. Anything else would cost the
- * runner a poll for nothing (the switch must be on for the panel and the runner alike).
- */
+/** An issue delivery wakes the runner only if it can act: the switch is on, the repo is enabled, and a comment answers a waiting job. */
 async function githubIssueDraft(event: string, body: unknown) {
   if (!githubIssuesOn()) return null;
   const draft = githubIssueIntent(event, body, (await linearSettings(db)).label);

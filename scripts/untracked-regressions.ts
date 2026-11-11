@@ -1,6 +1,6 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { eq, inArray, like } from "drizzle-orm";
+import { eq, inArray, like, or } from "drizzle-orm";
 
 const { db } = await import("../db/client");
 const { events, jobs, runs } = await import("../db/schema");
@@ -19,6 +19,7 @@ type ThreadRead = Awaited<ReturnType<typeof threads.read>>;
 const stamp = Date.now() % 1_000_000;
 const key = (name: string) => `UT${name}-${stamp}`;
 const keys: string[] = [];
+const githubIssue = `ski043/factory-demo#${stamp}`; // unique per run, and deleted below, so a run on a persistent database starts clean
 const row = async (k: string) => (await db.select().from(jobs).where(eq(jobs.key, k)))[0]!;
 const hourAgo = new Date(Date.now() - 3_600_000);
 const later = () => Date.now() + (config.factory.stoppedGraceMinutes + 1) * 60_000;
@@ -170,9 +171,9 @@ try {
     stage: "waiting",
     question: "Which?",
     source: "github",
-    id: "github:ski043/factory-demo#1",
-    external_id: "ski043/factory-demo#1",
-    writeback: { kind: "github", repo: "ski043/factory-demo", number: 1 },
+    id: `github:${githubIssue}`,
+    external_id: githubIssue,
+    writeback: { kind: "github", repo: "ski043/factory-demo", number: stamp },
   });
   const githubReplies = SOURCES.github.replies;
   SOURCES.github.replies = async () => Promise.reject(new Error("GitHub refused: 403"));
@@ -239,6 +240,6 @@ try {
     await db.delete(events).where(inArray(events.job_key, keys));
     await db.delete(runs).where(inArray(runs.job_key, keys));
   }
-  await db.delete(jobs).where(like(jobs.id, `${jobId("linear", "untracked-regress-")}%`));
+  await db.delete(jobs).where(or(like(jobs.id, `${jobId("linear", "untracked-regress-")}%`), eq(jobs.id, `github:${githubIssue}`)));
   process.exit(process.exitCode ?? 0);
 }
