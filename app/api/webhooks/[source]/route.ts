@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { intents, jobs, webhookDeliveries } from "@/db/schema";
-import { isJobSource, sourceFor } from "@/lib/sources";
+import { readRegistry } from "@/lib/repositories";
+import { githubIssuesOn, isJobSource, sourceFor } from "@/lib/sources";
 import type { JobSource } from "@/lib/sources/types";
 import { linearSettings } from "@/lib/linear-settings";
 import { githubIntent, githubIssueIntent, githubPushIntent, verifyGithub, type IntentDraft } from "@/lib/webhooks";
@@ -55,6 +56,22 @@ async function sourceWebhook(source: JobSource, request: Request) {
   return Response.json(await record(source, deliveryId, request.headers.get(webhook.eventHeader) ?? "?", body, intent));
 }
 
+/**
+ * An issue delivery wakes the runner only when the runner can act on it: the switch is on, the repo is
+ * registered and enabled, and a comment answers a job that is waiting. Anything else would cost the
+ * runner a poll for nothing (the switch must be on for the panel and the runner alike).
+ */
+async function githubIssueDraft(event: string, body: unknown) {
+  if (!githubIssuesOn()) return null;
+  const draft = githubIssueIntent(event, body, (await linearSettings(db)).label);
+  if (!draft) return null;
+  const repo = (body as { repository: { full_name: string } }).repository.full_name.toLowerCase();
+  if (!(await readRegistry(db)).some((r) => r.enabled && r.repo.toLowerCase() === repo)) return null;
+  if (draft.kind !== "answer") return draft;
+  const [job] = await db.select({ stage: jobs.stage }).from(jobs).where(eq(jobs.id, draft.jobId!));
+  return job?.stage === "waiting" ? draft : null;
+}
+
 async function githubWebhook(request: Request) {
   const raw = await request.text();
   const verdict = verifyGithub(raw, request.headers.get("x-hub-signature-256"), process.env.GITHUB_APP_WEBHOOK_SECRET);
@@ -63,7 +80,7 @@ async function githubWebhook(request: Request) {
   const event = request.headers.get("x-github-event") ?? "?";
   if (!deliveryId) return Response.json({ error: "missing X-GitHub-Delivery" }, { status: 400 });
   const body = JSON.parse(raw) as unknown;
-  const issue = event === "issues" || event === "issue_comment" ? githubIssueIntent(event, body, (await linearSettings(db)).label) : null;
+  const issue = event === "issues" || event === "issue_comment" ? await githubIssueDraft(event, body) : null;
   return Response.json(await record("github", deliveryId, event, body, [githubIntent(event, body), githubPushIntent(event, body), issue]));
 }
 

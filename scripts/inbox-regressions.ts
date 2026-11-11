@@ -762,6 +762,16 @@ try {
   const id3 = crypto.randomUUID();
   assert.deepEqual(await inbox.answerQuestion(deps(), (await row(ASKED)).id, id3, " The sidebar one. "), { ok: true, intentId: `panel:answer:${id3}` });
   assert.deepEqual(replies, [{ key: ASKED, requestId: id3, body: "The sidebar one." }]);
+  // M2: the form names the question it showed; once the job asks another, the answer is refused and nothing is posted.
+  await db.update(jobs).set({ stage_event_id: "q1" }).where(eq(jobs.key, ASKED));
+  const late = await inbox.answerQuestion(deps(), (await row(ASKED)).id, crypto.randomUUID(), "old", "q0");
+  assert.deepEqual([late.ok, replies.length], [false, 1], "a late answer to an earlier question posts nothing");
+  assert.equal(
+    (await inbox.answerQuestion(deps(), (await row(ASKED)).id, crypto.randomUUID(), "new", "q1")).ok,
+    true,
+    "the current question's answer goes through",
+  );
+  replies.pop();
   assert.equal((await intentRows(ASKED))[0]!.kind, "answer", "the runner's answer intent resumes it");
 
   // --- plan approval: the plan travels as the job's question; Approve and Request changes both answer it

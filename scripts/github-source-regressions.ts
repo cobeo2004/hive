@@ -298,11 +298,11 @@ try {
   const secret = randomBytes(16).toString("hex");
   process.env.GITHUB_APP_WEBHOOK_SECRET = secret;
   const { POST } = await import("../app/api/webhooks/[source]/route");
-  const post = (raw: string, delivery: string, signature = `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`) =>
+  const post = (raw: string, delivery: string, signature = `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`, kind = "issues") =>
     POST(
       new Request("http://panel/api/webhooks/github", {
         method: "POST",
-        headers: { "x-github-event": "issues", "x-github-delivery": delivery, "x-hub-signature-256": signature },
+        headers: { "x-github-event": kind, "x-github-delivery": delivery, "x-hub-signature-256": signature },
         body: raw,
       }),
       {
@@ -311,7 +311,22 @@ try {
     );
   const raw = JSON.stringify({ action: "labeled", label: { name: "hive" }, ...event });
   assert.equal((await post(raw, "gh-src-1", "sha256=00")).status, 401, "a bad signature is refused");
+  process.env.FACTORY_GITHUB_ISSUES = "";
+  assert.deepEqual(await (await post(raw, "gh-src-0")).json(), { duplicate: false, intent: null }, "switch off: the delivery wakes nothing");
+  process.env.FACTORY_GITHUB_ISSUES = "on";
   assert.deepEqual(await (await post(raw, "gh-src-1")).json(), { duplicate: false, intent: "claim" });
+  const other = (repo: string) => JSON.stringify({ action: "labeled", label: { name: "hive" }, repository: { full_name: repo }, issue: { number: 8 } });
+  assert.equal((await (await post(other(OFF), "gh-src-2")).json()).intent, null, "a repo that is disabled wakes nothing");
+  assert.equal((await (await post(other("stranger/repo"), "gh-src-3")).json()).intent, null, "nor does one that is not registered");
+  const comment = JSON.stringify({ action: "created", comment: { user: { type: "User" } }, ...event });
+  await patch(8, { stage: "implementing" });
+  assert.equal(
+    (await (await post(comment, "gh-src-4", undefined, "issue_comment")).json()).intent,
+    null,
+    "a comment on a job that is not waiting wakes nothing",
+  );
+  await patch(8, { stage: "waiting" });
+  assert.equal((await (await post(comment, "gh-src-5", undefined, "issue_comment")).json()).intent, "answer", "a comment on a waiting job does");
   for (let n = 300; n <= 400; n++) put(DEFAULT, n);
   down = ON;
   assert.equal((await adapter.ready()).filter((d) => d.repo === DEFAULT).length, 101);
