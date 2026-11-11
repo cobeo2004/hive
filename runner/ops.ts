@@ -599,7 +599,6 @@ async function claimDrafts(
         continue;
       }
       const target = draft.repo ?? targetOf(source, draft);
-      // One draft the table refuses (a key another job holds) must not abort the rest of the claim.
       await tx.execute(sql`savepoint draft`);
       const inserted = await tx
         .insert(jobs)
@@ -662,7 +661,7 @@ async function claimDrafts(
             updated_at: now,
           },
           // No new attempt while a launch is pending or a stop is owed; see runner/binding.ts.
-          setWhere: canReclaimSql,
+          setWhere: draft.reclaimIf ? and(canReclaimSql, draft.reclaimIf) : canReclaimSql,
         })
         .returning({ key: jobs.key })
         .catch(async () => {

@@ -1,3 +1,4 @@
+import type { SQL } from "drizzle-orm";
 import type { JobRow } from "../../db/schema";
 import type { Stage } from "../events";
 import type { OwnerHints } from "../job-owner";
@@ -26,6 +27,8 @@ export type JobDraft<S extends JobSource = JobSource> = {
   sourceState: SourceStateDraftOf<S>;
   /** The repo the job must run in, for a source whose items live in one; the claim never routes it elsewhere. */
   repo?: string;
+  /** Another condition on a reclaim, checked in the claim's own update, so it cannot race with a failure landing meanwhile. */
+  reclaimIf?: SQL;
   /** Who is on the item, for picking the job's owner when the claim first inserts it (R8a). */
   owner?: OwnerHints;
 };

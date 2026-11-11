@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type * as schema from "../../db/schema";
@@ -98,7 +98,6 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       .set({ source_state: sql`${jobs.source_state} || ${patch}::jsonb` })
       .where(eq(jobs.id, job.id));
   }
-
   return {
     source: "github",
     async ready() {
@@ -106,14 +105,11 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       const d = await deps();
       const label = await d.label();
       const { readRegistry } = await import("../repositories");
-      // A failed job whose failure is not written back yet is not offered: claiming it would retry it unasked and lose the failure.
-      const unsynced = and(eq(jobs.source, "github"), eq(jobs.stage, "failed"), sql`${jobs.synced_event_id} is distinct from ${jobs.stage_event_id}`);
-      const held = new Set((await d.db.select({ id: jobs.external_id }).from(jobs).where(unsynced)).map((j) => j.id));
       const drafts: JobDraft<"github">[] = [];
       const errors: unknown[] = [];
       for (const { repo } of (await readRegistry(d.db)).filter((r) => r.enabled)) {
         try {
-          for (const issue of (await openIssues(d, repo, label)).filter((i) => !i.pull_request && !held.has(`${repo}#${i.number}`))) {
+          for (const issue of (await openIssues(d, repo, label)).filter((i) => !i.pull_request)) {
             drafts.push({
               externalId: `${repo}#${issue.number}`,
               key: githubKey(repo, issue.number),
@@ -124,6 +120,8 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
               sourceState: { labels: issue.labels.map((l) => l.name) },
               // R2: the issue's own repo; the claim refuses it rather than route it anywhere else.
               repo,
+              // A failed job whose failure is not written back yet is not retried: that would repeat it unasked and lose the failure.
+              reclaimIf: sql`${jobs.synced_event_id} is not distinct from ${jobs.stage_event_id}`,
             });
           }
         } catch (error) {
