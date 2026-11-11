@@ -12,9 +12,12 @@ const PACKAGE_JSON = "package.json";
 
 export type Scripts = Readonly<Record<string, string>>;
 
-/** The string-valued `scripts` of a package.json text; null when it is missing or not JSON. */
+/** The string-valued `scripts` of a package.json text; null when it is missing, not JSON or ambiguous. */
 export function scriptsOf(packageJson: string | null): Scripts | null {
   if (packageJson === null) return null;
+  // JSON.parse keeps the last duplicate key but bun runs the first, so a second `scripts` block (or a
+  // `\u`-escaped spelling of one) could hide the scripts that really run. Over-matching only hands over.
+  if ((packageJson.match(/"scripts"/g) ?? []).length > 1 || /\\u/.test(packageJson)) return null;
   try {
     const scripts = (JSON.parse(packageJson) as { scripts?: Record<string, unknown> } | null)?.scripts ?? {};
     return Object.fromEntries(Object.entries(scripts).filter((entry): entry is [string, string] => typeof entry[1] === "string"));

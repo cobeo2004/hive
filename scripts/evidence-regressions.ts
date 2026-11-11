@@ -23,7 +23,7 @@ const { hosts, localHost } = await import("../lib/host");
 const { github } = await import("../lib/github/pulls");
 const { evidenceLine, headEvidence, outputTail, parseSummary, planChecks } = await import("../lib/evidence");
 const { writeRepoAutonomy } = await import("../lib/settings");
-const { trustedEdits } = await import("../lib/trusted-checks");
+const { scriptsOf, trustedEdits } = await import("../lib/trusted-checks");
 const { readVerify } = await import("../lib/sstack-verify");
 const { rebuildRepoImage, writeVerify } = await import("../lib/repo-onboarding");
 const { decideMerges, requiredChecks } = await import("../runner/merge-decision");
@@ -327,6 +327,15 @@ assert.match(
 assert.deepEqual(edits(["package.json"]), [], "a package.json change outside scripts, such as dependencies");
 assert.match(edits(["package.json"], scripts(), null)[0]!, /couldn't be compared/, "an unreadable head is a handover, not a pass");
 assert.match(edits(["package.json"], null, scripts())[0]!, /couldn't be compared/, "an unreadable base too");
+// JSON.parse keeps the last duplicate `scripts`, bun runs the first: ambiguous text can't be compared.
+assert.deepEqual(scriptsOf('{"name":"demo","scripts":{"t":"A"},"dependencies":{}}'), { t: "A" }, "a normal package.json parses");
+assert.equal(scriptsOf('{"scripts":{"t":"A"},"scripts":{"t":"B"}}'), null, "duplicate scripts blocks");
+assert.equal(scriptsOf('{"scr\\u0069pts":{"t":"A"},"scripts":{"t":"B"}}'), null, "an escaped scripts key");
+assert.match(
+  edits(["package.json"], scripts(), scriptsOf(`{"scripts":${JSON.stringify(scripts({ test: "true" }))},"scripts":${JSON.stringify(scripts())}}`))[0]!,
+  /couldn't be compared/,
+  "a head with a fake scripts block first is a handover",
+);
 assert.deepEqual(edits(["packages/app/package.json"]), [
   "The pull request edits a nested package.json (packages/app/package.json), whose scripts the factory can't compare.",
 ]);
