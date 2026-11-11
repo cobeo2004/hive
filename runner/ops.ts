@@ -563,7 +563,8 @@ export async function claim({
       failed.push(`${source.source}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  const claimed = ready.length === 0 ? { claimed: [], inFlight: 0 } : await claimDrafts(ready, repos, registry);
+  const { refused = [], ...claimed } = ready.length === 0 ? { claimed: [] as string[], inFlight: 0 } : await claimDrafts(ready, repos, registry);
+  failed.push(...refused);
   if (failed.length > 0) throw new Error(`could not read ready work from ${failed.join("; ")} (claimed ${claimed.claimed.join(", ") || "nothing"})`);
   return claimed;
 }
@@ -579,6 +580,8 @@ async function claimDrafts(
   const targetOf = (source: SourceAdapter<JobSource>, draft: JobDraft) =>
     routeRepo(source.overrides(draft.sourceState), known).repo ?? checkouts[0] ?? targets[0]!;
   const me = await mine();
+  // A draft that names its repo runs there or nowhere: never in the default repo or a checkout it did not ask for.
+  const refused: string[] = [];
   return db.transaction(async (tx) => {
     // The lock's name predates other sources; runners on older code take the same one.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('marshal-factory linear-poll'))`);
@@ -591,7 +594,12 @@ async function claimDrafts(
     for (const { source, draft } of ready) {
       if (inFlight >= config.factory.maxInFlight) break;
       const now = new Date();
-      const target = targetOf(source, draft);
+      if (draft.repo && !known.some((r) => r.repo === draft.repo && r.enabled)) {
+        refused.push(`${source.source} ${draft.key} lives in ${draft.repo}, which is not an enabled repository, so it was not claimed`);
+        continue;
+      }
+      const target = draft.repo ?? targetOf(source, draft);
+      await tx.execute(sql`savepoint draft`);
       const inserted = await tx
         .insert(jobs)
         .values({
@@ -653,14 +661,19 @@ async function claimDrafts(
             updated_at: now,
           },
           // No new attempt while a launch is pending or a stop is owed; see runner/binding.ts.
-          setWhere: canReclaimSql,
+          setWhere: draft.reclaimIf ? and(canReclaimSql, draft.reclaimIf) : canReclaimSql,
         })
-        .returning({ key: jobs.key });
+        .returning({ key: jobs.key })
+        .catch(async () => {
+          await tx.execute(sql`rollback to savepoint draft`);
+          refused.push(`${source.source} ${draft.key} was refused by the jobs table (does another job hold its key?)`);
+          return [];
+        });
       if (inserted.length === 0) continue;
       inFlight++;
       claimed.push(draft.key);
     }
-    return { claimed, inFlight };
+    return { claimed, inFlight, refused };
   });
 }
 
@@ -686,7 +699,7 @@ export function launchMessage(job: Job) {
     "",
     "## Issue",
     "",
-    job.description?.trim() || "(The issue has no description.)",
+    sourceFor(job.source).issueBlock?.(job) ?? (job.description?.trim() || "(The issue has no description.)"),
     ...(job.previous_failure
       ? ["", `This is attempt ${job.attempt}. The previous attempt failed: ${job.previous_failure} Start fresh from main on this branch.`]
       : []),

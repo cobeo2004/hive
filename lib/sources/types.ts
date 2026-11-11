@@ -1,3 +1,4 @@
+import type { SQL } from "drizzle-orm";
 import type { JobRow } from "../../db/schema";
 import type { Stage } from "../events";
 import type { OwnerHints } from "../job-owner";
@@ -24,6 +25,10 @@ export type JobDraft<S extends JobSource = JobSource> = {
   writeback: WritebackOf<S>;
   /** Merged over the stored state on a reclaim, so state the adapter accumulated survives. */
   sourceState: SourceStateDraftOf<S>;
+  /** The repo the job must run in, for a source whose items live in one; the claim never routes it elsewhere. */
+  repo?: string;
+  /** Another condition on a reclaim, checked in the claim's own update against the row as it is then. */
+  reclaimIf?: SQL;
   /** Who is on the item, for picking the job's owner when the claim first inserts it (R8a). */
   owner?: OwnerHints;
 };
@@ -75,6 +80,8 @@ export interface SourceAdapter<S extends JobSource> {
   reopen(job: Job<S>): Promise<void>;
   /** Puts a failed job where the source's intake offers it again, as a person adding the factory label does; the next claim starts a new attempt. */
   requeue(job: Job<S>): Promise<void>;
+  /** The launch message's issue section where the source's text is untrusted: its own rules, then the text fenced. Without it the description is shown as it is. */
+  issueBlock?(job: Pick<Job<S>, "writeback" | "description">): string;
   /** The noun phrase naming the job in messages to the thread, such as "Linear issue FAC-7". */
   describe(job: Pick<Job<S>, "key">): string;
   /**
