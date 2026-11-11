@@ -26,6 +26,8 @@ import {
   type SandboxReadiness,
 } from "@/lib/machine";
 import type { LinearSettings } from "@/lib/linear-settings";
+import type { SourceChoice } from "@/lib/source-choice";
+import { JobSourcesSection } from "./job-sources";
 import { LinearSettingsSection } from "./linear-settings";
 import { MembersSection } from "./members-section";
 import { NotificationsCard } from "./notifications-card";
@@ -253,6 +255,8 @@ export function SettingsForm({
   saved,
   notifications,
   linear,
+  sources,
+  githubForced,
   children,
 }: {
   children?: ReactNode;
@@ -261,6 +265,8 @@ export function SettingsForm({
   saved: SettingsRow | null;
   notifications: NotificationSettingsRow | null;
   linear: { saved: LinearSettings; userName: string | null };
+  sources: SourceChoice;
+  githubForced: boolean;
 }) {
   const router = useRouter();
   const { rows, status } = useFeed(machines);
@@ -308,7 +314,8 @@ export function SettingsForm({
       <PanelHeader title="Settings" />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-6xl flex-col divide-y p-4 md:p-8">
-          <LinearSettingsSection saved={linear.saved} userName={linear.userName} />
+          <JobSourcesSection saved={sources} forced={githubForced} />
+          {sources !== "github" && <LinearSettingsSection saved={linear.saved} userName={linear.userName} />}
           {children}
           <SettingsSection
             id="new-jobs"

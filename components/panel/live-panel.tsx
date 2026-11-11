@@ -183,6 +183,7 @@ export function LivePanel({
   repo: currentRepo,
   archived,
   registry,
+  canFile,
   jobs,
   runs,
   agents,
@@ -203,6 +204,8 @@ export function LivePanel({
   /** The jobs page shows the archive, from ?archived=1. */
   archived: boolean;
   registry: readonly PanelRepo[];
+  /** Whether New job has a source to file in: Linear, which is not one while GitHub Issues is the only source. */
+  canFile: boolean;
   /** The inbox item open on the right, by job key. */
   inboxKey: string | undefined;
   jobs: Feed<JobRow>;
@@ -339,7 +342,7 @@ export function LivePanel({
                   {inboxCount} {inboxCount === 1 ? "needs" : "need"} you
                 </Button>
               )}
-              <NewJobButton harnesses={enabledHarnesses} repos={registry} />
+              {canFile && <NewJobButton harnesses={enabledHarnesses} repos={registry} />}
             </>
           ) : view === "inbox" ? (
             repoSelect

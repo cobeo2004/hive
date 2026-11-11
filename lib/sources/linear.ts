@@ -547,7 +547,13 @@ export function linearUploader(apiKey: string, options?: LinearOptions & { put?:
 }
 
 // The panel files jobs from Vercel, which has no config file, so filing reads its key from the env.
-const fileFromEnv = (draft: FileDraft) => {
+// A job filed in Linear while GitHub Issues is the only source would never be claimed, so the panel and Slack are told no.
+const linearOn = async () => {
+  const [{ db }, { sourcesOn }] = await Promise.all([import("../../db/client"), import("../job-sources")]);
+  return (await sourcesOn(db)).linear;
+};
+const fileFromEnv = async (draft: FileDraft) => {
+  if (!(await linearOn())) throw new Error("New job files to Linear, which is not a job source");
   const key = process.env.LINEAR_API_KEY;
   if (!key) throw new Error("LINEAR_API_KEY is not set, so the panel cannot file jobs in Linear");
   return linearFiler(key, process.env.FACTORY_TEAM_KEY ?? "FAC", process.env.FACTORY_LABEL ?? "hive")(draft);
@@ -668,10 +674,7 @@ const uploadFromEnv = (image: ImageFile) => {
 };
 
 export const linear: SourceAdapter<"linear"> = {
-  ...createLinearAdapter(runtimeDeps, async () => {
-    const [{ db }, { sourcesOn }] = await Promise.all([import("../../db/client"), import("../job-sources")]);
-    return (await sourcesOn(db)).linear;
-  }),
+  ...createLinearAdapter(runtimeDeps, linearOn),
   file: fileFromEnv,
   uploadImage: uploadFromEnv,
   reply: replyFromEnv,

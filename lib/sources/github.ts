@@ -138,10 +138,12 @@ const NOT_WRITER_MS = 5 * 60_000;
 async function isWriter(d: GithubDeps, repo: string, login: string) {
   // A "no" is remembered for a few minutes, so a non-writer's issue does not cost a permission call every poll; a promotion is seen after that.
   const who = `${repo}/${login}`.toLowerCase();
-  if (Date.now() < (notWriters.get(who) ?? 0)) return false;
+  const now = Date.now();
+  for (const [key, until] of notWriters) if (until <= now) notWriters.delete(key);
+  if (now < (notWriters.get(who) ?? 0)) return false;
   const got = soft(d.request(repo, "GET", `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`));
   const writer = ["admin", "write"].includes(z.object({ permission: z.string() }).safeParse(await got).data?.permission ?? "");
-  if (!writer) notWriters.set(who, Date.now() + NOT_WRITER_MS);
+  if (!writer) notWriters.set(who, now + NOT_WRITER_MS);
   return writer;
 }
 

@@ -335,7 +335,7 @@ setInterval(() => {
     const result = { ...(await tick()), ...(await launchAndAnnounce()) };
     const cleaned = await hourlyCleanup();
     const labels = await labelSync?.();
-    const githubLabels = await githubLabelSync();
+    const githubLabels = await isolated(githubLabelSync);
     return {
       ...result,
       ...(cleaned !== undefined && { cleaned }),

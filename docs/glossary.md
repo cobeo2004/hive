@@ -80,7 +80,7 @@ _Avoid_: owner, superuser.
 **Engineer**: a member with role `engineer`, the default for an invited account.
 _Avoid_: developer, user.
 
-**First-run setup**: the `/setup` steps every new member goes through once before Jobs: Account and Done in M1, with Linear (R28) and Agents (R27) added later.
+**First-run setup**: the `/setup` steps every new member goes through once before Jobs: Account and Done in M1, with Linear (R28) and Agents (R27) added later. An admin also gets Sources ("Where do jobs come from?": Linear, GitHub Issues or both, R13); when GitHub Issues is the only source nobody gets the Linear step (R14).
 _Avoid_: onboarding (that means repository onboarding), wizard.
 
 **Setup token**: the one-time link `bun scripts/setup-token.ts` prints. It creates the first admin and is refused once an admin exists. With `--reset <email>` the script makes a password-reset link instead.

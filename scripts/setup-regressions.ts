@@ -7,7 +7,7 @@ import { eq, inArray } from "drizzle-orm";
 const { db } = await import("../db/client");
 const { user, linearOptIns } = await import("../db/schema");
 const { finishSetup } = await import("../lib/members");
-const { SETUP_STEPS, saveOptIns, readOptIns, linearMatch, linearCardNote, linearUsers } = await import("../lib/opt-ins");
+const { saveOptIns, readOptIns, linearMatch, linearCardNote, linearUsers } = await import("../lib/opt-ins");
 
 const ME = "setup-me@unibuz.com.au";
 const OTHER = "setup-other@unibuz.com.au";
@@ -35,8 +35,14 @@ try {
   assert.ok(await doneAt(ME), "setup_done_at is set for the signed-in user");
   assert.equal(await doneAt(OTHER), null, "and for no one else");
 
-  // R28: Account → Linear → Done.
-  assert.deepEqual([...SETUP_STEPS], ["Account", "Linear", "Done"]);
+  // R28, R13, R14: only an admin gets the Sources step, and nobody gets Linear when GitHub Issues is the only source.
+  const { setupSteps } = await import("../lib/source-choice");
+  assert.deepEqual([...setupSteps("admin", "both")], ["Account", "Sources", "Linear", "Done"]);
+  assert.deepEqual([...setupSteps("admin", "linear")], ["Account", "Sources", "Linear", "Done"]);
+  assert.deepEqual([...setupSteps("admin", "github")], ["Account", "Sources", "Done"]);
+  assert.deepEqual([...setupSteps("engineer", "linear")], ["Account", "Linear", "Done"]);
+  assert.deepEqual([...setupSteps("engineer", "both")], ["Account", "Linear", "Done"]);
+  assert.deepEqual([...setupSteps("engineer", "github")], ["Account", "Done"]);
 
   const optInRows = (email: string) =>
     db

@@ -17,6 +17,7 @@ import { poolAccounts } from "@/lib/pool-accounts";
 import { load, machinesQuery } from "@/lib/live-queries";
 import { readNotifications } from "@/lib/notifications";
 import { readSettings } from "@/lib/settings";
+import { readSourceChoice } from "@/lib/job-sources";
 
 async function Panel() {
   // Without a search param to make the page dynamic, Next would try to prerender it and log the cookie read as an error.
@@ -24,7 +25,7 @@ async function Panel() {
   // Settings is admin-only (R4); an engineer sees only Settings → Linear, read-only (R7a).
   const user = await currentUser();
   if (!user) return <ForbiddenCard reason="admin" />;
-  const [saved, accounts] = await Promise.all([linearSettings(db), poolAccounts(db, viewerOf(user))]);
+  const [saved, accounts, sources] = await Promise.all([linearSettings(db), poolAccounts(db, viewerOf(user)), readSourceChoice(db)]);
   const linear = { saved, userName: await linearUserName(process.env.LINEAR_API_KEY, saved.hiveUserId) };
   const admin = isAdmin(user);
   const teamPool = <TeamPoolSection accounts={accounts} pool={loadLimits().pool} readOnly={!admin} />;
@@ -34,7 +35,7 @@ async function Panel() {
         <PanelHeader title="Settings" />
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto flex w-full max-w-6xl flex-col divide-y p-4 md:p-8">
-            <LinearSettingsSection {...linear} readOnly />
+            {sources !== "github" && <LinearSettingsSection {...linear} readOnly />}
             {teamPool}
           </div>
         </div>
@@ -44,7 +45,15 @@ async function Panel() {
   const [machines, members] = await Promise.all([load(machinesQuery()), listMembers()]);
   const [settings, notifications] = await Promise.all([readSettings(db), readNotifications(db)]);
   return (
-    <SettingsForm machines={machines} members={members.ok ? members.members : []} saved={settings} notifications={notifications} linear={linear}>
+    <SettingsForm
+      machines={machines}
+      members={members.ok ? members.members : []}
+      saved={settings}
+      notifications={notifications}
+      linear={linear}
+      sources={sources}
+      githubForced={sources === "linear" && process.env.FACTORY_GITHUB_ISSUES === "on"}
+    >
       {teamPool}
     </SettingsForm>
   );

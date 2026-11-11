@@ -25,6 +25,7 @@ import {
 } from "@/lib/live-queries";
 import { REPO_FILTER_COOKIE, repoFilter } from "@/lib/repo-filter";
 import { parseSessionId } from "@/lib/run-links";
+import { sourcesOn } from "@/lib/job-sources";
 import { readRegistry } from "@/lib/repositories";
 
 async function loadDetail(sessionId: string): Promise<DetailProps> {
@@ -61,7 +62,7 @@ async function Panel({ view, searchParams }: { view: PanelView; searchParams: Pr
   const owner = parseOwnerView(rawOwner) ?? parseOwnerView(rawView) ?? (view === "inbox" && typeof job !== "string" ? "mine" : "everyone");
   const me = viewerOf(user);
   // After the loads, which check the owner.
-  const registry = await readRegistry(db);
+  const [registry, sources] = await Promise.all([readRegistry(db), sourcesOn(db)]);
   return (
     <LivePanel
       view={view}
@@ -71,6 +72,7 @@ async function Panel({ view, searchParams }: { view: PanelView; searchParams: Pr
       meters={meters}
       repo={repoFilter(repo, jar.get(REPO_FILTER_COOKIE)?.value)}
       archived={view === "jobs" && archived === "1"}
+      canFile={sources.linear}
       registry={registry.map((r) => ({ repo: r.repo, display_name: r.display_name, enabled: r.enabled, is_default: r.is_default }))}
       jobs={jobs}
       runs={runs}
