@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } from "node:crypto";
-import { and, eq, gt, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { agentAccounts } from "../db/schema";
 import { attemptBranch } from "./factory";
 
@@ -66,27 +66,22 @@ export const credsProvider = (harnessProvider: string): CredsProvider => (harnes
 
 export type AccountRow = Pick<typeof agentAccounts.$inferSelect, "id" | "owner_id" | "provider" | "sealed" | "disconnected_at" | "created_at">;
 
-/** R10a: the owner's account is used while its 5h window is under this. */
-export const OWNER_CUTOFF_PCT = 95;
-export type PoolLimits = { threshold: number; pauseInstead: boolean };
-
 /** R10a: the owner's account under 95% of its 5h window, else the lowest-use pool account, else "wait" (pool full, pauseInstead on). No pool row: undefined (Q17). */
 export function pickAccount(
   rows: readonly AccountRow[],
   ownerId: string | null,
   provider: CredsProvider,
   usage: ReadonlyMap<string, number> = new Map(),
-  pool: PoolLimits = { threshold: 90, pauseInstead: false },
+  pool: { threshold: number; pauseInstead: boolean } = { threshold: 90, pauseInstead: false },
   exclude: ReadonlySet<string> = new Set(),
 ): AccountRow | "wait" | undefined {
   const pct = (r: AccountRow) => usage.get(r.id) ?? 0;
   const live = rows
     .filter((r) => r.provider === provider && !r.disconnected_at && !exclude.has(r.id))
     .sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
-  const own = ownerId === null ? undefined : live.find((r) => r.owner_id === ownerId && pct(r) < OWNER_CUTOFF_PCT);
-  if (own) return own;
+  const own = ownerId === null ? undefined : live.find((r) => r.owner_id === ownerId && pct(r) < 95);
   const shared = live.filter((r) => r.owner_id === null);
-  if (shared.length === 0) return undefined;
+  if (own || shared.length === 0) return own;
   if (pool.pauseInstead && shared.every((r) => pct(r) >= pool.threshold)) return "wait";
   return shared.reduce((best, r) => (pct(r) < pct(best) ? r : best));
 }
@@ -98,7 +93,6 @@ export const RATE_LIMITED = "the provider rate-limited its account";
 export const rateLimitedReason = (stage: string, pr?: { url: string; branch: string }) =>
   `${RATE_LIMITED} (stage ${stage})${pr ? `. PR ${pr.url} is still open on ${pr.branch}` : ""}`;
 
-/** The open PR a rateLimitedReason named, read back from a failure summary. */
 export const openPrOf = (failure: string | null) => {
   const match = failure?.includes(RATE_LIMITED) ? failure.match(/\. PR (\S+) is still open on (\S+?)\.(?:\s|$)/) : null;
   return match ? { url: match[1]!, branch: match[2]! } : undefined;
@@ -134,26 +128,19 @@ export async function accountFor(jobKey: string, provider: CredsProvider, runner
   const ids = rows.map((r) => r.id);
   const metered = and(inArray(accountUsage.account_id, ids), eq(accountUsage.window, "5h"));
   const meters = rows.length ? await db.select({ id: accountUsage.account_id, pct: accountUsage.used_pct }).from(accountUsage).where(metered) : [];
-  const ofJob = and(eq(runs.job_key, jobKey), isNotNull(runs.account_id));
   const branch = attemptBranch(jobKey, job?.attempt ?? 1);
-  const [kept] = await db
-    .select({ id: runs.account_id })
+  const prior = await db
+    .select({ id: runs.account_id, branch: runs.branch, at: runs.last_event_at })
     .from(runs)
-    .where(and(ofJob, eq(runs.branch, branch)))
-    .limit(1);
+    .where(and(eq(runs.job_key, jobKey), isNotNull(runs.account_id)));
+  const kept = prior.find((r) => r.branch === branch)?.id;
   // A manual retry after an ordinary failure goes back to the owner; only a rate limit moves on.
-  const ran = job?.failure?.includes(RATE_LIMITED)
-    ? await db
-        .selectDistinct({ id: runs.account_id })
-        .from(runs)
-        .where(and(ofJob, ne(runs.branch, branch), gt(runs.last_event_at, new Date(Date.now() - 5 * 3_600_000))))
-    : [];
-  const skip = new Set(ran.flatMap((r) => (r.id ? [r.id] : [])));
-  const usage = new Map(meters.map((m) => [m.id, m.pct]));
+  const limited = job?.failure?.includes(RATE_LIMITED);
+  const skip = new Set(prior.flatMap((r) => (limited && r.branch !== branch && r.at.getTime() > Date.now() - 5 * 3_600_000 ? [r.id!] : [])));
   // With no pool and no default, a full owner account still beats nothing, and a Claude job with every account skipped waits: the harness is never switched.
   const row =
-    rows.find((r) => r.id === kept?.id) ??
-    pickAccount(rows, owner, provider, usage, config.factory.pool, skip) ??
+    rows.find((r) => r.id === kept) ??
+    pickAccount(rows, owner, provider, new Map(meters.map((m) => [m.id, m.pct])), config.factory.pool, skip) ??
     (runnerDefault ? undefined : pickAccount(rows, owner, provider, new Map(), config.factory.pool, skip)) ??
     (rows.length > 0 && !runnerDefault && provider === "claude" ? "wait" : undefined);
   if (row === "wait") return row;

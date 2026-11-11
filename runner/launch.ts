@@ -446,8 +446,6 @@ export function withRecipeNote(message: string, row: RepoSettingsRow | undefined
   ].join("\n");
 }
 
-export const POOL_WAIT = "Waiting for the team pool";
-
 export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: LaunchSlot, claimed: Claimed = async () => {}, registry: Registry = []) {
   const limits = config.factory.sandbox;
   const runtime = sandboxRuntime;
@@ -473,6 +471,7 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
   // claude and codex are the job's owner's or pool's accounts (R9a); null means the runner's own login.
   const leases = new Map<string, { marker: string; slot: string | null; choice: HarnessChoice; claude: Account | null; codex: Account | null }>();
   const poolWait = async (key: string) => {
+    const POOL_WAIT = "Waiting for the team pool";
     await db
       .update(jobsTable)
       .set({ stage_summary: POOL_WAIT })
@@ -517,10 +516,7 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
         accountError("sandbox:no-account", key, error);
         return false;
       }
-      if (codex === "wait") {
-        await releaseLaunch(key, marker);
-        return poolWait(key);
-      }
+      if (codex === "wait") return releaseLaunch(key, marker).then(() => poolWait(key));
       const codexSlot = needsCodexSlot(choice.provider) && !codex ? await leaseCodexSlot(key, marker, usableSlots(limits)) : null;
       if (codexSlot === undefined) {
         await releaseLaunch(key, marker);

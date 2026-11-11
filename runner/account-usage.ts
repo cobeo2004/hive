@@ -131,12 +131,11 @@ export const rateLimitRuntime = {
 
 /** R10a: did the provider rate-limit the job's current attempt? Anything unreadable is no, so a tick never breaks on it. */
 export async function rateLimitedRun(job: { key: string; attempt: number }, host: JobHost) {
-  const branch = attemptBranch(job.key, job.attempt);
   try {
     const [run] = await db
       .select()
       .from(runs)
-      .where(and(eq(runs.job_key, job.key), eq(runs.branch, branch)))
+      .where(and(eq(runs.job_key, job.key), eq(runs.branch, attemptBranch(job.key, job.attempt))))
       .orderBy(desc(runs.started_at))
       .limit(1);
     return !!run && (await rateLimitRuntime.signal(run, host));

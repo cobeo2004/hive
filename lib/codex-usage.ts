@@ -114,10 +114,8 @@ export function parseRollout(text: string): Rollout | undefined {
     if (task.success) {
       const { type, codex_error_info: error } = task.data.payload;
       if (type === "error") rateLimited ||= error === "usage_limit_exceeded";
-      else {
-        settled = type === "task_complete";
-        if (type === "task_started") rateLimited = false;
-      }
+      else settled = type === "task_complete";
+      if (type === "task_started") rateLimited = false;
       continue;
     }
     const count = tokenCount.safeParse(line);
@@ -210,8 +208,8 @@ export function codexUsage(rollouts: readonly Rollout[], run: CodexRun): CodexUs
 const RECORD = "\u001e";
 
 // Prints, per rollout written to in the last $2 minutes, a separator with its path, then only the
-// lines the parser needs: the session_meta, the last turn_context, the last two turn starts, ends or
-// usage-limit errors (in order), the last running total and the last rate limits.
+// lines the parser needs: the session_meta, the last turn_context, the last two turn or limit-error lines, the
+// last running total and the last rate limits.
 const READ_SCRIPT = `
 cd "$1" 2>/dev/null || exit 0
 find . -name 'rollout-*.jsonl' -mmin "-$2" | while IFS= read -r f; do

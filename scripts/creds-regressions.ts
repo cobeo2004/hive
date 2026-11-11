@@ -7,9 +7,8 @@ const { db } = await import("../db/client");
 const { accountUsage, agentAccounts, jobs, runs, user } = await import("../db/schema");
 const { config } = await import("../runner/config");
 const { linearJob } = await import("./fixtures");
-const { accountFor, credsProvider, newKeyPair, pickAccount, RATE_LIMITED, recordRunAccount, runnerDefaultClaudeToken, seal, unseal } = await import(
-  "../lib/creds"
-);
+const { accountFor, credsProvider, newKeyPair, pickAccount, recordRunAccount, runnerDefaultClaudeToken, seal, unseal } = await import("../lib/creds");
+const { RATE_LIMITED } = await import("../lib/creds");
 
 const FAILED = /^Error: a sealed credential could not be opened$/;
 const pair = newKeyPair();
@@ -110,43 +109,35 @@ try {
   assert.deepEqual(await secretOf("CRD-gone"), { id: "creds-pool", secret: "token-of-pool" }, "so does a job that is gone");
 
   // R10a: the owner's account under 95% of its 5h window, else the pool's; each attempt records its account.
-  const meter = (account_id: string, used_pct: number) =>
-    db
-      .insert(accountUsage)
-      .values({ account_id, window: "5h", used_pct, read_at: new Date() })
-      .onConflictDoUpdate({ target: [accountUsage.account_id, accountUsage.window], set: { used_pct } });
-  const idOf = async (jobKey: string) => {
-    const got = await accountFor(jobKey, "claude", "runner-token", key);
-    return got === "wait" ? got : got?.id;
+  const meter = async (account_id: string, used_pct: number) => {
+    await db.delete(accountUsage).where(eq(accountUsage.account_id, account_id));
+    await db.insert(accountUsage).values({ account_id, window: "5h", used_pct, read_at: new Date() });
   };
   const stamp = async (thread: string, branch: string, accountId: string) => {
-    await db
-      .insert(runs)
-      .values({ session_id: `creds-${thread}`, job_key: keys.a, branch, t3_thread_id: thread, started_at: new Date(), last_event_at: new Date() });
+    const at = new Date();
+    await db.insert(runs).values({ session_id: `creds-${thread}`, job_key: keys.a, branch, t3_thread_id: thread, started_at: at, last_event_at: at });
     await recordRunAccount(keys.a, thread, accountId);
   };
   const ranOn = () => db.select({ branch: runs.branch, account: runs.account_id }).from(runs).where(eq(runs.job_key, keys.a)).orderBy(runs.branch);
   const failed = (attempt: number, previous_failure: string | null) => db.update(jobs).set({ attempt, previous_failure }).where(eq(jobs.key, keys.a));
   await meter("creds-a", 50);
-  assert.equal(await idOf(keys.a), "creds-a", "1.1: the owner under 95% runs on its own account");
+  assert.deepEqual(await secretOf(keys.a), { id: "creds-a", secret: "token-of-a" }, "1.1: the owner under 95% runs on its own account");
   await stamp("t-1", "hive/CRD-1", "creds-a");
   assert.deepEqual(await ranOn(), [{ branch: "hive/CRD-1", account: "creds-a" }], "1.1: runs.account_id is the owner's");
   await failed(2, null);
   await meter("creds-a", 95);
-  assert.equal(await idOf(keys.a), "creds-pool", "1.2: at 95% the pool account runs");
+  assert.deepEqual(await secretOf(keys.a), { id: "creds-pool", secret: "token-of-pool" }, "1.2: at 95% the pool account runs");
 
-  // 1.4: every pool account at the threshold: pauseInstead decides between the wait and the account.
   const pool = config.factory.pool;
   await meter("creds-pool", 95);
   pool.pauseInstead = true;
-  assert.equal(await idOf(keys.a), "wait", "1.4: pool at its threshold with pauseInstead on waits");
+  assert.equal(await secretOf(keys.a), "wait", "1.4: pool at its threshold with pauseInstead on waits");
   pool.pauseInstead = false;
 
-  // 1.3: after a rate limit the next attempt skips every account that already ran the job.
   await meter("creds-a", 10);
   await meter("creds-pool", 10);
   await failed(2, `Watchdog stopped this run: ${RATE_LIMITED} (stage implementing).`);
-  assert.equal(await idOf(keys.a), "creds-pool", "1.3: the owner's account just rate-limited, so the next attempt runs on the pool's");
+  assert.deepEqual(await secretOf(keys.a), { id: "creds-pool", secret: "token-of-pool" }, "1.3: the owner's account just rate-limited, so the pool's runs");
   await stamp("t-2", "hive/CRD-1-a2", "creds-pool");
   const ran = (await ranOn()).map((r) => `${r.branch}:${r.account}`);
   assert.deepEqual(ran, ["hive/CRD-1:creds-a", "hive/CRD-1-a2:creds-pool"], "1.3: each attempt's runs.account_id says which account ran it");
@@ -161,7 +152,6 @@ try {
   await db.insert(agentAccounts).values(account("creds-a-codex", A, '{"auth":"a-codex"}', "codex"));
   assert.deepEqual(await secretOf(keys.a, "codex", null), { id: "creds-a-codex", secret: '{"auth":"a-codex"}' });
   assert.deepEqual(await secretOf(keys.a, "claude", null), null, "a Codex account is not a Claude one");
-  // 1.5: an owner with only Codex, on a Claude lead, runs on the pool's Claude account.
   await db.insert(agentAccounts).values(account("creds-pool", null, "token-of-pool"));
   assert.deepEqual(await secretOf(keys.a), { id: "creds-pool", secret: "token-of-pool" }, "1.5: a Codex-only owner gets a pool Claude account");
   await db.delete(agentAccounts).where(eq(agentAccounts.id, "creds-pool"));
