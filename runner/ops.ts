@@ -168,11 +168,12 @@ export async function resumeAnswered() {
     await db
       .select()
       .from(jobs)
-      .where(and(await mine(), eq(jobs.stage, "waiting"))),
+      .where(and(await mine(), eq(jobs.stage, "waiting")))
+      .orderBy(jobs.key),
   );
   const resumed: string[] = [];
-  // One job whose source refuses (an outage, a gone issue) must not hold back the others; its failure surfaces after the pass.
-  const failed = await eachJob(waiting, async (job) => {
+  // One job whose source refuses (an outage, a gone issue) must not hold back the others; its failure comes back in `errors`.
+  const errors = await eachJob(waiting, async (job) => {
     const source = sourceFor(job.source);
     const plan = await source.replies(job);
     if (plan.kind === "wait") return;
@@ -248,8 +249,7 @@ export async function resumeAnswered() {
     await source.acknowledgeReplies(job, replyIds);
     resumed.push(`${job.key}:${alive ? "sent" : "relaunch"}`);
   });
-  if (failed.length) throw new Error(`resumeAnswered: ${failed.join("; ")}`);
-  return resumed;
+  return { resumed, errors };
 }
 
 /** Nudges stuck runs once, then fails them; see lib/watchdog.ts for when a run counts as stuck. */

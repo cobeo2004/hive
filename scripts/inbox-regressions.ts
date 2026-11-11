@@ -762,7 +762,7 @@ try {
   const id3 = crypto.randomUUID();
   assert.deepEqual(await inbox.answerQuestion(deps(), (await row(ASKED)).id, id3, " The sidebar one. "), { ok: true, intentId: `panel:answer:${id3}` });
   assert.deepEqual(replies, [{ key: ASKED, requestId: id3, body: "The sidebar one." }]);
-  // M2: the form names the question it showed; once the job asks another, the answer is refused and nothing is posted.
+  // The form names the question it showed; once the job asks another, the answer is refused and nothing is posted.
   await db.update(jobs).set({ stage_event_id: "q1" }).where(eq(jobs.key, ASKED));
   const late = await inbox.answerQuestion(deps(), (await row(ASKED)).id, crypto.randomUUID(), "old", "q0");
   assert.deepEqual([late.ok, replies.length], [false, 1], "a late answer to an earlier question posts nothing");
