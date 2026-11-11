@@ -31,14 +31,42 @@ framework = "none: panel in a mobile browser on a T3 Code device"
 build     = ""
 run       = ""
 
-# Read by dispatched children whose --files match. Repo docs outrank third-party skills.
+# Read by dispatched children whose --files match. Repo docs outrank third-party skills; order is read order.
+# fnmatch `*` crosses `/` and there is no negation, so app/ is split by area instead of one "app/**".
+# Every doc path must exist and every skill must be installed, or dispatch hands the child a dead link (L72).
 [practices]
-"app/**"        = ["vercel-react-best-practices", "docs/operations.md"]
-"components/**" = ["vercel-react-best-practices", "docs/operations.md"]
-"db/**"         = ["docs/operations.md"]
-"drizzle/**"    = ["docs/operations.md"]
-"lib/**"        = ["docs/operations.md"]
-"runner/**"     = ["docs/operations.md"]
-"functions/**"  = ["docs/operations.md"]
-"docs/**"       = ["docs/glossary.md"]
-"playbooks/**"  = ["docs/glossary.md"]
+# --- UI: the panel -------------------------------------------------------------
+"app/(panel)/**"        = ["docs/conventions/ui.md", "vercel-react-best-practices"]
+"app/auth/**"           = ["docs/conventions/ui.md", "docs/conventions/auth.md", "vercel-react-best-practices"]
+"app/setup/**"          = ["docs/conventions/ui.md", "docs/conventions/auth.md", "vercel-react-best-practices"]
+"app/actions/**"        = ["docs/conventions/auth.md", "vercel-react-best-practices"]
+"app/layout.tsx"        = ["docs/conventions/ui.md", "vercel-react-best-practices"]
+"app/globals.css"       = ["docs/conventions/ui.md"]
+"components/**"         = ["docs/conventions/ui.md", "vercel-react-best-practices", "responsive-design"]
+"design/**"             = ["docs/conventions/ui.md"]
+# --- HTTP routes (ingest, webhooks, live SSE, Slack) ---------------------------
+"app/api/**"            = ["docs/operations.md"]
+"proxy.ts"              = ["docs/conventions/auth.md"]
+# --- runner and host code ------------------------------------------------------
+"runner/**"             = ["docs/conventions/runner.md", "docs/operations.md"]
+"lib/toml-patch.ts"     = ["docs/conventions/runner.md"]
+"lib/t3-*.ts"           = ["docs/conventions/runner.md"]
+"lib/modal-*.ts"        = ["docs/conventions/runner.md"]
+"lib/sandbox*.ts"       = ["docs/conventions/runner.md"]
+"lib/host.ts"           = ["docs/conventions/runner.md"]
+"lib/exec.ts"           = ["docs/conventions/runner.md"]
+# --- shared lib ----------------------------------------------------------------
+"lib/**"                = ["docs/conventions/lib.md", "docs/operations.md"]
+"lib/auth/**"           = ["docs/conventions/auth.md"]
+# --- database (db.md outranks the postgres-drizzle skill) ----------------------
+"db/**"                 = ["docs/conventions/db.md", "postgres-drizzle"]
+"drizzle/**"            = ["docs/conventions/db.md", "postgres-drizzle"]
+# --- regressions ---------------------------------------------------------------
+"scripts/*-regressions.ts" = ["docs/conventions/regressions.md"]
+"scripts/fixtures/**"   = ["docs/conventions/regressions.md"]
+"scripts/test-*.ts"     = ["docs/conventions/regressions.md"]
+# --- integrations and prose ----------------------------------------------------
+"hooks/**"              = ["docs/hooks-observed.md"]
+"mcp/**"                = ["docs/hooks-observed.md"]
+"playbooks/**"          = ["docs/glossary.md"]
+"docs/**"               = ["docs/glossary.md"]

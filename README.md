@@ -1,8 +1,8 @@
-# marshal-factory
+# Hive
 
-A software factory that turns Linear issues into pull requests while you watch.
+Unibuz's internal software factory: it turns Linear issues into pull requests while you watch. Hive is a fork of [marshal-factory](https://github.com/ski043/marshal-factory) (pinned at `999ad20`); see [docs/prd.md](docs/prd.md) for what changes and [docs/glossary.md](docs/glossary.md) for the names this repo uses (job, lead thread, child, stage, evidence, media).
 
-You label an issue in Linear, file one from the panel, or send one from Slack. A runner on your Mac picks it up within seconds and starts a [T3 Code](https://github.com/pingdotgg/t3code) thread for it on its own branch, `factory/<issue>`, either on the Mac itself or in its own [Modal](https://modal.com) sandbox in the cloud. The thread runs a harness (Claude Code, Codex, or another agent T3 offers, such as Cursor) with PStack, and works the issue on its own: triage, investigation, implementation, verification, and a pull request. Every stage, subagent, model and dollar spent streams live to a web panel, and Slack tells you when something needs you. When the agent needs a decision, it asks on the Linear issue and continues once you reply.
+You label an issue in Linear, file one from the panel, or send one from Slack. A runner on your Mac picks it up within seconds and starts a [T3 Code](https://github.com/pingdotgg/t3code) thread for it on its own branch, `hive/<KEY>`, either on the Mac itself or in its own [Modal](https://modal.com) sandbox in the cloud. The thread runs a harness (Claude Code, Codex, or another agent T3 offers, such as Cursor) and works the issue on its own: triage, investigation, implementation, verification, and a pull request. Every stage, subagent, model and dollar spent streams live to a web panel, and Slack tells you when something needs you. When the agent needs a decision, it asks on the Linear issue and continues once you reply.
 
 When the PR is ready, the agent reports whether it is confident it built what the issue asked for. In repos you switch to **Merge when confident**, the factory merges every PR the agent is confident about and that clears the hard limits (green checks, no conflicts, no open Bugbot findings, checks verified at the PR head), and reverts a merge that turns main red. Everything else is handed to you to review and merge from the panel, Slack or GitHub ([Merge decisions](docs/operations.md#merge-decisions)).
 
@@ -16,7 +16,7 @@ The pieces:
 - **Runner** (`runner/`): a Bun daemon on your Mac, run by launchd. It is the only part that touches T3, git and the GitHub API, starts and hibernates the Modal sandboxes, makes every merge, and posts the Slack notifications.
 - **Slack app** (`app/api/slack/`, optional): notifications, buttons to answer, merge or request changes, and `/factory` to file jobs. The routes run in the panel and act through the same inbox actions as the panel.
 - **Reporter** (`hooks/`, `mcp/`): Claude Code hooks and a small MCP server, installed into each target repo. They send the run's progress to the panel's `/api/ingest`.
-- **Playbook** (`playbooks/factory.md`): the instructions every factory thread follows. It extends PStack's bug-fix and feature playbooks.
+- **Playbook** (`playbooks/factory.md`): the instructions every factory thread follows. It extends sstack's `work` playbooks, and the lead thread dispatches roles as T3 child tasks.
 
 ## What you need
 
@@ -42,8 +42,8 @@ These steps set up one factory: one Postgres database, one panel, and one Mac ru
 ### 1. Clone the factory
 
 ```sh
-git clone https://github.com/<you>/marshal-factory.git ~/code/marshal-factory
-cd ~/code/marshal-factory
+git clone https://github.com/cobeo2004/hive.git ~/code/hive
+cd ~/code/hive
 bun install
 ```
 
@@ -53,7 +53,7 @@ This checkout is the **live checkout**. The panel, the runner, and the hooks ins
 
 - `scripts/setup-github-app.ts`: change the manifest's `name` (`marshal-factory-ski043`) and `url`. GitHub App names are unique across GitHub, so you need your own, such as `marshal-factory-<you>`.
 
-`vercel.json`, `scripts/migrate-guard.ts` and the rest of the files inherited from marshal-factory stay in the repo but are unused: Hive is self-hosted.
+`vercel.json` and `scripts/migrate-guard.ts` are inherited from marshal-factory and only matter for a Vercel deploy. The self-hosted path below does not use them.
 
 ### 3. Prepare Linear
 
@@ -225,7 +225,7 @@ Within seconds the issue moves to In Progress, a comment says the factory took i
 
 **Stop a job.** Remove the `factory` label, or cancel the issue. The runner stops the thread.
 
-**When it fails.** A job fails when the agent gives up, or when it stays stuck after one nudge. The reason is posted on the issue, the issue goes back to Todo, and the label changes to `factory-failed`. To retry, press **Retry** on the job's item in the panel's Needs you inbox or in its Slack message, with an optional note for the next attempt, or add `factory` to the issue again. The retry runs on a new branch (`factory/FAC-7-a2`). A failed job's worktree is kept for three days, so you can look at what it did. Spend is measured per attempt and shown on the card; no amount stops a run.
+**When it fails.** A job fails when the agent gives up, or when it stays stuck after one nudge. The reason is posted on the issue, the issue goes back to Todo, and the label changes to `factory-failed`. To retry, press **Retry** on the job's item in the panel's Needs you inbox or in its Slack message, with an optional note for the next attempt, or add `factory` to the issue again. The retry runs on a new branch (`hive/FAC-7-a2`). A failed job's worktree is kept for three days, so you can look at what it did. Spend is measured per attempt and shown on the card; no amount stops a run.
 
 ## Settings
 
@@ -291,12 +291,25 @@ It stops the runner, pulls, migrates, builds the panel and restarts it until `/a
 
 ## Developing
 
-Work in a separate clone or worktree, never in the live checkout. Run `bun dev` for the panel against a database of your own, not production.
+Work in a separate clone or worktree, never in the live checkout. Run `bun install --frozen-lockfile`, then `bun dev` for the panel against a database of your own, not production.
+
+Before a PR, run what CI runs: `bun run lint`, `bun run typecheck`, `bun run format:check` (Biome; fix with `bun run format`) and the regressions below. A short convention page covers each area, and the sstack `[practices]` table in `.sstack/project.toml` hands the right ones to every agent that works on matching files:
+
+| Area | Read |
+|---|---|
+| `scripts/*-regressions.ts`, fixtures | [regressions](docs/conventions/regressions.md) |
+| `runner/**`, `lib/host.ts`, T3 and Modal code | [runner](docs/conventions/runner.md) |
+| `app/(panel)/**`, `components/**`, `design/**` | [ui](docs/conventions/ui.md) |
+| `lib/auth/**`, `proxy.ts`, sign-in pages | [auth](docs/conventions/auth.md) |
+| `db/**`, `drizzle/**` | [db](docs/conventions/db.md) |
+| `lib/**` | [lib](docs/conventions/lib.md) |
 
 `TEST_DATABASE_URL=postgres://localhost/postgres bun run test:regressions` runs every `scripts/*-regressions.ts` against a throwaway `hive_test_*` database it creates on that server, migrates, and drops when the run ends. The role needs the CREATEDB privilege. Pass a prefix to run a subset, for example `bun run test:regressions ingest`. During a test run, the real Linear client, the GitHub App and `t3` commands refuse to run, so a test can't touch real work.
 
 ## Further reading
 
 - [docs/operations.md](docs/operations.md): how each part behaves, including the runner, write-back, retries, spend, cleanup, the watchdog, sign-in and deploys.
+- [docs/prd.md](docs/prd.md) and [docs/glossary.md](docs/glossary.md): requirements by milestone and one name per concept.
+- [docs/conventions/](docs/conventions/): rules for changing each area of the code (see [Developing](#developing)).
 - [playbooks/factory.md](playbooks/factory.md): what each factory thread is told to do.
 - [docs/research/](docs/research/): background reports from the initial investigation.
