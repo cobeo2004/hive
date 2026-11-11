@@ -93,19 +93,29 @@ const issuePath = (job: Pick<Job, "writeback">) => `/repos/${job.writeback.repo}
 
 const posting = new Map<string, Promise<unknown>>();
 
-/** Posts `text` under a hidden marker unless Hive's own comment with that marker is already there; two calls for one marker in this process run one after the other. */
-async function postOnce(d: GithubDeps, job: Job, marker: string, text: string) {
+/** Records a comment as Hive's own. Appended in the database, so a stale copy of the job cannot drop an id saved since. */
+const track = (d: GithubDeps, job: Job, id: number, patch: object = {}) =>
+  d.db
+    .update(jobs)
+    .set({
+      source_state: sql`${jobs.source_state} || ${JSON.stringify(patch)}::jsonb || jsonb_build_object('factoryCommentIds', coalesce(${jobs.source_state}->'factoryCommentIds', '[]'::jsonb) || to_jsonb(${String(id)}::text))`,
+    })
+    .where(eq(jobs.id, job.id));
+
+/** Posts `text` under a hidden marker unless Hive's own comment with that marker is already there; returns that comment's id. Two calls for one marker in this process run one after the other. */
+async function postOnce(d: GithubDeps, job: Job, marker: string, text: string): Promise<number> {
   const path = `${issuePath(job)}/comments`;
   const key = `${path}${marker}`;
   const run = (posting.get(key) ?? Promise.resolve())
     .catch(() => {})
     .then(async () => {
-      if ((await listAll(d, job.writeback.repo, path, commentSchema)).some((c) => marked(c, marker))) return;
-      await d.request(job.writeback.repo, "POST", path, { body: `${marker}\n${text}` });
+      const had = (await listAll(d, job.writeback.repo, path, commentSchema)).find((c) => marked(c, marker));
+      if (had) return had.id;
+      return z.object({ id: z.number().int() }).parse(await d.request(job.writeback.repo, "POST", path, { body: `${marker}\n${text}` })).id;
     });
   posting.set(key, run);
   try {
-    await run;
+    return await run;
   } finally {
     if (posting.get(key) === run) posting.delete(key);
   }
@@ -147,15 +157,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
     id = (await listAll(d, repo, `${issuePath(job)}/comments`, commentSchema)).find((c) => marked(c, marker))?.id ?? null;
     if (id) await edit(id);
     else id = z.object({ id: z.number().int() }).parse(await d.request(repo, "POST", `${issuePath(job)}/comments`, { body: `${marker}\n${text}` })).id;
-    const patch = JSON.stringify({
-      statusCommentId: id,
-      statusAttempt: job.attempt,
-      factoryCommentIds: [...new Set([...job.source_state.factoryCommentIds, String(id)])],
-    });
-    await d.db
-      .update(jobs)
-      .set({ source_state: sql`${jobs.source_state} || ${patch}::jsonb` })
-      .where(eq(jobs.id, job.id));
+    await track(d, job, id, { statusCommentId: id, statusAttempt: job.attempt });
   }
   return {
     source: "github",
@@ -222,7 +224,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
             .join("\n\n"),
         );
         if (stage === "waiting") {
-          await postOnce(d, job, mark("question", eventId), `**Hive needs an answer**\n\n${job.question ?? job.stage_summary}`);
+          await track(d, job, await postOnce(d, job, mark("question", eventId), `**Hive needs an answer**\n\n${job.question ?? job.stage_summary}`));
           await d.request(repo, "POST", `${issuePath(job)}/labels`, { labels: [WAITING] });
         } else await dropLabel(d, job, WAITING); // any other stage clears it, so an acknowledgement that failed is made good by the next write-back
         // Back to unstarted without the label, so the poll does not claim it again in a loop; the label retries it.
@@ -242,7 +244,10 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
         return { kind: "close", state: "closed" };
       }
       const all = await listAll(d, repo, `${issuePath(job)}/comments`, commentSchema);
-      const asked = all.find((c) => bot(c) && job.stage_event_id && marked(c, mark("question", job.stage_event_id)));
+      // Only the question Hive recorded when it posted it: a comment edited later to carry the marker is not it.
+      const asked = all.find(
+        (c) => job.stage_event_id && marked(c, mark("question", job.stage_event_id)) && job.source_state.factoryCommentIds.includes(String(c.id)),
+      );
       if (!asked) return { kind: "wait" };
       const skip = new Set([...job.source_state.factoryCommentIds, ...job.delivered_reply_ids]);
       const after = all.filter((c) => c.id > asked.id && !skip.has(String(c.id)) && c.user);
