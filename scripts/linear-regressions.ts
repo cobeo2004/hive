@@ -116,6 +116,23 @@ for (const status of [500, 429] as const) {
   }
 }
 
+{
+  const { client, requests } = fakeLinear(() => ({ data: { issues: { nodes: [] } } }), []);
+  await client.readyIssues({ teamKeys: ["FAC", "MOB"], label: "foo", hiveUserId: "lin-hive", emails: ["pick-eve@x.com"] });
+  const { filter } = requests[0]!.variables as unknown as { filter: { team: unknown; state: unknown; or: unknown } };
+  assert.deepEqual(filter.team, { key: { in: ["FAC", "MOB"] } }, "readyIssues filters team.key in teamKeys");
+  assert.deepEqual(filter.state, { type: { eq: "unstarted" } });
+  assert.deepEqual(
+    filter.or,
+    [
+      { labels: { some: { name: { eqIgnoreCase: "foo" } } } },
+      { assignee: { id: { eq: "lin-hive" } } },
+      { assignee: { email: { eqIgnoreCase: "pick-eve@x.com" } } },
+    ],
+    "readyIssues asks for any trigger",
+  );
+}
+
 await assert.rejects(linearClient("key").team("FAC"), /Linear API was called during a regression run/, "the real client refuses to run under the test harness");
 
 console.log("linear regressions passed");

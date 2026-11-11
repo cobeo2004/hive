@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
-import { and, eq, gt, inArray, lt, or } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "../db/client";
-import { jobs, slackMessages, type JobRow } from "../db/schema";
+import { jobs, machines, slackMessages, user, type JobRow } from "../db/schema";
 import { loadConfig } from "../lib/config";
 import { attemptBranch } from "../lib/factory";
+import { reportedSlack } from "../lib/machine";
+// The notifier is the one place outside the adapter that comments on an issue (R34), so it takes the client's two calls.
+// eslint-disable-next-line no-restricted-imports
+import { commentId, linearClient, type LinearClient } from "../lib/linear";
 import {
   inQuietHours,
   parseNotificationConfig,
@@ -26,12 +30,14 @@ import {
   type SlackMessage,
 } from "../lib/slack";
 import { SlackApiError, slackClient, SlackRateLimited, type SlackClient } from "../lib/slack-api";
+import { SOURCE_SHAPES } from "../lib/sources/shapes";
 import { branchCosts } from "../lib/spend";
 
 // The Slack notifier: each pass diffs the notification events (lib/slack.ts) against the
 // slack_messages rows, resolves the messages whose event went away, edits the ones whose event
 // changed and posts the new ones. Every step is keyed by the event id, so a re-tick, a restart or a
-// second runner never posts an event twice. A runner without SLACK_BOT_TOKEN does nothing.
+// second runner never posts an event twice. Each event goes to its job's owner: a Slack DM when Slack finds them by
+// email, else a Linear comment @-mentioning them (R34).
 
 /** Most Slack calls one pass makes; the rest wait for the next tick, so Slack never holds up the runner's queue. */
 export const MAX_CALLS_PER_PASS = 25;
@@ -57,20 +63,34 @@ export function slackFromEnv(env: Record<string, string | undefined> = process.e
 }
 
 const dmChannels = new Map<string, string>();
+/** Lowercased email → Slack user id, kept for the life of the process; a miss is kept too. */
+const slackIds = new Map<string, string | null>();
+
+async function slackIdByEmail(slack: SlackSetup, email: string) {
+  const key = email.toLowerCase();
+  let id = slackIds.get(key);
+  if (id === undefined) {
+    id = await slack.client.userIdByEmail(email);
+    slackIds.set(key, id);
+  }
+  return id;
+}
 
 type Destination = { channel: string; to: Exclude<SlackTarget, "off"> };
 
+async function dm(slack: SlackSetup, userId: string): Promise<Destination> {
+  let channel = dmChannels.get(userId);
+  if (!channel) {
+    channel = await slack.client.openDm(userId);
+    dmChannels.set(userId, channel);
+  }
+  return { channel, to: "owner" };
+}
+
 async function destination(target: SlackTarget, config: NotificationConfig, slack: SlackSetup): Promise<Destination | string> {
   switch (target) {
-    case "owner": {
-      if (!slack.owner) return "SLACK_OWNER_USER_ID is not set on this runner";
-      let channel = dmChannels.get(slack.owner);
-      if (!channel) {
-        channel = await slack.client.openDm(slack.owner);
-        dmChannels.set(slack.owner, channel);
-      }
-      return { channel, to: "owner" };
-    }
+    case "owner":
+      return slack.owner ? dm(slack, slack.owner) : "SLACK_OWNER_USER_ID is not set on this runner";
     case "channel":
       return config.channelId ? { channel: config.channelId, to: "channel" } : "no channel is set";
     case "off":
@@ -85,12 +105,20 @@ async function destination(target: SlackTarget, config: NotificationConfig, slac
 const fingerprint = (message: SlackMessage) => createHash("sha256").update(JSON.stringify(message)).digest("hex").slice(0, 32);
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export type NotifyResult =
-  | "disabled"
-  | { posted: number; updated: number; resolved: number; held: number; errors?: string[]; rateLimitedUntil?: string; deferred?: true };
+export type NotifyResult = { posted: number; updated: number; resolved: number; held: number; errors?: string[]; rateLimitedUntil?: string; deferred?: true };
+export type NotifyLinear = Pick<LinearClient, "userByEmail" | "comment">;
 
-export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now = new Date()): Promise<NotifyResult> {
-  if (!slack) return "disabled";
+/** Without a Slack connection, or with the target on owner, each event goes to its job's owner (R34). */
+export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now = new Date(), linear?: NotifyLinear): Promise<NotifyResult> {
+  // Slack-less here but configured on another online runner: that runner owns the notifications, so this one never claims an event.
+  // A machine that has not reported its Slack inventory (no `slack` key, or unknown) or is offline does not count as having Slack:
+  // reportedSlack returns null for it and this runner posts the Linear fallback.
+  if (
+    !slack &&
+    reportedSlack(await db.select({ last_seen_at: machines.last_seen_at, inventory: machines.inventory }).from(machines), now.getTime())?.configured
+  ) {
+    return { posted: 0, updated: 0, resolved: 0, held: 0 };
+  }
   const config = parseNotificationConfig((await readNotifications(db))?.config);
   await db.delete(slackMessages).where(and(eq(slackMessages.state, "posting"), lt(slackMessages.created_at, new Date(now.getTime() - POSTING_STALE_MS))));
 
@@ -116,7 +144,26 @@ export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now
     [...new Set([...events.map((e) => branchOf(e.job)), ...rows.flatMap((r) => (jobOf.has(r.job_id) ? [branchOf(jobOf.get(r.job_id)!)] : []))])],
     loadConfig().factory.pricing,
   );
-  const facts = (job: JobRow): MessageFacts => ({ panelUrl: panelUrl(), spend: costs[branchOf(job)] ?? null, secrets: slack.secrets });
+  const facts = (job: JobRow): MessageFacts => ({
+    panelUrl: panelUrl(),
+    spend: costs[branchOf(job)] ?? null,
+    secrets: slack?.secrets ?? secretValues(process.env),
+  });
+
+  const routed = config.target === "owner" || (config.target === "channel" && !slack);
+  const ownerIds = routed ? [...new Set(loaded.flatMap((j) => (j.owner_id ? [j.owner_id] : [])))] : [];
+  const emailOf = new Map(
+    (ownerIds.length > 0 ? await db.select({ id: user.id, email: user.email }).from(user).where(inArray(user.id, ownerIds)) : []).map((u) => [u.id, u.email]),
+  );
+  // The owner's Slack DM, or null for a Linear comment: no Slack, no match, or (ownerless) no SLACK_OWNER_USER_ID.
+  const route = async (job: JobRow) => {
+    if (!slack) return null;
+    const email = job.owner_id ? emailOf.get(job.owner_id) : undefined;
+    if (!email) return slack.owner ? dm(slack, slack.owner) : null;
+    const id = await slackIdByEmail(slack, email);
+    return id ? dm(slack, id) : null;
+  };
+  const commentIds = sql`coalesce(${jobs.source_state}->'factoryCommentIds', '[]'::jsonb)`;
 
   const result = { posted: 0, updated: 0, resolved: 0, held: 0 };
   const errors: string[] = [];
@@ -131,8 +178,9 @@ export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now
       const job = jobOf.get(row.job_id);
       const text = resolution(row.kind, job);
       const message = job ? renderMessage({ id: row.id, kind: row.kind, job, reason: "" }, facts(job), text) : null;
+      if (row.channel && !slack) continue;
       try {
-        if (message && row.channel && row.ts) {
+        if (message && row.channel && row.ts && slack) {
           calls++;
           await slack.client.update(row.channel, row.ts, message);
         }
@@ -151,7 +199,7 @@ export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now
     for (const event of events) {
       if (!budget()) break;
       const row = rowOf.get(event.id);
-      if (!event.open || !row || row.state === "posting" || !row.channel || !row.ts) continue;
+      if (!event.open || !row || row.state === "posting" || !row.channel || !row.ts || !slack) continue;
       const message = renderMessage(event, facts(event.job));
       const print = fingerprint(message);
       if (row.state === "open" && row.fingerprint === print) continue;
@@ -170,7 +218,7 @@ export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now
     }
 
     const quiet = inQuietHours(config.quietHours, now);
-    let target: Destination | string | undefined;
+    let shared: Destination | string | undefined;
     for (const event of events) {
       if (rowOf.has(event.id) || !config.events[TOGGLE_OF[event.kind]]) continue;
       if (now.getTime() - event.at.getTime() > NOTIFY_WINDOW_MS) continue;
@@ -179,9 +227,31 @@ export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now
         continue;
       }
       if (!budget()) break;
-      target ??= await destination(config.target, config, slack);
+      let target: Destination | string | null;
+      let mention: string | undefined;
+      let issueId: string | undefined;
+      if (routed) {
+        try {
+          target = await route(event.job);
+          if (!target) {
+            const issue = SOURCE_SHAPES.linear.writeback.safeParse(event.job.writeback);
+            if (!issue.success) continue;
+            issueId = issue.data.issueId;
+            const email = event.job.owner_id ? emailOf.get(event.job.owner_id) : undefined;
+            linear ??= linearClient(loadConfig().linearApiKey);
+            mention = email ? (await linear.userByEmail(email))?.url : undefined;
+          }
+        } catch (error) {
+          if (error instanceof SlackRateLimited) throw error;
+          errors.push(`route ${event.id}: ${errorText(error)}`);
+          continue;
+        }
+      } else {
+        if (config.target === "off" || !slack) break;
+        target = shared ??= await destination(config.target, config, slack);
+      }
       if (typeof target === "string") {
-        if (config.target !== "off") errors.push(`post: ${target}`);
+        errors.push(`post: ${target}`);
         break;
       }
       const [claimed] = await db
@@ -191,16 +261,28 @@ export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now
         .returning({ id: slackMessages.id });
       if (!claimed) continue;
       const message = renderMessage(event, facts(event.job));
-      let posted: { channel: string; ts: string };
+      let posted: { channel: string | null; ts: string | null } = { channel: null, ts: null };
       try {
         calls++;
-        posted = await slack.client.postMessage(target.channel, message);
+        if (target) posted = await slack!.client.postMessage(target.channel, message);
+        else {
+          // The id is recorded before the post, so a crash in between never makes our own comment look like a reply.
+          const id = commentId(issueId!, "notify", event.id);
+          await db
+            .update(jobs)
+            .set({
+              source_state: sql`jsonb_set(${jobs.source_state}, '{factoryCommentIds}', case when ${commentIds} ? ${id} then ${commentIds} else ${commentIds} || jsonb_build_array(${id}::text) end)`,
+            })
+            .where(eq(jobs.id, event.job.id));
+          await linear!.comment(issueId!, id, [mention, message.text, event.job.pr_url].filter(Boolean).join("\n\n"));
+        }
       } catch (error) {
         await db.delete(slackMessages).where(and(eq(slackMessages.id, event.id), eq(slackMessages.state, "posting")));
         if (error instanceof SlackRateLimited) throw error;
         errors.push(`post ${event.id}: ${errorText(error)}`);
-        // A bad channel or a revoked token fails every post the same way; try again next pass.
-        if (error instanceof SlackApiError) break;
+        // One shared destination (a bad channel, a revoked token) fails every post the same way, so stop and try again next pass.
+        // Routed, each owner has their own DM, so one owner's refusal (cannot_dm_bot) leaves the others' alone.
+        if (!routed && error instanceof SlackApiError) break;
         continue;
       }
       result.posted++;
