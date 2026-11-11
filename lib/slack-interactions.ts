@@ -262,7 +262,7 @@ async function messageFacts(deps: InteractionDeps, job: JobRow): Promise<Message
 function runAction(inbox: InboxDeps, action: InboxAction, job: JobRow, requestId: string, text: string): Promise<InboxOutcome> {
   switch (action) {
     case "answer":
-      return answerQuestion(inbox, job.id, requestId, text);
+      return answerQuestion(inbox, job.id, requestId, text, job.stage_event_id);
     case "approve": {
       const decision = mergeDecisionSchema.safeParse(job.merge_decision).data;
       return approveMerge(inbox, job.id, requestId, decision?.review?.headSha ?? decision?.headSha ?? null, inboxKind(job) === "plan_approval");

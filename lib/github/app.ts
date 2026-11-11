@@ -60,6 +60,8 @@ export class GitHubError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** Set when GitHub asks the caller to wait (a rate limit): how long, from `retry-after` or `x-ratelimit-reset`. */
+    readonly retryAfterMs?: number,
   ) {
     super(message);
   }
@@ -81,7 +83,11 @@ export async function githubRequest(api: string, auth: string, method: string, p
   const json = (await res.json().catch(() => ({}))) as unknown;
   if (!res.ok && !allow.includes(res.status)) {
     const message = z.object({ message: z.string() }).safeParse(json).data?.message ?? "";
-    throw new GitHubError(`GitHub ${method} ${path} answered ${res.status}${message ? `: ${message}` : ""}`, res.status);
+    const wait =
+      Number(res.headers.get("retry-after")) * 1000 ||
+      (res.headers.get("x-ratelimit-remaining") === "0" ? Number(res.headers.get("x-ratelimit-reset")) * 1000 - Date.now() : 0);
+    const limited = (res.status === 403 || res.status === 429) && wait > 0 ? Math.min(wait, 15 * 60_000) : undefined;
+    throw new GitHubError(`GitHub ${method} ${path} answered ${res.status}${message ? `: ${message}` : ""}`, res.status, limited);
   }
   return { status: res.status, json };
 }

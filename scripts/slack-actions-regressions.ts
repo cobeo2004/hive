@@ -40,6 +40,8 @@ type Call = { method: string; params: Record<string, string> };
 const calls: Call[] = [];
 /** Slack calls and the handler's database reads, in the order they happened. */
 const timeline: string[] = [];
+/** Runs inside the next chat.update, which the handler awaits after opening the item and before the action runs. */
+let duringUpdate: (() => Promise<unknown>) | null = null;
 const responses: { path: string; body: { text?: string; response_type?: string; replace_original?: boolean } }[] = [];
 const server = await serve(0, async (request) => {
   const path = new URL(request.url).pathname;
@@ -51,6 +53,7 @@ const server = await serve(0, async (request) => {
   const params = Object.fromEntries(new URLSearchParams(await request.text()));
   calls.push({ method, params });
   timeline.push(method);
+  if (method === "chat.update") await duringUpdate?.();
   if (request.headers.get("authorization") !== `Bearer ${TOKEN}`) return Response.json({ ok: false, error: "invalid_auth" });
   if (method === "users.info") return Response.json({ ok: true, user: { id: params.user, profile: { email: SLACK_EMAILS[params.user!] } } });
   if (method === "views.open") return Response.json({ ok: true, view: { id: `V${calls.length}`, hash: `hash-${calls.length}` } });
@@ -428,6 +431,21 @@ try {
   const [answerIntent] = await intentsFor(question.id);
   assert.equal(answerIntent!.id, `panel:answer:${slackRequestId(question.eventId, "answer")}`);
   assert.match(updatesOf(question.ts)[0]!.params.text!, /Answer sent/);
+
+  // --- a question that changes after the modal was submitted is not answered
+  const moved = await item("MOVED", { stage: "waiting", question: "Which port?" });
+  const movedClick = click(moved.eventId, SLACK_ACTION_IDS.answer);
+  await movedClick.sent;
+  await drain();
+  const posted = replies.length;
+  duringUpdate = async () => {
+    duringUpdate = null;
+    await db.update(jobs).set({ stage_event_id: "asked-again" }).where(eq(jobs.id, moved.id));
+  };
+  await submit(modalView(), "8080.");
+  await drain();
+  assert.equal(replies.length, posted, "the answer meant for the old question is not posted");
+  assert.match(repliesTo(movedClick.response_url)[0]!, /question changed/);
 
   // --- an error says why, without secrets, and puts the buttons back
   const leaky = await item("L", { stage: "waiting", question: "Which key?" });

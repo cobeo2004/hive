@@ -3,6 +3,7 @@ import { db } from "@/db/client";
 import { intents, jobs, webhookDeliveries } from "@/db/schema";
 import { readRegistry } from "@/lib/repositories";
 import { githubIssuesOn, isJobSource, sourceFor } from "@/lib/sources";
+import { jobId } from "@/lib/sources/shapes";
 import type { JobSource } from "@/lib/sources/types";
 import { linearSettings } from "@/lib/linear-settings";
 import { githubIntent, githubIssueIntent, githubPushIntent, verifyGithub, type IntentDraft } from "@/lib/webhooks";
@@ -62,10 +63,13 @@ async function githubIssueDraft(event: string, body: unknown) {
   const draft = githubIssueIntent(event, body, (await linearSettings(db)).label);
   if (!draft) return null;
   const repo = (body as { repository: { full_name: string } }).repository.full_name.toLowerCase();
-  if (!(await readRegistry(db)).some((r) => r.enabled && r.repo.toLowerCase() === repo)) return null;
+  const registered = (await readRegistry(db)).find((r) => r.enabled && r.repo.toLowerCase() === repo);
+  if (!registered) return null;
   if (draft.kind !== "answer") return draft;
-  const [job] = await db.select({ stage: jobs.stage }).from(jobs).where(eq(jobs.id, draft.jobId!));
-  return job?.stage === "waiting" ? draft : null;
+  // The job id carries the registry's spelling of the repo (that is what `ready` filed it under), not the delivery's.
+  const id = jobId("github", `${registered.repo}#${(body as { issue: { number: number } }).issue.number}`);
+  const [job] = await db.select({ stage: jobs.stage }).from(jobs).where(eq(jobs.id, id));
+  return job?.stage === "waiting" ? { ...draft, jobId: id } : null;
 }
 
 async function githubWebhook(request: Request) {

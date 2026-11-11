@@ -5,7 +5,7 @@ import { generateKeyPairSync, verify } from "node:crypto";
 import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appCredentials, appJwt, installationTokens, readAppFile, tokenSource } from "../lib/github/app";
+import { appCredentials, appJwt, type GitHubError, githubRequest, installationTokens, readAppFile, tokenSource } from "../lib/github/app";
 import { github, parsePullUrl, pullsClient } from "../lib/github/pulls";
 import { scriptsOf } from "../lib/trusted-checks";
 import { serve } from "./serve";
@@ -284,6 +284,29 @@ try {
   assert.equal((await client.mergePull(url(3), "stale")).kind, "head_moved", "409 is head moved");
   await assert.rejects(client.mergePull(url(4), "h4"), /answered 422/, "any other status throws");
   assert.deepEqual(seen.find((s) => s.method === "PUT")?.body, { merge_method: "squash", sha: "h1" }, "the merge pins the head and squashes");
+
+  // A rate limit says how long to wait, by retry-after or by the reset time once the quota is spent; another 403 says nothing.
+  const headers: Record<string, Record<string, string>> = {
+    "/after": { "retry-after": "30" },
+    "/reset": { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(Math.ceil(Date.now() / 1000) + 120) },
+    "/plain": {},
+  };
+  const limited = await serve(0, async (request) => Response.json({ message: "no" }, { status: 403, headers: headers[new URL(request.url).pathname] }));
+  try {
+    const [after, reset, plain] = await Promise.all(
+      Object.keys(headers).map((path) =>
+        githubRequest(`http://localhost:${limited.port}`, "t", "GET", path).then(
+          () => -1,
+          (e: GitHubError) => e.retryAfterMs ?? -1,
+        ),
+      ),
+    );
+    assert.equal(after, 30_000, "retry-after is taken in seconds");
+    assert.ok(reset > 100_000 && reset <= 121_000, "the reset time is how long until the quota returns");
+    assert.equal(plain, -1, "a plain 403 is not a rate limit");
+  } finally {
+    await limited.close();
+  }
 
   await setupScriptEndToEnd(api);
   console.log("github regressions passed");

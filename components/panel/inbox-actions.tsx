@@ -316,6 +316,8 @@ export function InboxActions({
   const disabled = busy !== null;
   const loading = (a: InboxAction) => busy?.action === a;
   const requestId = () => crypto.randomUUID();
+  // The question the owner opened this box on; the server refuses the answer if the job has asked another since.
+  const [asked] = useState(job.stage_event_id);
 
   const buttons = (
     <div className="flex flex-wrap items-center gap-2">
@@ -386,7 +388,7 @@ export function InboxActions({
           icon={<SendIcon data-icon="inline-start" />}
           disabled={disabled}
           loading={loading("answer")}
-          onSend={(text, clear) => void run("answer", () => answerQuestion(job.id, requestId(), text, job.stage_event_id), "Answer sent.", clear)}
+          onSend={(text, clear) => void run("answer", () => answerQuestion(job.id, requestId(), text, asked), "Answer sent.", clear)}
         />
       )}
       {has("request_changes") && (

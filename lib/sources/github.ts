@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type * as schema from "../../db/schema";
@@ -105,13 +105,16 @@ function serial<T>(key: string, work: () => Promise<T>): Promise<T> {
   });
 }
 
+/** GitHub refuses a comment over 65,536 characters (422, for ever): keep a margin for the marker and say where the rest is. */
+const clip = (text: string) => (text.length > 65_000 ? `${text.slice(0, 64_900)}\n\n(cut; the rest is in the Hive panel)` : text);
+
 /** Posts `text` under a hidden marker unless Hive's own comment with that marker is already there. */
-async function postOnce(d: GithubDeps, job: Job, marker: string, text: string) {
+async function postOnce(d: GithubDeps, job: Pick<Job, "writeback">, marker: string, text: string) {
   const path = `${issuePath(job)}/comments`;
   const own = await d.login();
   await serial(`${path}${marker}`, async () => {
     if ((await listAll(d, job.writeback.repo, path, commentSchema)).some((c) => marked(c, own, marker))) return;
-    await d.request(job.writeback.repo, "POST", path, { body: `${marker}\n${text}` });
+    await d.request(job.writeback.repo, "POST", path, { body: clip(`${marker}\n${text}`) });
   });
 }
 
@@ -140,26 +143,46 @@ async function labelledByWriter(d: GithubDeps, repo: string, number: number, lab
 export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>, on: () => boolean = githubIssuesOn): SourceAdapter<"github"> {
   let loaded: GithubDeps | undefined;
   const deps = async () => (loaded ??= await load());
-  /** R5: the attempt's one status comment, edited in place; made once if the attempt has none yet. */
+  /** Set when GitHub says to slow down: the poll rests until then. */
+  let pausedUntil = 0;
+  /** Issues already told their repo is off: one note each, remembered for this process (a restart reads the issue's comments once more, and finds the note). */
+  const declined = new Set<string>();
+  /** An issue labelled in a repo Hive has switched off gets one note saying so. A locked or deleted issue must not fail the poll, so it is tried once. */
+  async function declineOnce(d: GithubDeps, repo: string, number: number, why: string, text: string) {
+    if (declined.has(`${repo}#${number}:${why}`)) return;
+    declined.add(`${repo}#${number}:${why}`);
+    await postOnce(d, { writeback: { kind: "github", repo, number } }, mark("declined", why), text).catch((error) =>
+      console.error("github: decline note failed", repo, number, error),
+    );
+  }
+  /** R5: the attempt's one status comment, edited in place. Its marker names the attempt, so a crash between the POST and the row update finds it again instead of posting a second. */
   async function setStatus(d: GithubDeps, job: Job, text: string) {
     const { repo } = job.writeback;
-    const id = job.source_state.statusAttempt === job.attempt ? job.source_state.statusCommentId : null;
-    if (id && (await soft(d.request(repo, "PATCH", `/repos/${repo}/issues/comments/${id}`, { body: text })))) return;
-    const made = z.object({ id: z.number().int() }).parse(await d.request(repo, "POST", `${issuePath(job)}/comments`, { body: text }));
-    const patch = JSON.stringify({
-      statusCommentId: made.id,
-      statusAttempt: job.attempt,
-      factoryCommentIds: [...job.source_state.factoryCommentIds, String(made.id)],
+    const marker = mark("status", String(job.attempt));
+    const path = `${issuePath(job)}/comments`;
+    const own = await d.login();
+    await serial(`${path}${marker}`, async () => {
+      const body = clip(`${marker}\n${text}`);
+      const edit = (id: number) => soft(d.request(repo, "PATCH", `/repos/${repo}/issues/comments/${id}`, { body }));
+      const known = job.source_state.statusAttempt === job.attempt ? job.source_state.statusCommentId : null;
+      if (known && (await edit(known))) return;
+      const found = (await listAll(d, repo, path, commentSchema)).find((c) => marked(c, own, marker))?.id;
+      const id = found && (await edit(found)) ? found : z.object({ id: z.number().int() }).parse(await d.request(repo, "POST", path, { body })).id;
+      const ids = sql`coalesce(${jobs.source_state}->'factoryCommentIds', '[]'::jsonb)`;
+      const patch = JSON.stringify({ statusCommentId: id, statusAttempt: job.attempt });
+      // Appended in SQL, so a stale snapshot of the job cannot drop another attempt's comment id.
+      await d.db
+        .update(jobs)
+        .set({
+          source_state: sql`jsonb_set(${jobs.source_state} || ${patch}::jsonb, '{factoryCommentIds}', case when ${ids} @> to_jsonb(${String(id)}::text) then ${ids} else ${ids} || to_jsonb(${String(id)}::text) end)`,
+        })
+        .where(eq(jobs.id, job.id));
     });
-    await d.db
-      .update(jobs)
-      .set({ source_state: sql`${jobs.source_state} || ${patch}::jsonb` })
-      .where(eq(jobs.id, job.id));
   }
   return {
     source: "github",
     async ready() {
-      if (!on()) return [];
+      if (!on() || Date.now() < pausedUntil) return [];
       const d = await deps();
       const label = await d.label();
       const { readRegistry } = await import("../repositories");
@@ -170,12 +193,25 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
         .where(eq(jobs.source, "github"));
       const seen = new Map(rows.map((j) => [j.id, j]));
       const drafts: JobDraft<"github">[] = [];
-      for (const { repo } of (await readRegistry(d.db)).filter((r) => r.enabled)) {
+      const registry = await readRegistry(d.db);
+      const failed: string[] = [];
+      for (const { repo, enabled } of registry) {
         try {
           for (const issue of (await listAll(d, repo, `/repos/${repo}/issues?state=open&labels=${encodeURIComponent(label)}`, issueSchema)).filter(
             (i) => !i.pull_request,
           )) {
             const was = seen.get(`${repo}#${issue.number}`);
+            if (!enabled) {
+              if (!was)
+                await declineOnce(
+                  d,
+                  repo,
+                  issue.number,
+                  "disabled",
+                  `Hive will not run this: ${repo} is not enabled in Hive. Enabling the repository is enough; the next poll picks this issue up.`,
+                );
+              continue;
+            }
             // A new job, or a retry of a failed one, needs the label from someone who may file work here.
             if ((!was || was.stage === "failed") && !(await labelledByWriter(d, repo, issue.number, label, !!was))) continue;
             drafts.push({
@@ -192,10 +228,21 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
           }
         } catch (error) {
           // One repo's outage (a revoked installation) must not stop intake from the others.
-          console.error("github: could not read issues of", repo, error);
+          if (enabled) console.error("github: could not read issues of", repo, error); // a disabled repo may have no installation: not worth a line every poll
+          if (error instanceof GitHubError && error.retryAfterMs) {
+            pausedUntil = Date.now() + error.retryAfterMs;
+            break;
+          }
+          if (enabled) failed.push(repo);
         }
       }
+      // Every enabled repo failed: that is an outage to report, not an empty poll.
+      if (failed.length > 0 && failed.length === registry.filter((r) => r.enabled).length) throw new Error(`could not read issues of ${failed.join(", ")}`);
       return drafts;
+    },
+    async decline(draft, why) {
+      const { repo, number } = draft.writeback;
+      await declineOnce(await deps(), repo, number, "claim", `Hive could not start this issue: ${why}.`);
     },
     async announceClaim(job) {
       if (job.source_state.statusAttempt === job.attempt) return;
@@ -271,7 +318,25 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
         marked(c, own, mark("question", job.stage_event_id ?? "")),
       );
       if (!asked) throw new Error("Hive has not posted the question on the issue yet; answer again in a moment.");
-      await postOnce(d, job, mark("answer", `${job.stage_event_id}:${requestId}`), body);
+      // The request is noted in the row first. A claim already held proves nothing was posted (its holder may have died before the POST, or failed it), so the marker check below still decides; only the holder gives the claim back on a failed post.
+      const key = `${job.stage_event_id}:${requestId}`;
+      const requests = sql`coalesce(${jobs.source_state}->'answerRequests', '[]'::jsonb)`;
+      const held = sql`to_jsonb(${key}::text)`;
+      const claimed = await d.db
+        .update(jobs)
+        .set({ source_state: sql`jsonb_set(${jobs.source_state}, '{answerRequests}', ${requests} || ${held})` })
+        .where(and(eq(jobs.id, job.id), sql`not (${requests} @> ${held})`))
+        .returning({ id: jobs.id });
+      try {
+        await postOnce(d, job, mark("answer", key), body);
+      } catch (error) {
+        if (claimed.length > 0)
+          await d.db
+            .update(jobs)
+            .set({ source_state: sql`jsonb_set(${jobs.source_state}, '{answerRequests}', ${requests} - ${key}::text)` })
+            .where(eq(jobs.id, job.id));
+        throw error;
+      }
     },
     // Stops arrive in a later PR: until then a running job is stopped from the panel.
     stopWanted: async () => [],
@@ -284,7 +349,8 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
     },
     overrides: () => NO_OVERRIDES,
     issueBlock(job) {
-      const body = job.description?.trim() || "(The issue has no description.)";
+      // The title is as untrusted as the body: both go inside the fence.
+      const body = `Title: ${job.title}\n\n${job.description?.trim() || "(The issue has no description.)"}`;
       const fence = "`".repeat(Math.max(2, ...(body.match(/`+/g) ?? []).map((run) => run.length)) + 1);
       return [
         `When you open the pull request, put "Fixes #${job.writeback.number}" in its body so merging closes the issue. Never close the issue yourself.`,
