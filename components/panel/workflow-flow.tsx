@@ -16,6 +16,7 @@ import {
   useNodesState,
   useReactFlow,
   useStore,
+  useStoreApi,
   useViewport,
 } from "@xyflow/react";
 import { Bot, Cpu, GitPullRequestArrow, Minus, Pin, Plus, SquareTerminal } from "lucide-react";
@@ -131,19 +132,32 @@ type Props = {
   selected: string;
   onSelect: (name: string) => void;
   onMove: (name: string, onto: string) => void;
+  cover: number; // px a floating panel hides on the right from md up
 };
 
-function Flow({ files, specs, canEdit, selected, onSelect, onMove }: Props) {
+function Flow({ files, specs, canEdit, selected, onSelect, onMove, cover }: Props) {
   const built = useMemo(() => graph(files, specs), [files, specs]);
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>(built.nodes);
-  const { getIntersectingNodes, fitView } = useReactFlow();
+  const { getIntersectingNodes, fitView, getNode, getViewport, setViewport } = useReactFlow();
+  const store = useStoreApi();
   const width = useStore((s) => s.width);
   const grab = useRef<{ at: { x: number; y: number }; members: Record<string, { x: number; y: number }> } | null>(null);
   useEffect(() => setNodes(built.nodes), [built, setNodes]); // free positions last until the chain or specs change
-  // the panel opening or closing resizes the canvas: re-fit so the graph always fills the width that is left
+  // re-fit when the canvas itself resizes (the window); the panel floats, so opening or closing it never does
   useEffect(() => {
     if (width) void fitView({ ...FIT, duration: 200 });
   }, [width, fitView]);
+  // selecting a step pans (zoom unchanged) so it sits mid-way in the part of the canvas the panel leaves visible; closing moves nothing
+  useEffect(() => {
+    const node = selected ? getNode(selected) : undefined;
+    if (!node) return;
+    const { width: w, height: h } = store.getState();
+    const hidden = window.matchMedia("(min-width: 768px)").matches ? cover : 0; // below md the panel stacks under the canvas
+    const { zoom } = getViewport();
+    const cx = node.position.x + (node.measured?.width ?? 0) / 2;
+    const cy = node.position.y + (node.measured?.height ?? 0) / 2;
+    void setViewport({ x: (w - hidden) / 2 - cx * zoom, y: h / 2 - cy * zoom, zoom }, { duration: 200 });
+  }, [selected, cover, getNode, getViewport, setViewport, store]);
   // the canvas owns which step is open, so the ring follows it (closing the panel clears it)
   const shown = useMemo(() => nodes.map((n) => (n.selected === (n.id === selected) ? n : { ...n, selected: n.id === selected })), [nodes, selected]);
   // loop labels read violet on a card chip, like the edge itself
@@ -192,6 +206,7 @@ function Flow({ files, specs, canEdit, selected, onSelect, onMove }: Props) {
       onNodeDrag={follow}
       onNodeDragStop={drop}
       onKeyDown={enter}
+      attributionPosition="top-left" // bottom-right is under the floating panel, bottom-left holds the zoom controls
       aria-label="Workflow steps"
       className="[&_.react-flow__attribution_a]:text-muted-foreground [&_.react-flow__node:focus-visible_.tile]:ring-2 [&_.react-flow__node:focus-visible_.tile]:ring-ring"
       style={
