@@ -25,6 +25,8 @@ const github = {
     statusCommentId: z.number().int().nullable().default(null),
     statusAttempt: z.number().int().default(0),
     factoryCommentIds: z.array(z.string()).default([]),
+    /** Panel answers noted before their comment is posted, as `<question event>:<request id>`. */
+    answerRequests: z.array(z.string()).default([]),
   }),
 };
 

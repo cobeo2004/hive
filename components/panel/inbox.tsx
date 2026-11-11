@@ -359,6 +359,7 @@ function Detail({ item, card, fullView, owner }: { item: Item; card: BoardCard |
             ),
           )}
           <InboxActions
+            key={job.stage_event_id}
             job={job}
             kind={kind}
             decision={item.decision}

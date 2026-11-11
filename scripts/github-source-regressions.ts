@@ -251,11 +251,14 @@ try {
   assert.equal(comments(ON, 8).filter((c) => c.body.includes(":req-2 -->")).length, 1, "two panel replies at once post once");
   await adapter.reply!(asking, "req-3", "once");
   gh.get(`${ON}#8`)!.comments = comments(ON, 8).filter((c) => !c.body.includes(":req-3 -->"));
+  const held = comments(ON, 8).length;
   await adapter.reply!(asking, "req-3", "once");
-  assert.equal(
-    comments(ON, 8).filter((c) => c.body.includes(":req-3 -->")).length,
-    0,
-    "a request the row says was handled posts nothing, wherever the comment went",
+  assert.equal(comments(ON, 8).length, held + 1, "a claim already held with no comment on the issue (its holder died before the POST) still posts the answer");
+  await adapter.reply!(asking, "req-3", "once");
+  assert.equal(comments(ON, 8).length, held + 1, "and only once: the marker check skips a comment that is there");
+  assert.ok(
+    (await job(8)).source_state.answerRequests.some((k) => k.endsWith(":req-3")),
+    "the claim is in the shape, so it survives a parsed rewrite",
   );
   failPost = true;
   await assert.rejects(adapter.reply!(asking, "req-4", "retry"), /boom/);

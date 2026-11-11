@@ -318,7 +318,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
         marked(c, own, mark("question", job.stage_event_id ?? "")),
       );
       if (!asked) throw new Error("Hive has not posted the question on the issue yet; answer again in a moment.");
-      // The request is claimed in the row first, so one submitted twice (to two panel processes, say) posts once; a failed post gives the claim back.
+      // The request is noted in the row first. A claim already held proves nothing was posted (its holder may have died before the POST, or failed it), so the marker check below still decides; only the holder gives the claim back on a failed post.
       const key = `${job.stage_event_id}:${requestId}`;
       const requests = sql`coalesce(${jobs.source_state}->'answerRequests', '[]'::jsonb)`;
       const held = sql`to_jsonb(${key}::text)`;
@@ -327,14 +327,14 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
         .set({ source_state: sql`jsonb_set(${jobs.source_state}, '{answerRequests}', ${requests} || ${held})` })
         .where(and(eq(jobs.id, job.id), sql`not (${requests} @> ${held})`))
         .returning({ id: jobs.id });
-      if (claimed.length === 0) return;
       try {
         await postOnce(d, job, mark("answer", key), body);
       } catch (error) {
-        await d.db
-          .update(jobs)
-          .set({ source_state: sql`jsonb_set(${jobs.source_state}, '{answerRequests}', ${requests} - ${key}::text)` })
-          .where(eq(jobs.id, job.id));
+        if (claimed.length > 0)
+          await d.db
+            .update(jobs)
+            .set({ source_state: sql`jsonb_set(${jobs.source_state}, '{answerRequests}', ${requests} - ${key}::text)` })
+            .where(eq(jobs.id, job.id));
         throw error;
       }
     },
