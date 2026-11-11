@@ -1,7 +1,21 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { inArray } from "drizzle-orm";
@@ -23,11 +37,14 @@ const put = (path: string, text: string) => {
   mkdirSync(dirname(join(sstack, path)), { recursive: true });
   writeFileSync(join(sstack, path), text);
 };
-const snapshot = (dir: string) =>
-  Object.fromEntries(
-    readdirSync(dir, { recursive: true, encoding: "utf8" })
-      .filter((path) => statSync(join(dir, path)).isFile())
-      .map((path) => [path, readFileSync(join(dir, path), "utf8")]),
+// Regular files only, as {relative path: text}; symlinks are not followed, so a `loop -> .` link cannot recurse.
+const snapshot = (dir: string, at = ""): Record<string, string> =>
+  Object.assign(
+    {},
+    ...readdirSync(join(dir, at), { withFileTypes: true }).map((entry) => {
+      const path = join(at, entry.name);
+      return entry.isDirectory() ? snapshot(dir, path) : entry.isFile() ? { [path]: readFileSync(join(dir, path), "utf8") } : {};
+    }),
   );
 const rows = () => db.select().from(sstackDefaults).where(inArray(sstackDefaults.id, IDS));
 const row = async () => (await rows()).find((r) => r.id === "factory");
@@ -37,8 +54,11 @@ const seed = (id: string, files: Record<string, string>, sha: string) =>
 // A fake doctor: any file containing BAD fails it. It always runs against the directory SSTACK_HOME names.
 let doctorCalls = 0;
 let doctorCwd = "";
+let beforeDoctor: (() => void) | undefined; // runs once, after the runner's writes and before doctor answers
 defaultsDeps.doctor = async (cwd, env) => {
   doctorCalls++;
+  beforeDoctor?.();
+  beforeDoctor = undefined;
   doctorCwd = cwd;
   assert.equal(env.SSTACK_HOME, cwd, "doctor reads the directory it is run in");
   const bad = Object.values(snapshot(cwd)).some((text) => text.includes("BAD"));
@@ -153,6 +173,84 @@ try {
     .where(inArray(sstackDefaults.id, ["factory"]));
   assert.deepEqual((await syncDefaults()).written, ["roles/a.toml"], "a new sha is tried again");
   assert.deepEqual(defaultsStatus(), { sha: "fixed-sha" });
+
+  // 5. A file that cannot be put back does not stop the rest, and the sha still counts as failed.
+  const a = join(sstack, "roles/a.toml");
+  const aBefore = readFileSync(a, "utf8");
+  const stuck = { ...GOOD, "roles/a.toml": "name = 'BAD'\n", "roles/n.toml": "name = 'n'\n" };
+  await db
+    .update(sstackDefaults)
+    .set({ files: stuck, sha: "stuck-sha" })
+    .where(inArray(sstackDefaults.id, ["factory"]));
+  beforeDoctor = () => chmodSync(a, 0o444); // a was written; now it cannot be rewritten
+  const stuckCalls = doctorCalls;
+  try {
+    assert.deepEqual(await syncDefaults(), { failed: "stuck-sha" }, "a failed restore does not throw");
+    assert.equal(existsSync(join(sstack, "roles/n.toml")), false, "the other file was still put back");
+    const error = (defaultsStatus() as { error: string }).error;
+    assert.match(error, /sstack-doctor failed \(exit 1\):\ndoctor: bad role/);
+    assert.match(error, /\(could not restore roles\/a\.toml\)$/);
+    assert.deepEqual((await beat())?.sstackDefaults, { error });
+    assert.deepEqual(await syncDefaults(), { skipped: "failed" });
+    assert.equal(doctorCalls, stuckCalls + 1, "the bad sha is not retried");
+  } finally {
+    chmodSync(a, 0o644);
+    writeFileSync(a, aBefore);
+  }
+
+  // 6. A symlink below ~/.sstack is never written through, by a save or by a tick, and nothing is rewritten for it.
+  const outside = join(root, "outside");
+  mkdirSync(outside);
+  const target = join(outside, "role.toml");
+  writeFileSync(target, "outside\n");
+  const old6 = new Date(1_000_000);
+  utimesSync(target, old6, old6);
+  symlinkSync(target, join(sstack, "roles/link.toml"));
+  symlinkSync(outside, join(sstack, "steps/linked"));
+  const untouched = () => {
+    assert.deepEqual(snapshot(outside), { "role.toml": "outside\n" }, "the outside target is unchanged");
+    assert.equal(statSync(target).mtimeMs, old6.getTime(), "the outside target was not even rewritten");
+  };
+  for (const path of ["roles/link.toml", "steps/linked/step.toml"]) {
+    const before6 = await row();
+    await assert.rejects(saveDefaults({ files: { [path]: "name = 'x'\n" }, by: "me@example.com" }), /is a symlink/);
+    assert.deepEqual(await row(), before6, "the row is unchanged");
+    untouched();
+  }
+  for (const [sha6, path] of [
+    ["link-sha", "roles/link.toml"],
+    ["dir-sha", "steps/linked/step.toml"],
+  ] as const) {
+    await db
+      .update(sstackDefaults)
+      .set({ files: { ...GOOD, "roles/a.toml": "name = 'a6'\n", [path]: "name = 'x'\n" }, sha: sha6 })
+      .where(inArray(sstackDefaults.id, ["factory"]));
+    assert.deepEqual(await syncDefaults(), { failed: sha6 });
+    untouched();
+    assert.equal(readFileSync(a, "utf8"), aBefore, "nothing else was written either");
+    const error = (defaultsStatus() as { error: string }).error;
+    assert.match(error, /is a symlink/);
+    assert.deepEqual((await beat())?.sstackDefaults, { error });
+  }
+  unlinkSync(join(sstack, "roles/link.toml"));
+  unlinkSync(join(sstack, "steps/linked"));
+
+  // 7. An unrelated `loop -> .` link does not stop a valid save.
+  symlinkSync(".", join(sstack, "loop"));
+  assert.deepEqual(await saveDefaults({ files: GOOD, by: "me@example.com" }), { sha });
+  unlinkSync(join(sstack, "loop"));
+
+  // 8. ~/.sstack itself a symlink (dotfiles): a tick writes into the real directory.
+  const real = join(root, "dotfiles-sstack");
+  renameSync(sstack, real);
+  symlinkSync(real, sstack);
+  await db
+    .update(sstackDefaults)
+    .set({ files: { ...GOOD, "roles/a.toml": "name = 'a8'\n" }, sha: "root-sha" })
+    .where(inArray(sstackDefaults.id, ["factory"]));
+  assert.deepEqual(await syncDefaults(), { written: ["roles/a.toml"] });
+  assert.equal(readFileSync(join(real, "roles/a.toml"), "utf8"), "name = 'a8'\n", "written into the real directory");
+  assert.deepEqual(defaultsStatus(), { sha: "root-sha" });
 } finally {
   await db.delete(sstackDefaults).where(inArray(sstackDefaults.id, IDS));
   rmSync(root, { recursive: true, force: true });

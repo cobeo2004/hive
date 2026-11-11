@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { eq } from "drizzle-orm";
 import { db } from "../db/client";
 import { sstackDefaults } from "../db/schema";
@@ -36,6 +36,12 @@ const FACTORY = "factory";
 // WRITABLE of runner/workflow-pr.ts without the `.sstack/` prefix: no segment starts with a dot, so `..` cannot climb out.
 const PATHS = /^(config\.toml|roles\/[\w-][\w.-]*\.toml|steps\/[\w-][\w.-]*\/step\.toml)$/;
 const sstackDir = () => join(defaultsDeps.home, ".sstack");
+/** A symlinked ~/.sstack itself (dotfiles) is fine: writes land in its real directory. Only links below it are refused. */
+const sstackRoot = () =>
+  realpath(sstackDir()).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return sstackDir();
+    throw error;
+  });
 
 type Files = Record<string, string>;
 export type DefaultsStatus = { sha: string } | { error: string };
@@ -62,6 +68,20 @@ const read = (path: string) =>
     if (error.code === "ENOENT") return undefined;
     throw error;
   });
+
+/** Throws when `path`, or any directory between `root` and it, is a symlink; a missing path is fine. */
+async function noLinks(root: string, path: string) {
+  let at = root;
+  for (const part of relative(root, path).split("/")) {
+    at = join(at, part);
+    const stat = await lstat(at).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (!stat) return;
+    if (stat.isSymbolicLink()) throw new Error(`${at} is a symlink; refusing to write through it`);
+  }
+}
 
 const put = async (path: string, text: string) => {
   await mkdir(dirname(path), { recursive: true });
@@ -101,7 +121,10 @@ export async function saveDefaults({ files, by }: { files: Files; by: string }) 
   validate(files);
   const tmp = await mkdtemp(join(defaultsDeps.dir, "hive-defaults-"));
   try {
-    await cp(sstackDir(), tmp, { recursive: true }).catch((error: NodeJS.ErrnoException) => {
+    const root = await sstackRoot();
+    for (const path of Object.keys(files)) await noLinks(root, join(root, path));
+    // Links are copied as links, never followed; noLinks already refused every path a write could go through.
+    await cp(root, tmp, { recursive: true }).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== "ENOENT") throw error;
     });
     for (const [path, text] of Object.entries(files)) await put(join(tmp, path), render(path, text, await read(join(tmp, path))));
@@ -129,20 +152,24 @@ export async function syncDefaults() {
   const sha = row.sha ?? shaOf(row.files);
   if (sha === failedSha) return { skipped: "failed" };
 
-  const root = sstackDir();
-  const before = new Map<string, string | undefined>();
+  const before = new Map<string, string | undefined>(); // files this tick started writing, with their old text
+  let root = sstackDir();
   try {
+    root = await sstackRoot();
     validate(row.files);
     const wanted = new Map<string, string>();
     for (const [path, text] of Object.entries(row.files)) {
       const disk = await read(join(root, path));
       const want = render(path, text, disk);
       if (disk === want) continue;
-      before.set(path, disk);
       wanted.set(path, want);
     }
     if (wanted.size) {
-      for (const [path, text] of wanted) await put(join(root, path), text);
+      for (const path of wanted.keys()) await noLinks(root, join(root, path));
+      for (const [path, text] of wanted) {
+        before.set(path, await read(join(root, path)));
+        await put(join(root, path), text);
+      }
       const { code, output } = await defaultsDeps.doctor(root, { SSTACK_HOME: root });
       if (code !== 0) throw new Error(`sstack-doctor failed (exit ${code}):\n${output}`);
     }
@@ -150,9 +177,17 @@ export async function syncDefaults() {
     status = { sha };
     return { written: [...wanted.keys()] };
   } catch (error) {
-    for (const [path, text] of before) await (text === undefined ? rm(join(root, path), { force: true }) : put(join(root, path), text));
+    // Each file is restored on its own, and the sha is marked failed even when one cannot be, so it is not retried every tick.
+    const stuck: string[] = [];
+    for (const [path, text] of before) {
+      try {
+        await (text === undefined ? rm(join(root, path), { force: true }) : put(join(root, path), text));
+      } catch {
+        stuck.push(path);
+      }
+    }
     failedSha = sha;
-    status = { error: message(error).slice(-2000) };
+    status = { error: (message(error) + (stuck.length ? ` (could not restore ${stuck.join(", ")})` : "")).slice(-2000) };
     return { failed: sha };
   }
 }
