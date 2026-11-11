@@ -115,8 +115,6 @@ async function postOnce(d: GithubDeps, job: Job, marker: string, text: string) {
   });
 }
 
-const ask = (d: GithubDeps, job: Job, eventId: string) =>
-  postOnce(d, job, mark("question", eventId), `**Hive needs an answer**\n\n${job.question ?? job.stage_summary}`);
 const dropLabel = (d: GithubDeps, job: Job, name: string) =>
   soft(d.request(job.writeback.repo, "DELETE", `${issuePath(job)}/labels/${encodeURIComponent(name)}`));
 
@@ -231,7 +229,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
             .join("\n\n"),
         );
         if (stage === "waiting") {
-          await ask(d, job, eventId);
+          await postOnce(d, job, mark("question", eventId), `**Hive needs an answer**\n\n${job.question ?? job.stage_summary}`);
           await d.request(repo, "POST", `${issuePath(job)}/labels`, { labels: [WAITING] });
         } else await dropLabel(d, job, WAITING);
         // Back to unstarted without the label, so the poll does not claim it again in a loop; the label retries it.
@@ -273,8 +271,12 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
     },
     async reply(job, requestId, body) {
       const d = await deps();
-      // The job waits in the database before its question is written back; an answer must not precede its question.
-      if (job.stage_event_id) await ask(d, job, job.stage_event_id);
+      const own = await d.login();
+      // The job waits in the database before its question is written back; the panel's answer must not precede it, and only the runner posts it.
+      const asked = (await listAll(d, job.writeback.repo, `${issuePath(job)}/comments`, commentSchema)).some((c) =>
+        marked(c, own, mark("question", job.stage_event_id ?? "")),
+      );
+      if (!asked) throw new Error("Hive has not posted the question on the issue yet; answer again in a moment.");
       await postOnce(d, job, mark("answer", requestId), body);
     },
     // Stops arrive in a later PR: until then a running job is stopped from the panel.

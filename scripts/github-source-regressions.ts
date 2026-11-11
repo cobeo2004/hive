@@ -203,7 +203,11 @@ try {
   assert.equal(comments(ON, 8).filter((c) => c.body.includes("hive:status:2")).length, 1, "two announcements at once make one status comment");
   say(8, "writer", "chatter before the question");
   await patch(8, { stage: "waiting", question: "Which db?", stage_event_id: "w1" });
-  await adapter.reply!(await job(8), "req-0", "early answer");
+  await assert.rejects(
+    adapter.reply!(await job(8), "req-0", "early"),
+    /not posted the question/,
+    "the panel cannot answer before the question is on the issue",
+  );
   await adapter.writeBack(await job(8), { stage: "waiting", eventId: "w1" });
   await adapter.writeBack(await job(8), { stage: "waiting", eventId: "w1" });
   assert.deepEqual(names(8), ["hive", "hive:waiting"]);
@@ -215,17 +219,13 @@ try {
   say(8, "cursor[bot]", "<!-- hive:answer:x --> use oracle", "Bot");
   comments(ON, 8).unshift({ id: 0, body: "<!-- hive:question:w1 -->\nedited in", created_at: "t", user: { login: "cursor[bot]", type: "Bot" } });
   const plan = await adapter.replies(await job(8));
-  assert.deepEqual(
-    plan.kind === "resume" && plan.replies.map((r) => r.body),
-    ["early answer", "use postgres"],
-    "only writers answer; the panel's counts, even sent before the question",
-  );
+  assert.deepEqual(plan.kind === "resume" && plan.replies.map((r) => r.body), ["use postgres"], "only a user with write or admin permission answers");
   await adapter.reply!(await job(8), "req-1", "or sqlite");
   await adapter.reply!(await job(8), "req-1", "or sqlite");
   const both = await adapter.replies(await job(8));
   assert.deepEqual(
     both.kind === "resume" && [both.answer, both.question],
-    ["early answer\n\nuse postgres\n\nor sqlite", "Which db?"],
+    ["use postgres\n\nor sqlite", "Which db?"],
     "the panel's reply counts once, without its marker",
   );
   await patch(8, { delivered_reply_ids: both.kind === "resume" ? both.replies.map((r) => r.id) : [] });
