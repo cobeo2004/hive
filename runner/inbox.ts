@@ -10,6 +10,7 @@ import { parseJob, sourceFor } from "../lib/sources";
 import type { Job, JobId } from "../lib/sources/types";
 import { canTransition, runnerEventId } from "../lib/stages";
 import { requestedStop } from "../lib/stop";
+import { jobPr } from "./account-usage";
 import { claim, finishStop, IN_FLIGHT, postEvent, threads } from "./ops";
 
 // The inbox's actions on the job's own machine. Requested changes reach the thread once per
@@ -233,6 +234,12 @@ export async function relaunchRateLimited(retry: typeof retryJob = retryJob) {
     // Re-read: the row may have moved (a PR opened, a retry started) since the list was taken.
     const [job] = await db.select().from(jobs).where(eq(jobs.id, listed.id));
     if (!job || job.stage !== "failed" || job.pr_url || !job.stage_summary?.includes(RATE_LIMITED)) continue;
+    // The PR may exist without having been reported; a failed lookup skips this job, never retries it.
+    try {
+      if (await jobPr(job)) continue;
+    } catch {
+      continue;
+    }
     // ponytail: the runner's own login is the last resort; a rate limit there just stays failed (nothing to exclude, no loop).
     const [ran] = await db
       .select({ id: runs.account_id })

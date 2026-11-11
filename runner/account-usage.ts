@@ -5,6 +5,8 @@ import { accountUsage, agentAccounts, runs, type JobRow, type RunRow } from "../
 import { unseal } from "../lib/creds";
 import { codexUsage, readRollouts, ROLLOUT_SLACK_MS, type Limits, type Rollout } from "../lib/codex-usage";
 import { attemptBranch, isMcpSession } from "../lib/factory";
+import type { RepoName } from "../lib/github/app";
+import { github, type BranchPull } from "../lib/github/pulls";
 import type { JobHost } from "../lib/host";
 import { runnerEventId } from "../lib/stages";
 import { transcriptPathFor, transcriptRateLimited } from "../lib/transcript";
@@ -159,4 +161,17 @@ export async function holdAtPr(job: Pick<JobRow, "key" | "external_id" | "attemp
     prUrl,
   });
   return true;
+}
+
+/**
+ * R10a: the one "does this job have a PR?" check behind all three no-fallback paths (watchdog, inferJob, relaunch). The stored
+ * url counts as open; else the attempt branch's PR (`lookup`, so a caller that already started one shares it). A lookup that
+ * throws propagates: the caller skips the job rather than treat "unknown" as "no PR" and relaunch it.
+ */
+export async function jobPr(
+  job: Pick<JobRow, "key" | "attempt" | "repo" | "pr_url">,
+  lookup: () => Promise<BranchPull | null> = () => github.pullRequestForBranch(job.repo as RepoName, attemptBranch(job.key, job.attempt)),
+): Promise<BranchPull | undefined> {
+  if (job.pr_url) return { url: job.pr_url, state: "open" };
+  return (await lookup()) ?? undefined;
 }

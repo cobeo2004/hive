@@ -33,7 +33,7 @@ import { thisMachine } from "./heartbeat";
 import { leaseSlot, teardownSandbox } from "./lifecycle";
 import { confirmStops, stopDelivered } from "./stops";
 import { postEvent } from "./ingest-client";
-import { holdAtPr, rateLimitedRun } from "./account-usage";
+import { holdAtPr, jobPr, rateLimitedRun } from "./account-usage";
 import { recordCodexUsage } from "./codex-usage";
 import { recordSstackLineage } from "./sstack-lineage";
 
@@ -273,10 +273,13 @@ export async function watchdog() {
     const thread = await threads.state(job.t3_thread_id, host);
     // R10a: a run the provider rate-limited fails now, so the retry path moves it to the next account.
     if (thread === "stopped" && (await rateLimitedRun(job, host))) {
-      // No fallback once a PR exists: it stays at pr, since a relaunch could only open a second one.
-      if (job.pr_url) {
-        if (await holdAtPr(job, job.pr_url)) actions.push(`${job.key}:pr`);
-      } else if (await watchdogFail(job, `${RATE_LIMITED} (stage ${job.stage})`, now)) actions.push(`${job.key}:rate-limited`);
+      // No fallback once a PR exists (reported or not): it stays at pr, since a relaunch could only open a second one.
+      // A lookup that fails skips the job this pass; a merged PR is left to the merge handling.
+      const pr = await jobPr(job).catch(() => "unknown" as const);
+      if (pr === "unknown") console.error(`watchdog: PR lookup failed for ${job.key}; skipped`);
+      else if (pr?.state === "open") {
+        if (await holdAtPr(job, pr.url)) actions.push(`${job.key}:pr`);
+      } else if (!pr && (await watchdogFail(job, `${RATE_LIMITED} (stage ${job.stage})`, now))) actions.push(`${job.key}:rate-limited`);
       continue;
     }
     const action = watch(

@@ -594,7 +594,8 @@ try {
   };
   await seed(rl, { t3_thread_id: "mcp:rl", attempt: 1 });
   let text = transcript(say("Tests failed: expected HTTP 429, received 200."));
-  threads.state = async (threadId) => (threadId === "mcp:rl" || threadId === "mcp:hold" ? "stopped" : "running");
+  threads.state = async (threadId) => (["mcp:rl", "mcp:hold", "mcp:unreported"].includes(threadId ?? "") ? "stopped" : "running");
+  github.pullRequestForBranch = async () => null; // the watchdog looks for the branch's PR before it fails a rate-limited job
   rateLimitRuntime.signal = async () => transcriptRateLimited(text);
   await watchdog();
   assert.equal((await db.select().from(jobs).where(eq(jobs.key, rl)))[0]!.stage, "implementing", "a stopped thread with no provider signal is not failed");
@@ -652,7 +653,23 @@ try {
   const held = (await db.select().from(jobs).where(eq(jobs.key, hold)))[0]!;
   assert.deepEqual([held.stage, /rate limit/.test(held.stage_summary ?? "")], ["pr", true], "a tracked rate-limited job with a PR stays at pr, never failed");
   assert.equal(posted.filter((e) => e.jobKey === hold && e.stage === "pr").length, 1, "its note is posted once");
+  // The tracked job opened its PR but hit the limit before reporting it: no stored url, an open PR on its branch.
+  const unreported = `${id}-unreported`;
+  await seed(unreported, { t3_thread_id: "mcp:unreported" });
+  github.pullRequestForBranch = async () => ({ url: openPr, state: "open" });
+  for (let pass = 0; pass < 2; pass++) await watchdog();
+  const kept = (await db.select().from(jobs).where(eq(jobs.key, unreported)))[0]!;
+  assert.deepEqual(
+    [kept.stage, kept.pr_url, /rate limit/.test(kept.stage_summary ?? "")],
+    ["pr", openPr, true],
+    "a tracked rate-limited job whose PR was never reported stays at pr",
+  );
+  assert.equal(posted.filter((e) => e.jobKey === unreported && e.stage === "pr").length, 1, "its note is posted once across two passes");
+  const kicked: string[] = [];
+  await relaunchRateLimited((async (jid: string) => (kicked.push(jid), {})) as never);
+  assert.ok(!kicked.includes(jobId("linear", unreported)), "and is never relaunched");
   // R10a: a failed, rate-limited attempt that already has a PR is never relaunched; the same job without one is, once.
+  github.pullRequestForBranch = async () => null;
   const [withPr, noPr] = [`${id}-relaunch-pr`, `${id}-relaunch-nopr`];
   await seed(withPr, { stage: "failed", stage_summary: RATE_LIMITED, attempt: 1, pr_url: openPr });
   await seed(noPr, { stage: "failed", stage_summary: RATE_LIMITED, attempt: 1 });
@@ -664,6 +681,22 @@ try {
     "only the job with no PR is retried, once",
   );
   assert.ok(!result.some((r) => r.key === withPr) && result.some((r) => r.key === noPr), "the result has no entry for the job with a PR");
+  // A failed marker job with no stored url whose branch has an open PR is not retried, and a failing lookup skips it.
+  const [branchPr, lookupFails] = [`${id}-relaunch-branch-pr`, `${id}-relaunch-lookup-fails`];
+  await seed(branchPr, { stage: "failed", stage_summary: RATE_LIMITED, attempt: 1 });
+  await seed(lookupFails, { stage: "failed", stage_summary: RATE_LIMITED, attempt: 1 });
+  github.pullRequestForBranch = async (_repo, branch) => {
+    if (branch.includes("lookup-fails")) throw new Error("GitHub is down");
+    return branch.includes("branch-pr") ? { url: openPr, state: "open" } : null;
+  };
+  relaunched.length = 0;
+  await relaunchRateLimited((async (jid: string) => (relaunched.push(jid), {})) as never);
+  assert.ok(
+    relaunched.includes(jobId("linear", noPr)),
+    "a job with no PR anywhere is still retried (and a failing lookup on another job does not stop the pass)",
+  );
+  assert.ok(!relaunched.includes(jobId("linear", branchPr)), "an unreported open branch PR blocks the retry");
+  assert.ok(!relaunched.includes(jobId("linear", lookupFails)), "a lookup that throws skips the job instead of retrying it");
   const lead = { provider: "claudeAgent", model: "claude-opus-5-5" };
   assert.deepEqual(sandboxHarness(lead, "claudeAgent", true, limits.codexModel), { choice: lead }, "1.5: a pool Claude account keeps the Claude harness");
   console.log("launch regressions passed");

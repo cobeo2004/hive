@@ -10,7 +10,7 @@ import { hosts, isHibernated } from "../lib/host";
 import { parseJobs } from "../lib/sources";
 import type { Job } from "../lib/sources/types";
 import { causeOf, runnerEventId } from "../lib/stages";
-import { holdAtPr, rateLimitedRun } from "./account-usage";
+import { holdAtPr, jobPr, rateLimitedRun } from "./account-usage";
 import { bindingOf } from "./binding";
 import { thisMachine } from "./heartbeat";
 import { config, harnessDrivers, IN_FLIGHT, jobTracked, postEvent, postMerged, threads, watchdogFail } from "./ops";
@@ -65,10 +65,9 @@ async function inferJob(job: Job, now: number): Promise<string | undefined> {
   // stopped thread (this pass runs before the watchdog). A gone thread is the watchdog's to fail.
   const thread = await threads.read(job.t3_thread_id, hosts.forJob(job));
   if (thread.state === "stopped" && (await rateLimitedRun(job, hosts.forJob(job)))) {
-    const found = job.pr_url ? null : await prOnBranch();
-    const url = job.pr_url ?? (found?.state === "open" ? found.url : undefined);
-    if (url) return (await holdAtPr(job, url)) ? "pr" : undefined;
-    if (found?.state !== "merged") return quiet && (await watchdogFail(job, `${RATE_LIMITED} (stage ${job.stage})`)) ? "failed" : undefined;
+    const had = await jobPr(job, prOnBranch);
+    if (had?.state === "open") return (await holdAtPr(job, had.url)) ? "pr" : undefined;
+    if (!had) return quiet && (await watchdogFail(job, `${RATE_LIMITED} (stage ${job.stage})`)) ? "failed" : undefined;
   }
   if (!job.pr_url && (quiet || !reported)) {
     const pr = await prOnBranch();
