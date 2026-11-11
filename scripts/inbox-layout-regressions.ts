@@ -28,8 +28,8 @@ for (const [i, blocks] of lists.entries()) {
   for (const block of blocks) assert.equal(typeof BLOCK_LABEL[block], "string", `${block} has a canvas label`);
 }
 assert.equal(new Set(lists.map((blocks) => blocks.join(","))).size, KINDS.length, "each fixture kind renders its own block");
-assert.deepEqual(inboxBlocks("question"), ["asked"]);
-assert.deepEqual(inboxBlocks("plan_approval"), ["plan"]);
+assert.deepEqual(inboxBlocks("question"), ["asked", "evidence", "reading"], "a question keeps a saved assessment and media");
+assert.deepEqual(inboxBlocks("plan_approval"), ["plan", "evidence", "reading"], "a plan keeps a saved assessment and media");
 assert.deepEqual(
   inboxBlocks("handover").filter((block) => block === "evidence" || block === "changes"),
   ["changes", "evidence"],

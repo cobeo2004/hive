@@ -23,9 +23,9 @@ export const BLOCK_LABEL: Record<Block, string> = {
 export function inboxBlocks(kind: InboxKind): readonly Block[] {
   switch (kind) {
     case "question":
-      return ["asked"];
+      return ["asked", "evidence", "reading"];
     case "plan_approval":
-      return ["plan"];
+      return ["plan", "evidence", "reading"];
     case "handover":
       return ["why", "reading", "changes", "evidence"];
     case "failed":
