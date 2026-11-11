@@ -78,7 +78,7 @@ const request = async (repo: string, method: string, path: string, input?: unkno
 };
 let on = true;
 const adapter = createGithubAdapter(
-  async () => ({ db, request, label: async () => "hive" }),
+  async () => ({ db, request, label: async () => "hive", login: async () => HIVE.login }),
   () => on,
 );
 const HIVE = { login: "hive[bot]", type: "Bot" };
