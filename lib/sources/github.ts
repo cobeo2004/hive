@@ -384,13 +384,12 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
     },
     // R12: a closed issue or a removed Hive label takes the job away; a missed webhook is caught by the poll.
     async stopWanted(open) {
-      if (Date.now() < pausedUntil) return [];
       const d = await deps();
       const label = await d.label();
       const wanted: { job: Job; reason: string }[] = [];
       let failure: unknown;
       let read = 0;
-      // A few issues at a time, each on its own: a job whose read fails stays undecided, the rest are still judged.
+      // A few issues at a time, each on its own: a job whose read fails stays undecided, the rest are still judged. A rate limit (here or in the poll) rests the reads.
       for (let i = 0; i < open.length && Date.now() >= pausedUntil; i += STOP_READS) {
         for (const r of await Promise.allSettled(open.slice(i, i + STOP_READS).map((job) => stopOf(d, label, job)))) {
           if (r.status === "fulfilled") {
