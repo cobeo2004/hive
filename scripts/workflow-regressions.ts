@@ -10,6 +10,7 @@ const { patch } = await import("../lib/toml-patch");
 const { parseBranch } = await import("../lib/factory");
 const { mayCreate, runWorkflowPr, runWorkflowSmoke, workflowDeps } = await import("../runner/workflow-pr");
 const { readToml, steps, chain, move, diffLines, meta, tomlError } = await import("../lib/workflow-chain");
+const { changeLines, applyEdits, upsert, stepFile, roleFile, CONFIG: CFG, stepValues, roleValues, fileGate } = await import("../lib/workflow-edits");
 
 const REPO = "acme/sstack";
 const ROLE = ".sstack/roles/implement.toml";
@@ -225,6 +226,28 @@ try {
   assert.match(tomlError(bad) ?? "", /^\.sstack\/steps\/review\/step\.toml: /);
   assert.deepEqual(chain(steps(bad)), six);
   assert.equal(meta(bad, s.plan).planGate, "Auto");
+
+  // step panel edits: each edit shows as the line patch writes, raw text wins, defaults fill the fields
+  const harness = { path: roleFile("implement"), section: "", key: "harness", value: "codex" };
+  assert.deepEqual(changeLines([harness], {}), ['roles/implement.toml: harness = "codex"']);
+  const auto = { path: CFG, section: "unattended", key: "plan_gate", value: "auto" };
+  assert.deepEqual(upsert([], auto, fileGate({ [CFG]: config })), [auto], "Auto on a repo that sets no plan_gate still writes it");
+  assert.deepEqual(upsert([], auto, fileGate({ [CFG]: '[unattended]\nplan_gate = "auto"\n' })), [], "re-picking the file's own value is no edit");
+  assert.deepEqual(changeLines([auto], {}), ['config.toml: [unattended] plan_gate = "auto"']);
+  const gateText = applyEdits({ [CFG]: config }, [auto], {}, patch)[CFG];
+  assert.equal(gateText, `${config}\n[unattended]\nplan_gate = "auto"\n`);
+  assert.equal(meta({ [CFG]: gateText }, s.plan).planGate, "Auto");
+  const off = { path: stepFile("review"), section: "", key: "enabled", value: false };
+  assert.deepEqual(applyEdits({}, [off], {}, patch), { [STEP]: "enabled = false\n" });
+  assert.deepEqual(upsert(upsert([], harness, "claude"), { ...harness, value: "claude" }, "claude"), [], "back to the original drops the edit");
+  const text = "harness = 'x'\n";
+  assert.deepEqual(changeLines([harness], { [ROLE]: text }), ["roles/implement.toml: edited as text"]);
+  assert.deepEqual(applyEdits({ [ROLE]: implement }, [harness], { [ROLE]: text }, patch), { [ROLE]: text });
+  assert.deepEqual(stepValues({}, s.review), { max_agents: 2, min_score: 5 });
+  assert.deepEqual(stepValues({ [STEP]: "max_agents = 4\n" }, s.review), { max_agents: 4, min_score: 5 });
+  const rv = roleValues({}, "implement");
+  assert.deepEqual([rv.harness, rv.effort], ["pi", "high"]);
+  assert.deepEqual(roleValues({ [ROLE]: '[hint.ui]\nharness = "codex"\nmodel = "gpt"\n' }, "implement").hints, { ui: { harness: "codex", model: "gpt" } });
 
   console.log("workflow regressions passed");
 } catch (error) {
