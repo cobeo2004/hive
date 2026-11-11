@@ -94,6 +94,16 @@ export function pickAccount(
 /** The failure summary the watchdog writes for a rate-limited run; accountFor and the relaunch read it back. */
 export const RATE_LIMITED = "the provider rate-limited its account";
 
+/** The failure reason for a rate-limited attempt; names its open PR so the retry continues it. */
+export const rateLimitedReason = (stage: string, pr?: { url: string; branch: string }) =>
+  `${RATE_LIMITED} (stage ${stage})${pr ? `. PR ${pr.url} is still open on ${pr.branch}` : ""}`;
+
+/** The open PR a rateLimitedReason named, read back from a failure summary. */
+export const openPrOf = (failure: string | null) => {
+  const match = failure?.includes(RATE_LIMITED) ? failure.match(/\. PR (\S+) is still open on (\S+?)\.(?:\s|$)/) : null;
+  return match ? { url: match[1]!, branch: match[2]! } : undefined;
+};
+
 /** An unsealed account; id null is the runner's own default login. */
 export type Account = { id: string | null; secret: string };
 

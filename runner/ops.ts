@@ -16,7 +16,7 @@ import { ownerNoteSection } from "../lib/inbox";
 import { attemptBranchSql } from "../lib/branch-sql";
 import { nudgeMessage, watch } from "../lib/watchdog";
 import { factoryPlaybook, jobExecution } from "../lib/playbook";
-import { RATE_LIMITED } from "../lib/creds";
+import { openPrOf, RATE_LIMITED } from "../lib/creds";
 import { isTracked } from "../lib/harness";
 import { readHarnesses } from "../lib/t3-state";
 import { readSettings, resolveExecution, resolveHarness, type HarnessChoice } from "../lib/settings";
@@ -638,6 +638,7 @@ export async function announceClaims() {
 
 export function launchMessage(job: Job) {
   const ownerNote = ownerNoteSection(job);
+  const open = openPrOf(job.previous_failure);
   return [
     `Work ${sourceFor(job.source).describe(job)}: ${job.title}`,
     job.url,
@@ -648,7 +649,12 @@ export function launchMessage(job: Job) {
     "",
     job.description?.trim() || "(The issue has no description.)",
     ...(job.previous_failure
-      ? ["", `This is attempt ${job.attempt}. The previous attempt failed: ${job.previous_failure} Start fresh from main on this branch.`]
+      ? [
+          "",
+          open
+            ? `This is attempt ${job.attempt}. The previous attempt was stopped by an account rate limit, not a failure of the work: ${job.previous_failure} Run \`git fetch origin ${open.branch}\`, check that branch out and continue the work there, push to it, open NO second PR, and report ${open.url} with report_stage.`
+            : `This is attempt ${job.attempt}. The previous attempt failed: ${job.previous_failure} Start fresh from main on this branch.`,
+        ]
       : []),
     ...(ownerNote ? ["", ownerNote] : []),
     ...(job.resume_context

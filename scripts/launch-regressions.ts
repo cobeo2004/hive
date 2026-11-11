@@ -7,8 +7,10 @@ import type { LaunchPlan } from "../runner/overrides";
 
 const { db } = await import("../db/client");
 const { agentAccounts, jobs, repoSstackConfig, runs: runRows } = await import("../db/schema");
-const { bindThread, claimLaunch, config, deliverStops, pendingLaunches, reconcileStops, releaseLaunch, threads, watchdog } = await import("../runner/ops");
-const { newKeyPair, RATE_LIMITED, seal } = await import("../lib/creds");
+const { bindThread, claimLaunch, config, deliverStops, launchMessage, pendingLaunches, reconcileStops, releaseLaunch, threads, watchdog } = await import(
+  "../runner/ops"
+);
+const { newKeyPair, RATE_LIMITED, rateLimitedReason, seal } = await import("../lib/creds");
 const { rateLimitRuntime } = await import("../runner/account-usage");
 const { transcriptRateLimited } = await import("../lib/transcript");
 const { parseRollout } = await import("../lib/codex-usage");
@@ -20,7 +22,7 @@ const { eventSchema } = await import("../lib/events");
 const { github } = await import("../lib/github/pulls");
 const { pinnedVersions } = await import("../lib/sandbox");
 const { sandboxHarness, sandboxRuntime } = await import("../runner/sandbox");
-const { jobId, sourceFor } = await import("../lib/sources");
+const { jobId, parseJob, sourceFor } = await import("../lib/sources");
 const { linearJob } = await import("./fixtures");
 const { createLinearAdapter } = await import("../lib/sources/linear");
 const { factorySchema, TEST_MACHINE_ID } = await import("../lib/config");
@@ -605,19 +607,27 @@ try {
   // The failure row is written before the event posts, which a regression cannot do.
   await assert.rejects(watchdog(), /deployed ingest function/);
 
-  // 1.3 on an untracked harness: inference runs before the watchdog, so it reads the signal before finalising a stopped thread, whatever status T3 settled on.
-  github.pullRequestForBranch = async () => null;
+  // 1.3 on an untracked harness: inference runs before the watchdog and reads the signal before finalising a stopped thread, whatever status T3 settled on or PR it opened.
+  const openPr = "https://github.com/ski043/factory-demo/pull/1";
+  let hasPr = false;
+  github.pullRequestForBranch = async () => (hasPr ? { url: openPr, state: "open" } : null);
   const post = ingestClient.post;
-  ingestClient.post = async (event) => ingest(db, [eventSchema.parse(event)]); // the waiting post goes through the real projection
+  const posted: { jobKey?: string; stage?: string }[] = [];
+  ingestClient.post = async (event) => (posted.push(event), ingest(db, [eventSchema.parse(event)])); // the waiting post goes through the real projection
   const rows = [
-    { status: "failed", signal: false, stage: "failed" },
-    { status: "failed", signal: true, stage: "failed" },
-    { status: "completed", signal: true, stage: "failed" },
-    { status: "interrupted", signal: true, stage: "failed" },
-    { status: "completed", signal: false, stage: "waiting" },
+    { status: "failed", signal: false, stage: "failed", pr: false },
+    { status: "failed", signal: true, stage: "failed", pr: false },
+    { status: "completed", signal: true, stage: "failed", pr: false },
+    { status: "interrupted", signal: true, stage: "failed", pr: false },
+    { status: "completed", signal: false, stage: "waiting", pr: false },
+    ...["failed", "completed", "interrupted"].flatMap((status) => [
+      { status, signal: true, stage: "failed", pr: true },
+      { status, signal: false, stage: "pr", pr: true },
+    ]),
   ];
-  for (const { status, signal, stage } of rows) {
-    const cx = `${id}-cx-${status}-${signal}`;
+  for (const { status, signal, stage, pr } of rows) {
+    hasPr = pr;
+    const cx = `${id}-cx-${status}-${signal}${pr ? "-pr" : ""}`;
     threads.read = async () => ({ state: "stopped", status, lastMessage: null });
     await db
       .insert(jobs)
@@ -632,6 +642,12 @@ try {
     const summary = row.stage_summary ?? "";
     assert.equal(row.stage, stage, `${status}/${signal}: ${summary}`);
     assert.equal(summary.includes(RATE_LIMITED), signal, summary);
+    if (signal && pr) assert.ok(summary.includes(openPr), `${summary}: the failure names the open PR so the retry continues it`);
+    assert.equal(
+      posted.some((e) => e.jobKey === cx && e.stage === "pr"),
+      stage === "pr",
+      `${status}/${signal}: a rate-limited attempt is never posted as pr`,
+    );
     if (stage === "failed") assert.ok(summary.includes(signal ? RATE_LIMITED : "its T3 thread failed"), summary);
     assert.equal(
       retried.filter((j) => j === jobId("linear", cx)).length,
@@ -640,6 +656,16 @@ try {
     );
   }
   ingestClient.post = post;
+
+  // The retry continues the open PR on its branch; with no PR, or any other failure, it starts fresh.
+  const base = parseJob((await db.select().from(jobs).where(eq(jobs.key, rl)))[0]!);
+  const withFailure = (previous_failure: string) => launchMessage({ ...base, previous_failure });
+  const branch = `hive/${rl}`;
+  const continued = withFailure(`${rateLimitedReason("implementing", { url: openPr, branch })}.`);
+  assert.ok(continued.includes(openPr) && continued.includes(`git fetch origin ${branch}`) && continued.includes("open NO second PR"), continued);
+  assert.ok(!continued.includes("Start fresh from main"), continued);
+  for (const plain of [`Watchdog stopped this run: ${rateLimitedReason("implementing")}.`, "its T3 thread failed (stage implementing)."])
+    assert.ok(withFailure(plain).includes("Start fresh from main on this branch."), plain);
 
   // 1.4: with the pool at its threshold the job stays queued with no thread, and the summary is written once.
   const waiting = `${id}-wait`;
