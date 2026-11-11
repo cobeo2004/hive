@@ -11,12 +11,14 @@ import { builtVersions, imageProblem, REPO_DIR } from "../lib/sandbox";
 import { baseImageBuild } from "./base-image";
 import { modalSecretName, parseDetail, repoImage } from "../lib/onboarding";
 import { RECIPE_PATH, UNMERGED_RECIPE_PATH, type Recipe } from "../lib/recipe";
+import { startUnattended, type GateLog } from "./unattended";
 import { listThreads, showThread, startThread as t3Start } from "../lib/t3-client";
 import { PENDING } from "./binding";
 import { thisMachine } from "./heartbeat";
 import type { JobSource } from "../lib/sources/types";
 import { isMobileSnapshot, type Execution } from "../lib/execution";
-import type { HarnessChoice } from "../lib/settings";
+import { launchEnv } from "../lib/plan-gate";
+import { resolvePolicy, type HarnessChoice } from "../lib/settings";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { jobs as jobsTable, repoSstackConfig, type RepoSettingsRow } from "../db/schema";
@@ -71,8 +73,8 @@ export async function startThread(host: JobHost, repo: string, branch: string, t
 }
 
 /** T3 prepares the worktree after start returns; wait for it and confirm it sits on fresh origin/main. */
-async function worktreeHead(threadId: string, host: JobHost) {
-  for (let i = 0; i < 30; i++) {
+async function worktreeHead(threadId: string, host: JobHost, tries = 30) {
+  for (let i = 0; i < tries; i++) {
     const { thread } = z.object({ thread: z.object({ worktreePath: z.string().nullable() }) }).parse(await showThread(host, threadId, { timeoutMs: 60_000 }));
     if (thread.worktreePath) {
       try {
@@ -84,6 +86,40 @@ async function worktreeHead(threadId: string, host: JobHost) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
   return undefined;
+}
+
+/**
+ * Starts one lead thread with the plan gate its owner and repo call for: the one place that works the gate
+ * out and writes it, for both start sites. sstack reads it from the checkout's local layer.
+ */
+export async function startLead(
+  host: JobHost,
+  checkout: string,
+  entry: LaunchEntry,
+  message: string,
+  harness: HarnessChoice,
+  registry: Registry,
+  onError?: GateLog,
+  waitMs = 15_000,
+) {
+  const { SSTACK_PLAN_GATE } = await launchEnv(entry.owner, entry.repo, resolvePolicy(registry, entry.repo).autonomy);
+  return startUnattended(
+    host,
+    checkout,
+    SSTACK_PLAN_GATE,
+    () => startThread(host, checkout, entry.branch, entry.threadTitle, message, harness),
+    // A worktree T3 never names keeps the seed, which still holds this job's gate.
+    (threadId) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const lookup = worktreeHead(threadId, host)
+        .then((tree) => tree?.path)
+        .catch(() => undefined);
+      const deadline = new Promise<void>((resolve) => (timer = setTimeout(resolve, waitMs)));
+      return Promise.race([lookup, deadline.then(() => undefined)]).finally(() => clearTimeout(timer));
+    },
+    maybeStarted,
+    onError,
+  );
 }
 
 const PENDING_STALE_MS = 120_000;
@@ -178,6 +214,8 @@ export type LaunchEntry = {
   /** The harness this job's plan chose; a sandbox may still map it to one it has. */
   harness: HarnessChoice;
   ticket: TicketRecord | null;
+  /** The job's owner (jobs.owner_id); none means no plan opt-in (Q2). */
+  owner?: string | null;
 };
 
 /** Runs once a launch holds the job, before its thread starts. */
@@ -298,7 +336,7 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
         // The claim routed the job already; a Repository label that could not apply is told like any other fallback.
         const routed = routeRepo(asked, registry).problem;
         const ticket = routed ? { ...plan.ticket, notes: [routed, ...(plan.ticket?.notes ?? [])] } : plan.ticket;
-        planned.push({ ...entry, harness: plan.harness, ticket, execution: plan.execution });
+        planned.push({ ...entry, owner: job.owner_id, harness: plan.harness, ticket, execution: plan.execution });
         break;
       }
       case "wait":
@@ -319,7 +357,7 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
   const { local, modal } = splitByExecution(planned);
   return [
     ...recovered,
-    ...(local.length > 0 ? await launchLocal(local, checkouts, slot, claimed, onWorktree) : []),
+    ...(local.length > 0 ? await launchLocal(local, checkouts, slot, claimed, registry, onWorktree) : []),
     ...(modal.length > 0 ? await launchInSandboxes(modal, slot, claimed, registry) : []),
   ];
 }
@@ -330,6 +368,7 @@ async function launchLocal(
   checkouts: ReadonlyMap<string, string>,
   slot: LaunchSlot,
   claimed: Claimed,
+  registry: Registry,
   onWorktree: (check: Record<string, unknown>) => void,
 ) {
   const byKey = new Map(pending.map((entry) => [entry.key, entry]));
@@ -351,13 +390,13 @@ async function launchLocal(
       const host = hosts.forJob(entry);
       const checkout = checkouts.get(entry.repo)!;
       const message = await withPlaybook(await withLocalImages(entry.source, entry.key, entry.message), "local", host, checkout);
-      return startThread(host, checkout, entry.branch, entry.threadTitle, message, entry.harness);
+      return startLead(host, checkout, entry, message, entry.harness, registry, (event, detail) => overrideRuntime.log(event, detail));
     },
     bind: bindThread,
     release: releaseLaunch,
     now: Date.now,
   });
-  // Diagnostic only and up to 30 s per thread, so it runs off the runner's queue.
+  // Diagnostic only: startLead already waited, so this repeats the lookup on its own 30 tries, unawaited.
   for (const result of launched) {
     if (typeof result.threadId !== "string") continue;
     const entry = pending.find((e) => e.key === result.key)!;
@@ -597,7 +636,7 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
         host,
         REPO_DIR,
       );
-      const threadId = await startThread(host, REPO_DIR, entry.branch, entry.threadTitle, message, ran);
+      const threadId = await startLead(host, REPO_DIR, entry, message, ran, registry, (event, detail) => runtime.log(event, detail));
       // The thread is running: a failure to note its account must not undo the launch.
       await recordRunAccount(entry.key, threadId, (needsCodexSlot(ran.provider) ? lease.codex : lease.claude)?.id ?? null).catch((error: unknown) =>
         accountError("sandbox:run-account-failed", entry.key, error),
