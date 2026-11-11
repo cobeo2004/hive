@@ -125,12 +125,14 @@ export const factorySchema = z
 export type FactoryLimits = z.infer<typeof factorySchema>;
 
 const configSchema = z.object({
-  linearApiKey: z.string().min(1),
+  /** Not needed when GitHub Issues is the only source (R14); Linear's own code asks for it with requireLinearKey. */
+  linearApiKey: z.string().min(1).optional(),
   ingestUrl: z.url(),
   secret: z.string().min(1),
   factory: factorySchema,
 });
 export type FactoryConfig = z.infer<typeof configSchema>;
+export const parseConfig = (raw: unknown) => configSchema.parse(raw);
 
 /** Just the limits, for readers that hold no secrets, such as the sandbox image build. */
 export function loadLimits(): FactoryLimits {
@@ -149,5 +151,11 @@ export function loadConfig(): FactoryConfig {
       factory: { machineId: TEST_MACHINE_ID },
     });
   }
-  return configSchema.parse(JSON.parse(readFileSync(/* turbopackIgnore: true */ CONFIG_PATH, "utf8")));
+  return parseConfig(JSON.parse(readFileSync(/* turbopackIgnore: true */ CONFIG_PATH, "utf8")));
+}
+
+/** The Linear API key, or a plain error where Linear is used without one. */
+export function requireLinearKey(config: FactoryConfig): string {
+  if (!config.linearApiKey) throw new Error("linearApiKey is not set in the factory config, so Linear is unavailable");
+  return config.linearApiKey;
 }

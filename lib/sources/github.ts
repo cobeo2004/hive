@@ -10,14 +10,12 @@ import { appCredentials, appJwt, GITHUB_API, GitHubError, githubRequest, install
 import { forbidInTest } from "../test-mode";
 import type { SourceOverrides } from "../ticket-overrides";
 import { ATTACHMENTS_DIR, GITHUB_IMAGE, localizeLinearImages } from "./linear";
+import { jobId } from "./shapes";
 import type { Job as AnyJob, JobDraft, Reply, SourceAdapter } from "./types";
 import { SourceGoneError } from "./types";
 
 type Job = AnyJob<"github">;
 type Db = NodePgDatabase<typeof schema>;
-
-/** The switch. PR B moves it into Settings; until then it is read from the env and is off by default. */
-export const githubIssuesOn = (env: Readonly<Record<string, string | undefined>> = process.env) => env.FACTORY_GITHUB_ISSUES === "on";
 
 const issueSchema = z.object({
   number: z.number().int(),
@@ -135,9 +133,16 @@ const dropLabel = (d: GithubDeps, job: Job, name: string) =>
   soft(d.request(job.writeback.repo, "DELETE", `${issuePath(job)}/labels/${encodeURIComponent(name)}`));
 
 /** R7: only a user with write or admin permission on the repo can answer. */
+const notWriters = new Map<string, number>();
+const NOT_WRITER_MS = 5 * 60_000;
 async function isWriter(d: GithubDeps, repo: string, login: string) {
+  // A "no" is remembered for a few minutes, so a non-writer's issue does not cost a permission call every poll; a promotion is seen after that.
+  const who = `${repo}/${login}`.toLowerCase();
+  if (Date.now() < (notWriters.get(who) ?? 0)) return false;
   const got = soft(d.request(repo, "GET", `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`));
-  return ["admin", "write"].includes(z.object({ permission: z.string() }).safeParse(await got).data?.permission ?? "");
+  const writer = ["admin", "write"].includes(z.object({ permission: z.string() }).safeParse(await got).data?.permission ?? "");
+  if (!writer) notWriters.set(who, Date.now() + NOT_WRITER_MS);
+  return writer;
 }
 
 const eventSchema = z.object({
@@ -173,7 +178,24 @@ const stopReason = (issue: unknown, label: string, merged: boolean) => {
   return got.labels.some((l) => same(l.name, label)) ? undefined : `the ${label} label was removed in GitHub`;
 };
 
-export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>, on: () => boolean = githubIssuesOn): SourceAdapter<"github"> {
+const isClosed = (issue: unknown) => z.object({ state: z.literal("closed") }).safeParse(issue).success;
+/** A merge closes the issue its PR fixes, and that is the job finishing, not a stop. */
+async function mergedClose(d: GithubDeps, repo: string, issue: unknown, prUrl?: string | null) {
+  const pr = prUrl?.match(/\/pull\/(\d+)/)?.[1];
+  return (
+    isClosed(issue) &&
+    !!pr &&
+    z.object({ merged: z.boolean() }).safeParse(await soft(d.request(repo, "GET", `/repos/${repo}/pulls/${pr}`))).data?.merged === true
+  );
+}
+const STOP_READS = 4;
+async function stopOf(d: GithubDeps, label: string, job: Job) {
+  const issue = await soft(d.request(job.writeback.repo, "GET", issuePath(job)));
+  const reason = stopReason(issue, label, await mergedClose(d, job.writeback.repo, issue, job.pr_url));
+  return reason ? { job, reason } : undefined;
+}
+
+export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>, on: () => boolean | Promise<boolean>): SourceAdapter<"github"> {
   let loaded: GithubDeps | undefined;
   const deps = async () => (loaded ??= await load());
   /** Set when GitHub says to slow down: the poll rests until then. */
@@ -217,7 +239,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
   return {
     source: "github",
     async ready() {
-      if (!on() || Date.now() < pausedUntil) return [];
+      if (Date.now() < pausedUntil || !(await on())) return [];
       const d = await deps();
       const label = await d.label();
       const { readRegistry } = await import("../repositories");
@@ -364,28 +386,37 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
     async stopWanted(open) {
       const d = await deps();
       const label = await d.label();
-      const wanted = await Promise.all(
-        open.map(async (job) => {
-          const issue = await soft(d.request(job.writeback.repo, "GET", issuePath(job)));
-          const prNumber = job.pr_url?.match(/\/pull\/(\d+)/)?.[1];
-          const closed = z.object({ state: z.literal("closed") }).safeParse(issue).success;
-          const merged =
-            closed &&
-            !!prNumber &&
-            z.object({ merged: z.boolean() }).safeParse(await soft(d.request(job.writeback.repo, "GET", `/repos/${job.writeback.repo}/pulls/${prNumber}`))).data
-              ?.merged === true;
-          const reason = stopReason(issue, label, merged);
-          return reason ? { job, reason } : undefined;
-        }),
-      );
-      return wanted.filter((w) => !!w);
+      const wanted: { job: Job; reason: string }[] = [];
+      let failure: unknown;
+      let read = 0;
+      // A few issues at a time, each on its own: a job whose read fails stays undecided, the rest are still judged. A rate limit (here or in the poll) rests the reads.
+      for (let i = 0; i < open.length && Date.now() >= pausedUntil; i += STOP_READS) {
+        for (const r of await Promise.allSettled(open.slice(i, i + STOP_READS).map((job) => stopOf(d, label, job)))) {
+          if (r.status === "fulfilled") {
+            read++;
+            if (r.value) wanted.push(r.value);
+          } else {
+            failure ??= r.reason;
+            if (r.reason instanceof GitHubError && r.reason.retryAfterMs) pausedUntil = Date.now() + r.reason.retryAfterMs;
+          }
+        }
+      }
+      if (failure && read === 0) throw failure; // nothing could be read: say so rather than report no stops
+      if (failure) console.error("github: could not read some jobs' issues", failure);
+      return wanted;
     },
     async confirmStop(externalId) {
       const d = await deps();
-      const at = externalId.lastIndexOf("#");
-      const issue = await soft(d.request(externalId.slice(0, at), "GET", `/repos/${externalId.slice(0, at)}/issues/${externalId.slice(at + 1)}`));
+      const repo = externalId.slice(0, externalId.lastIndexOf("#"));
+      const issue = await soft(d.request(repo, "GET", `/repos/${repo}/issues/${externalId.slice(repo.length + 1)}`));
+      const [row] = isClosed(issue)
+        ? await d.db
+            .select({ pr_url: jobs.pr_url })
+            .from(jobs)
+            .where(eq(jobs.id, jobId("github", externalId)))
+        : [];
       // Still open (the label came off): reopen then clears the job's waiting label.
-      return stopReason(issue, await d.label(), false)
+      return stopReason(issue, await d.label(), await mergedClose(d, repo, issue, row?.pr_url))
         ? { stop: true, reopen: z.object({ state: z.literal("open") }).safeParse(issue).success }
         : { stop: false };
     },
@@ -397,6 +428,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
     },
     overrides: (state): SourceOverrides => ({ harness: labelled(state.labels, "harness:"), runsOn: labelled(state.labels, "runs-on:"), repository: [] }),
     async localizeImages(job, text) {
+      if (!text.match(GITHUB_IMAGE)) return text; // no token is minted for a message with nothing to download
       const d = await deps();
       const [row] = await d.db.select({ writeback: jobs.writeback }).from(jobs).where(eq(jobs.key, job.key));
       const repo = z.object({ repo: z.string() }).safeParse(row?.writeback).data?.repo;
@@ -422,4 +454,8 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
   };
 }
 
-export const github = createGithubAdapter(runtimeDeps);
+/** The switch is Settings' choice of sources, with FACTORY_GITHUB_ISSUES=on as an override (lib/job-sources.ts). */
+export const github = createGithubAdapter(runtimeDeps, async () => {
+  const [{ db }, { sourcesOn }] = await Promise.all([import("../../db/client"), import("../job-sources")]);
+  return (await sourcesOn(db)).github;
+});

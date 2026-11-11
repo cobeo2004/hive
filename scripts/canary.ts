@@ -27,7 +27,7 @@ process.chdir(checkout);
 process.loadEnvFile(".env.local");
 const { db } = await import("../db/client");
 const { jobEvidence, jobs, jobMedia } = await import("../db/schema");
-const { loadConfig } = await import("../lib/config");
+const { loadConfig, requireLinearKey } = await import("../lib/config");
 const { parseJob, sourceFor } = await import("../lib/sources");
 const { linearFiler } = await import("../lib/sources/linear");
 const { readRegistry, repoLabel, REPOSITORY_GROUP } = await import("../lib/repositories");
@@ -59,7 +59,7 @@ const target = registry.find((r) => r.repo === repo);
 if (!target?.enabled) await finish(false, `${repo} is not an enabled repository`);
 
 const filed = await linearFiler(
-  config.linearApiKey,
+  requireLinearKey(config),
   config.factory.teamKey,
   config.factory.label,
 )({

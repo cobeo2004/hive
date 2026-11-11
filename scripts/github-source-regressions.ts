@@ -6,10 +6,11 @@ import { join } from "node:path";
 import { eq, inArray, like } from "drizzle-orm";
 
 const { db } = await import("../db/client");
-const { intents, jobs, repoSettings, webhookDeliveries } = await import("../db/schema");
+const { intents, jobs, linearSettings, repoSettings, webhookDeliveries } = await import("../db/schema");
 const { allSources, parseJobs, SOURCES } = await import("../lib/sources");
 const { createGithubAdapter, githubKey } = await import("../lib/sources/github");
 const { ATTACHMENTS_DIR } = await import("../lib/sources/linear");
+const { writeSourceChoice } = await import("../lib/job-sources");
 const { ticketOverrides } = await import("../lib/ticket-overrides");
 const { GitHubError } = await import("../lib/github/app");
 const { githubIssueIntent } = await import("../lib/webhooks");
@@ -33,6 +34,10 @@ let limit = "";
 let failPost = false;
 let gone = 404;
 let prMerged = false;
+let broken: string | Error = "";
+let minted = 0;
+let inflight = 0;
+let peak = 0;
 const emails: Record<string, string> = { writer: "w@x.io", dev: "dev@x.io" };
 const fetched: { url: string; auth: string | null }[] = [];
 const perms: Record<string, string> = { writer: "write", boss: "admin", reader: "read" };
@@ -43,6 +48,12 @@ const request = async (repo: string, method: string, path: string, input?: unkno
   calls.push(`${method} ${repo} ${path}`);
   const body = input as { body?: string; labels?: string[] } | undefined;
   if (down.includes(repo)) throw new Error("installation revoked");
+  if (broken && path.endsWith(`/issues/${String(broken)}`)) throw new Error("read failed");
+  if (method === "GET" && /\/issues\/1\d\d$/.test(path)) {
+    peak = Math.max(peak, ++inflight);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    inflight--;
+  }
   if (failPost && method === "POST") {
     failPost = false;
     throw new Error("boom");
@@ -88,7 +99,7 @@ const adapter = createGithubAdapter(
     request,
     label: async () => "hive",
     login: async () => HIVE.login,
-    token: async () => "inst-tok",
+    token: async () => (minted++, "inst-tok"),
     fetch: async (url, init) => {
       fetched.push({ url: String(url), auth: new Headers(init?.headers).get("authorization") });
       return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } });
@@ -369,13 +380,53 @@ try {
   gh.delete(`${ON}#50`);
   assert.deepEqual(await wanted(), ["the issue was deleted in GitHub"]);
   assert.deepEqual(await adapter.confirmStop(run.external_id, "x"), { stop: true, reopen: false });
+  // M1: each job's issue is read on its own, a few at a time; one that cannot be read stays undecided.
+  const asJobs = (numbers: number[]) => numbers.map((n) => ({ ...run, writeback: { ...run.writeback, number: n } }));
+  for (let n = 100; n < 109; n++) put(ON, n, { labels: [] });
+  const nine = asJobs([100, 101, 102, 103, 104, 105, 106, 107, 108]);
+  assert.equal((await adapter.stopWanted(nine)).length, 9, "every unlabelled issue is a stop");
+  assert.ok(peak > 1 && peak <= 4, `reads run in parallel but capped (peak ${peak})`);
+  broken = "100";
+  assert.deepEqual(
+    (await adapter.stopWanted(asJobs([100, 101]))).map((w) => w.job.writeback.number),
+    [101],
+    "a job whose read fails stays undecided; the other is still judged",
+  );
+  await assert.rejects(adapter.stopWanted(asJobs([100])), /read failed/, "when nothing could be read, that is an error, not 'no stops'");
+  broken = "";
+  // L1: confirmStop looks at the PR too: a merge closes the issue it fixes.
+  await patch(7, { pr_url: `https://github.com/${ON}/pull/9` });
+  gh.get(`${ON}#7`)!.state = "closed";
+  prMerged = true;
+  assert.deepEqual(await adapter.confirmStop(`${ON}#7`, "x"), { stop: false }, "an issue closed by the job's merged PR is not a stop");
+  prMerged = false;
+  assert.deepEqual(await adapter.confirmStop(`${ON}#7`, "x"), { stop: true, reopen: false });
+  gh.get(`${ON}#7`)!.state = "open";
+  // L5: a "not a writer" answer is remembered, so a poll does not ask again.
+  put(ON, 70, { events: [labeled("newbie")] });
+  const asks = () => calls.filter((c) => c.endsWith("/collaborators/newbie/permission")).length;
+  await adapter.ready();
+  await adapter.ready();
+  assert.equal(asks(), 1, "a user who cannot write is asked about once, not every poll");
+  gh.delete(`${ON}#70`);
   // R11: the issue's attachments are downloaded with the installation token, to the hosts GitHub serves them from and no others.
   await rm(join(ATTACHMENTS_DIR, run.key), { recursive: true, force: true }); // a download a failed run left behind would be reused
+  const unchanged = minted;
+  const plain = "nothing to download ![e](https://evil.example/a.png)";
+  assert.equal(await adapter.localizeImages!(run, plain), plain);
+  assert.equal(minted, unchanged, "a message with no GitHub image mints no token");
+  const LOOKALIKES = [
+    "https://github.com.evil.example/user-attachments/assets/aaaa",
+    "https://private-user-images.githubusercontent.com.evil.example/1/2.png",
+    "https://xuser-images.githubusercontent.com/1/2.png",
+  ]
+    .map((url) => `\n![l](${url})`)
+    .join("");
   const shot = "https://github.com/user-attachments/assets/aaaa-1111";
   const tagged = "https://private-user-images.githubusercontent.com/1/2.png?jwt=a.b";
   const pictured = await adapter.localizeImages!(
     run,
-    `![shot](${shot})\n<img width="9" alt="x" src="${tagged}" />\n![e](https://evil.example/a.png)\n![r](https://github.com/o/r/raw/x.png)`,
+    `![shot](${shot})\n<img width="9" alt="x" src="${tagged}" />\n![e](https://evil.example/a.png)\n![r](https://github.com/o/r/raw/x.png)${LOOKALIKES}`,
   );
   assert.deepEqual(
     fetched.map((f) => [f.url, f.auth]),
@@ -387,7 +438,12 @@ try {
   );
   assert.equal(pictured.match(new RegExp(`\\[image: ${join(ATTACHMENTS_DIR, run.key)}/\\w+\\.png\\]`, "g"))?.length, 2, "both forms point at saved files");
   assert.ok(
-    pictured.includes("![e](https://evil.example/a.png)") && pictured.includes("![r](https://github.com/o/r/raw/x.png)") && pictured.includes("## Images"),
+    pictured.includes("![e](https://evil.example/a.png)") &&
+      pictured.includes("![r](https://github.com/o/r/raw/x.png)") &&
+      LOOKALIKES.split("\n")
+        .slice(1)
+        .every((l) => pictured.includes(l)) &&
+      pictured.includes("## Images"),
     "another host's image is left alone",
   );
   await rm(join(ATTACHMENTS_DIR, run.key), { recursive: true, force: true });
@@ -416,8 +472,12 @@ try {
   assert.equal((await post(raw, "gh-src-1", "sha256=00")).status, 401, "a bad signature is refused");
   process.env.FACTORY_GITHUB_ISSUES = "";
   assert.deepEqual(await (await post(raw, "gh-src-0")).json(), { duplicate: false, intent: null }, "switch off: the delivery wakes nothing");
+  await writeSourceChoice(db, "github", "regress");
+  assert.deepEqual(await (await post(raw, "gh-src-0b")).json(), { duplicate: false, intent: "claim" }, "the stored choice turns it on, no env var");
+  await writeSourceChoice(db, "linear", "regress");
+  assert.deepEqual(await (await post(raw, "gh-src-0c")).json(), { duplicate: false, intent: null }, "and Linear alone turns it off");
   process.env.FACTORY_GITHUB_ISSUES = "on";
-  assert.deepEqual(await (await post(raw, "gh-src-1")).json(), { duplicate: false, intent: "claim" });
+  assert.deepEqual(await (await post(raw, "gh-src-1")).json(), { duplicate: false, intent: "claim" }, "the env var is an override");
   const other = (repo: string) => JSON.stringify({ action: "labeled", label: { name: "hive" }, repository: { full_name: repo }, issue: { number: 8 } });
   assert.equal((await (await post(other(OFF), "gh-src-2")).json()).intent, null, "a repo that is disabled wakes nothing");
   assert.equal((await (await post(other("stranger/repo"), "gh-src-3")).json()).intent, null, "nor does one that is not registered");
@@ -462,11 +522,14 @@ try {
   const polled = calls.length;
   assert.deepEqual(await adapter.ready(), [], "after a rate limit the poll rests");
   assert.equal(calls.length, polled, "without calling GitHub");
+  assert.deepEqual(await adapter.stopWanted(asJobs([101])), [], "nor are issues read for stops while it rests");
+  assert.equal(calls.length, polled);
 } catch (error) {
   console.error(error);
   process.exitCode = 1;
 } finally {
   await db.delete(jobs).where(like(jobs.id, "github:%"));
+  await db.delete(linearSettings);
   await db.delete(intents).where(like(intents.id, "github:gh-src-%"));
   await db.delete(webhookDeliveries).where(like(webhookDeliveries.delivery_id, "github:gh-src-%"));
   await db.delete(repoSettings).where(inArray(repoSettings.repo, [ON, OFF, DEFAULT, GONE, CASED]));
