@@ -19,7 +19,7 @@ Every file, git and T3 action for a job goes through `JobHost` (`lib/host.ts`: `
 ## T3 CLI and the environment agents see
 
 - `T3CODE_CLI_PATH` (set by the LaunchAgent) names the `t3` binary, else `t3` on PATH (`lib/host.ts`).
-- **Env passed to `t3 thread start` does not reach the agent.** `startThread` (`lib/t3-client.ts`, called from `runner/launch.ts`) hands `env` only to the CLI process. The agent is spawned by the long-lived T3 server, which started earlier with its own environment. So `SSTACK_UNATTENDED`, `SSTACK_PLAN_GATE` or any other variable set that way never arrives (accepted lesson L174).
+- **Env set on `t3 thread start` does not reach the agent.** `startThread` (`lib/t3-client.ts`, called from `runner/launch.ts`) runs the `t3` CLI through `host.run`; an `env` option there (`ExecOptions.env` in `lib/exec.ts`) would only affect that CLI process. The agent is spawned by the long-lived T3 server, which started earlier with its own environment. So `SSTACK_UNATTENDED`, `SSTACK_PLAN_GATE` or any other variable set that way never arrives (accepted lesson L174).
 - To change how sstack behaves for one job, write **the job worktree's** `.sstack/local/config.toml`. `.sstack/local/` is git-ignored, so nothing leaks into the PR. Hive-wide defaults live in the runner's `~/.sstack/config.toml` (`runner/sstack-defaults.ts`).
 - Sandboxes are different: Modal secrets and the sandbox's own env are real process environment (`runner/sandbox.ts`, `lib/modal-secrets.ts`) and never pass through the runner's logs. Anything the agent needs that is not a sstack setting goes in a Modal secret or the launch message (`runner/ops.ts` builds it).
 - Before assuming any delivery channel, run it: start a thread that prints `env`.

@@ -11,7 +11,7 @@ TEST_DATABASE_URL=postgres://localhost:5432/postgres bun run test:regressions [n
 
 - `scripts/test-branch.ts` creates `hive_test_<time>_<rand>` on that server, migrates it, runs each script against it, and drops it. The role needs CREATEDB. Run one script with its name prefix (`... ingest`).
 - Run the **full** suite in the foreground with output redirected to a log file. A background run hides the failing script's name (L29).
-- CI sets `REGRESSIONS_SKIP=playbook` (`.github/workflows/ci.yml`) until R13 rewrites `playbook-regressions.ts`. Locally, expect only that script to fail. A fresh worktree with no `.env.local` can also fail `proxy-regressions` (L6); neither failure is yours, but say so in the PR.
+- CI sets `REGRESSIONS_SKIP=playbook` (`.github/workflows/ci.yml`) until R13 rewrites `playbook-regressions.ts`. Locally, expect only that script to fail. Any other failure is yours.
 
 ## Guard
 
