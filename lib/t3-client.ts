@@ -33,17 +33,7 @@ export async function startThread(
     title,
     provider,
     model,
-    env,
-  }: {
-    project: string;
-    message: string;
-    worktree: string;
-    branch: string;
-    title: string;
-    provider: string;
-    model: string;
-    env?: Record<string, string>;
-  },
+  }: { project: string; message: string; worktree: string; branch: string; title: string; provider: string; model: string },
 ) {
   const args = [
     "thread",
@@ -62,7 +52,7 @@ export async function startThread(
     model,
     "--json",
   ];
-  return (await host.run(host.t3, args, { input: message, ...CLI, ...(env && { env }) })).stdout;
+  return (await host.run(host.t3, args, { input: message, ...CLI })).stdout;
 }
 
 /** T3 queues a message behind a busy thread's turn; nothing is interrupted. */

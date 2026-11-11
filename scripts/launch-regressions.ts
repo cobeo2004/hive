@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import { eq, like } from "drizzle-orm";
 import type { ExecOptions } from "../lib/exec";
 import type { JobHost } from "../lib/host";
+import type { PlanGate } from "../lib/plan-gate";
 import type { LaunchPlan } from "../runner/overrides";
 
 const { db } = await import("../db/client");
-const { agentAccounts, jobs, linearOptIns, repoSstackConfig, runs: runRows, user } = await import("../db/schema");
+const { agentAccounts, jobs, linearOptIns, repoSettings, repoSstackConfig, runs: runRows, user } = await import("../db/schema");
 const { explicitGate, launchEnv, planGate } = await import("../lib/plan-gate");
 const { bindThread, claimLaunch, config, deliverStops, pendingLaunches, reconcileStops, releaseLaunch, threads, watchdog } = await import("../runner/ops");
 const { newKeyPair, RATE_LIMITED, seal } = await import("../lib/creds");
@@ -28,9 +29,9 @@ const { createLinearAdapter } = await import("../lib/sources/linear");
 const { factorySchema, TEST_MACHINE_ID } = await import("../lib/config");
 const { canReclaim, canReclaimSql, stopDeliverable, stopDeliverableSql } = await import("../runner/binding");
 const { and, sql } = await import("drizzle-orm");
-const { launchEntries, maybeStarted, MaybeStartedError, mobileRepos, parseThreadId, placeMobile, startThread } = await import("../runner/launch");
+const { launchEntries, maybeStarted, MaybeStartedError, mobileRepos, parseThreadId, placeMobile, startLead, startThread } = await import("../runner/launch");
 const { launchInSandboxes } = await import("../runner/launch");
-const { startThread: t3ClientStart } = await import("../lib/t3-client");
+const { LOCAL_CONFIG, startUnattended, unattendedConfig } = await import("../runner/unattended");
 const { isMobileSnapshot } = await import("../lib/execution");
 const { hosts, localHost } = await import("../lib/host");
 const { everyAtMost, serialQueue } = await import("../runner/queue");
@@ -323,21 +324,166 @@ try {
     "the launch runs t3 thread start on the job's host, with the message on stdin and the harness as flags",
   );
   calls.length = 0;
-  const launchEnvVars = { SSTACK_UNATTENDED: "1", SSTACK_PLAN_GATE: "inbox" };
-  await t3ClientStart(fake, {
-    project: "/sandbox/repo",
-    message: "Work FAC-1",
-    worktree: "origin/main",
-    branch: "hive/FAC-1",
-    title: "FAC-1 Title",
-    provider: "codex",
-    model: "gpt-5.5",
-    env: launchEnvVars,
-  });
-  // The deep-equal above narrows `calls` to the no-env call, so read the host's record un-narrowed.
-  const [envCall] = calls as { command: string; args: string[]; options?: ExecOptions }[];
-  assert.deepEqual(envCall?.options?.env, launchEnvVars, "the launch passes SSTACK_UNATTENDED and the plan gate to t3 thread start");
-  calls.length = 0;
+  // The gate reaches the agent as a file, not an environment variable: `t3 thread start` has no env
+  // flag, so a launch writes sstack's git-ignored local layer in the checkout before T3 makes the
+  // worktree, then in the job's own worktree once T3 names it.
+  const SEED_DIR = "/sandbox/repo";
+  const GATE_WT = "/sandbox/wt-gate";
+  const seedPath = `${SEED_DIR}/${LOCAL_CONFIG}`;
+  const worktreePath = `${GATE_WT}/${LOCAL_CONFIG}`;
+  const excludePath = `${SEED_DIR}/.git/info/exclude`;
+
+  /** A host with an in-memory file map that records every write and every call, in order. */
+  function gateFiles({ ignored = true, seed }: { ignored?: boolean; seed?: string } = {}) {
+    const files = new Map<string, string>([[excludePath, "# git excludes\n"], ...(seed === undefined ? [] : ([[seedPath, seed]] as [string, string][]))]);
+    const writes: { path: string; text: string }[] = [];
+    const calls: string[] = [];
+    const host: JobHost = {
+      t3: "/sandbox/t3",
+      run: async (command, args) => {
+        const sub = command === "git" ? (args[0] === "-C" ? args[2] : args[0]) : args[1];
+        if (command !== "git") {
+          calls.push(sub === "start" ? "start" : `t3 ${sub}`);
+          return sub === "start"
+            ? { stdout: '{"threadId":"mcp:gate"}', stderr: "" }
+            : { stdout: JSON.stringify({ thread: { worktreePath: GATE_WT } }), stderr: "" };
+        }
+        calls.push(`git ${sub}`);
+        if (sub === "check-ignore" && !ignored) throw Object.assign(new Error("exit 1"), { code: 1, stdout: "", stderr: "" });
+        return { stdout: args.includes("--git-path") ? ".git/info/exclude\n" : "abc1234\n", stderr: "" };
+      },
+      readFile: async (path) => files.get(path) ?? null,
+      writeFile: async (path, text) => {
+        files.set(path, text);
+        writes.push({ path, text });
+        calls.push(`write ${path}`);
+      },
+      exists: async (path) => files.has(path),
+      list: async () => [],
+      mtimeMs: async () => 0,
+      remove: async (path) => {
+        files.delete(path);
+        calls.push(`remove ${path}`);
+      },
+    };
+    return { host, files, writes, calls };
+  }
+
+  /** What every launch must write, and in what order; a path that skips a write fails here. */
+  function assertGateFileWritten(writes: { path: string; text: string }[], calls: string[], gate: PlanGate) {
+    const seed = calls.indexOf(`write ${seedPath}`);
+    const start = calls.indexOf("start");
+    const worktree = calls.indexOf(`write ${worktreePath}`);
+    assert.ok(seed >= 0, `the gate seed is written: ${calls.join(", ")}`);
+    assert.ok(start > seed, `the seed lands before t3 thread start: ${calls.join(", ")}`);
+    assert.ok(worktree > start, `the job's worktree copy lands after start: ${calls.join(", ")}`);
+    const text = writes.find((w) => w.path === seedPath)?.text;
+    assert.ok(text?.includes(`plan_gate = "${gate}"`), `the checkout's copy states this job's gate: ${text}`);
+    assert.equal(writes.find((w) => w.path === worktreePath)?.text, text, "and the worktree's copy is the same file");
+  }
+
+  assert.equal(unattendedConfig("", "inbox"), '[unattended]\nenabled = true\nplan_gate = "inbox"\n', "an inbox gate is that file, whole");
+  assert.equal(unattendedConfig("", "auto"), '[unattended]\nenabled = true\nplan_gate = "auto"\n', "an auto gate is that file, whole");
+  assert.equal(
+    unattendedConfig('[dispatch]\nvia = "headless"\n# note\n[unattended]\nplan_gate = "auto"\n', "inbox"),
+    '[dispatch]\nvia = "headless"\n# note\n[unattended]\nplan_gate = "inbox"\nenabled = true\n',
+    "an existing local config keeps every other line and key",
+  );
+
+  /** One launch on a fresh fake host: what T3 reports as the worktree, and a start that throws when `fail` is set. */
+  async function startGate({
+    ignored = true,
+    seed,
+    gate = "inbox",
+    worktree = GATE_WT,
+    fail,
+  }: {
+    ignored?: boolean;
+    seed?: string;
+    gate?: PlanGate;
+    worktree?: string;
+    fail?: string;
+  } = {}) {
+    const launch = gateFiles({ ignored, seed });
+    const started = await startUnattended(
+      launch.host,
+      SEED_DIR,
+      gate,
+      () => (fail ? Promise.reject(new Error(fail)) : startThread(launch.host, SEED_DIR, "hive/FAC-1", "FAC-1 Title", "Work FAC-1", harness)),
+      async () => worktree,
+    ).catch((error: unknown) => error as Error);
+    return { ...launch, started };
+  }
+
+  const gated = await startGate();
+  assert.equal(gated.started, "mcp:gate");
+  assertGateFileWritten(gated.writes, gated.calls, "inbox");
+  assert.equal(gated.files.has(seedPath), false, "the seed made for this launch is gone once the worktree has its own copy");
+
+  const existing = '[dispatch]\nvia = "headless"\n# note\n[unattended]\nplan_gate = "auto"\n';
+  const gateMerged = await startGate({ seed: existing });
+  assertGateFileWritten(gateMerged.writes, gateMerged.calls, "inbox");
+  assert.equal(gateMerged.writes[0]?.text, unattendedConfig(existing, "inbox"), "a launch merges into an existing local config rather than overwriting it");
+  assert.equal(gateMerged.files.get(seedPath), existing, "and a pre-existing one comes back byte for byte");
+
+  const gateFailed = await startGate({ seed: existing, gate: "auto", fail: "t3: project not found" });
+  assert.match(String(gateFailed.started), /project not found/, "a start that throws reaches the caller");
+  assert.equal(gateFailed.files.get(seedPath), existing, "and the checkout's own file is back");
+  assert.equal(
+    gateFailed.writes.some((w) => w.path === worktreePath),
+    false,
+    "no worktree copy is written",
+  );
+
+  const gateOrphan = await startGate({ gate: "auto", worktree: "" });
+  assert.equal(gateOrphan.started, "mcp:gate", "a thread T3 started is still the launch's thread");
+  assert.equal(gateOrphan.files.get(seedPath), unattendedConfig("", "auto"), "a worktree T3 never names leaves the seed holding this job's gate");
+
+  const gateUnignored = await startGate({ ignored: false });
+  assert.equal(gateUnignored.files.get(excludePath), "# git excludes\n.sstack/local/\n", "a repo that does not ignore the local layer gets it in info/exclude");
+
+  // MUTATION CHECK: a launch path that skips the write must fail the assertions above.
+  const gateSkipped = gateFiles();
+  await startThread(gateSkipped.host, SEED_DIR, "hive/FAC-1", "FAC-1 Title", "Work FAC-1", harness);
+  assert.throws(() => assertGateFileWritten(gateSkipped.writes, gateSkipped.calls, "inbox"), /the gate seed is written/, "a launch that skips the write fails");
+  {
+    // The owner's opt-in, end to end through the launch path: inbox wins over the repo's "auto".
+    const optedUser = `gate-opt-${Date.now()}`;
+    const optedRepo = `${optedUser}/repo`;
+    try {
+      await db.insert(user).values({ id: optedUser, name: optedUser, email: `${optedUser}@example.com` });
+      await db.insert(linearOptIns).values({ user_id: optedUser, plan_approval: true, updated_at: new Date() });
+      await db.insert(repoSstackConfig).values({
+        repo: optedRepo,
+        files: { ".sstack/config.toml": '[unattended]\nplan_gate = "auto"\n' },
+        sha: "test",
+        read_at: new Date(),
+      });
+      await db.insert(repoSettings).values({ repo: optedRepo, autonomy: "auto", updated_at: new Date(), updated_by: optedUser });
+      const [policy] = await db.select().from(repoSettings).where(eq(repoSettings.repo, optedRepo));
+      const launch = gateFiles();
+      const entry = {
+        key: "gate-opt",
+        sandbox_id: null,
+        attempt: 1,
+        source: "linear" as const,
+        repo: optedRepo,
+        branch: "hive/gate-opt",
+        threadTitle: "GATE-1",
+        message: "m",
+        harness,
+        ticket: null,
+        owner: optedUser,
+      };
+      assert.equal(await startLead(launch.host, SEED_DIR, entry, "Work GATE-1", harness, [policy!]), "mcp:gate");
+      assertGateFileWritten(launch.writes, launch.calls, "inbox");
+    } finally {
+      await db.delete(repoSettings).where(eq(repoSettings.repo, optedRepo));
+      await db.delete(linearOptIns).where(eq(linearOptIns.user_id, optedUser));
+      await db.delete(user).where(eq(user.id, optedUser));
+      await db.delete(repoSstackConfig).where(eq(repoSstackConfig.repo, optedRepo));
+    }
+  }
   assert.equal(await realThreads.state("mcp:fake", fake), "stopped", "an idle thread whose worktree the host has is stopped");
   assert.deepEqual(calls, [{ command: "/sandbox/t3", args: ["thread", "show", "mcp:fake", "--json"], options: { timeoutMs: 20_000 } }]);
   shown = { ...shown, activeRunId: "run-1" };

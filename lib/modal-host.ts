@@ -201,16 +201,12 @@ function execError(message: string, fields: Partial<ExecError>): ExecError {
  * timeout. A sandbox that no longer exists rejects with HostGoneError.
  */
 export function modalHost(sandboxId: string): JobHost {
-  async function run(command: string, args: string[], { input, cwd, timeoutMs, env }: ExecOptions = {}) {
+  async function run(command: string, args: string[], { input, cwd, timeoutMs }: ExecOptions = {}) {
     const started = Date.now();
     let proc: SandboxProcess;
     try {
       const sandbox = await handle(sandboxId);
-      proc = await sandbox.exec([command, ...args], {
-        ...(cwd !== undefined && { workdir: cwd }),
-        ...(timeoutMs !== undefined && { timeoutMs }),
-        ...(env !== undefined && { env }),
-      });
+      proc = await sandbox.exec([command, ...args], { ...(cwd !== undefined && { workdir: cwd }), ...(timeoutMs !== undefined && { timeoutMs }) });
     } catch (error) {
       throw gone(sandboxId, error);
     }
