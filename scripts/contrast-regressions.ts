@@ -30,9 +30,8 @@ const layerName = (rule: Rule) => (rule.type === "layer-block" ? rule.value.name
 const ROOT: Selector = [{ type: "pseudo-class", kind: "root" }];
 const cls = (...names: string[]): Selector => names.map((name) => ({ type: "class", name }));
 const DARK = cls("dark");
-// The custom properties a stylesheet declares for the `light` scope and, over it, the `dark` scope: Tailwind's theme
-// layer, then the top-level scope rules. `:root` and `.dark` tie on specificity and both match <html class="dark">, so
-// dark is every scope declaration in source order, last wins.
+// The custom properties a stylesheet declares for the `light` scope and, over it, the `dark` scope: Tailwind's theme layer, then the top-level scope
+// rules. `:root` and `.dark` tie on specificity and both match <html class="dark">, so dark is every scope declaration in source order, last wins.
 function themesOf(rules: Rule[], light: Selector, dark: Selector) {
   const base: Vars = new Map();
   const order: ["light" | "dark", string, TokenOrValue[]][] = [];
@@ -87,8 +86,7 @@ const SURFACES = ["background", "surface-1", "surface-2", "card", "popover", "se
 const ON = "primary-foreground/primary on-lime/lime primary-text/primary-soft success/success-soft warning/warning-soft danger/danger-soft"
   .split(" ")
   .map((pair) => pair.split("/") as [string, string]);
-// The check covers the token pairs globals.css defines; component-level pairs (opacity modifiers,
-// literal colours) are checked by the R25 screen plans.
+// The check covers the token pairs globals.css defines; component-level pairs (opacity modifiers, literal colours) by the R25 screen plans.
 const PAIRS = [...TEXT.flatMap((text) => SURFACES.map((bg) => ({ text, bg }))), ...ON.map(([text, bg]) => ({ text, bg }))];
 // Hive tokens with no `--color-*` mapping, so Tailwind has no utility for them: read the custom property itself.
 const RAW = new Set("ink-2 primary-text surface-1 surface-2 on-lime lime primary-soft success-soft warning-soft danger danger-soft".split(" "));
@@ -105,8 +103,8 @@ const build = async (css: string, utilities: string[]) => ast((await compile(css
 const bare = await build('@import "tailwindcss";', []);
 const names = bare[0]?.type === "layer-statement" ? bare[0].value.names.flat() : [];
 const THEME = (ast(":root,:host{a:b}")[0] as Extract<Rule, { type: "style" }>).value.selectors; // Tailwind's theme rule
-// every custom property declared anywhere inside `rule`, however nested or wrapped (`--tw-*` are Tailwind's own)
-const customs = (rule: unknown) => JSON.stringify(rule).match(/"property":"custom","value":\{"name":"--(?!tw-)[^"]*"/g) ?? [];
+// every custom property declared anywhere inside `rule`, however nested or wrapped; nothing is exempt (the compiled real stylesheet declares no `--tw-*`)
+const customs = (rule: unknown) => JSON.stringify(rule).match(/"property":"custom","value":\{"name":"--[^"]*"/g) ?? [];
 // every !important declaration anywhere, as [selectors, declarations]; a layered !important beats unlayered and utility rules
 const importants = (rules: unknown, found: string[] = []) => (
   JSON.stringify(rules, (_, v) => (v?.declarations?.importantDeclarations?.length && found.push(JSON.stringify([v.selectors, v.declarations])), v)), found
@@ -187,6 +185,8 @@ const ours = await compiled(globals);
 const add = (css: string) => `${globals}\n${css}\n`;
 const swap = (from: string, to: string) => (assert.ok(globals.includes(from), from), globals.replace(from, to));
 const MUTED = "light: --muted-foreground on --background is 1.";
+// a --tw-* property is legal unlayered on :root; declared in a layer it re-maps a checked token
+const WHITE_ON_WHITE = ":root { --tw-violet: var(--violet); }\n@layer base { .text-violet { --tw-violet: var(--background); } }";
 const CASES: [label: string, css: string, expect: string][] = [
   ["light --muted-foreground", swap("--muted-foreground: #6b6b74;", "--muted-foreground: #bbbbbb;"), MUTED],
   ["light --muted surface", swap("--muted: var(--surface-2);", "--muted: #bbbbbb;"), "light: --muted-foreground on --muted is 2."],
@@ -195,11 +195,12 @@ const CASES: [label: string, css: string, expect: string][] = [
   ["unmapped --color-warning", swap("--color-warning: var(--warning);", ""), "text-warning: "],
   ["later :root", add(":root { --violet: #171717; }"), "dark: --violet on --background is 1."],
   [".dark only", add(".dark { --muted-foreground: #333333; }"), "dark: --muted-foreground on --background is 1."],
+  ["white-on-white --tw-*", swap("--color-violet: var(--violet);", "--color-violet: var(--tw-violet);") + WHITE_ON_WHITE, "throws"],
   // each of these must throw (the allowlist excludes it)
   ...(
-    "@media print { :root { --muted-foreground: #bbbbbb; } } | :root { & .x { --muted-foreground: #bbbbbb; } } | :root { --x: 1 !important; } | @layer theme { :root, :host { --muted-foreground: #bbbbbb !important; } } | @layer base { * { color: #bbbbbb !important; } } | @layer components { .text-violet { color: #171717 !important; } }" +
-    ":root { filter: invert(1); } | @keyframes k { to { --violet: #171717; } } | body { --muted-foreground: #bbbbbb; } | @layer utilities { body { --muted-foreground: #bbbbbb; } } | .text-warning-foreground { color: #ffffff; }" +
-    '@layer utilities { .text-warning-foreground { color: #ffffff !important; } } | [class~="text-warning-foreground"] { color: #ffffff; } | .bg-background { background: #a15c00; } | @layer utilities { .text-violet:hover { color: #000000; } } | @layer base { @keyframes washout { to { color: #fff; background-color: #fff } } .text-foreground { animation: washout 1ms forwards } }' +
+    "@media print { :root { --muted-foreground: #bbbbbb; } } | :root { & .x { --muted-foreground: #bbbbbb; } } | :root { --x: 1 !important; } | @layer theme { :root, :host { --muted-foreground: #bbbbbb !important; } } | @layer base { * { color: #bbbbbb !important; } } | @layer components { .text-violet { color: #171717 !important; } } | " +
+    ":root { filter: invert(1); } | @keyframes k { to { --violet: #171717; } } | body { --muted-foreground: #bbbbbb; } | @layer utilities { body { --muted-foreground: #bbbbbb; } } | .text-warning-foreground { color: #ffffff; } | " +
+    '@layer utilities { .text-warning-foreground { color: #ffffff !important; } } | [class~="text-warning-foreground"] { color: #ffffff; } | .bg-background { background: #a15c00; } | @layer utilities { .text-violet:hover { color: #000000; } } | @layer base { @keyframes washout { to { color: #fff; background-color: #fff } } .text-foreground { animation: washout 1ms forwards } } | ' +
     "@layer base { @property --violet { syntax: '<color>'; inherits: false; initial-value: #171717 } } | @layer base { @supports (display: grid) { @keyframes washout { to { color: #fff; background-color: #fff } } } .text-foreground { animation: washout 1ms forwards } } | @layer base { @supports (display: grid) { @property --violet { syntax: '<color>'; inherits: false; initial-value: #171717 } } } | @layer components { @supports (color: red) { @supports (display: grid) { @keyframes k { to { color: #fff } } } } } | @supports (display: grid) { @layer base { @keyframes k { to { color: #fff } } } }"
   )
     .split(" | ")
