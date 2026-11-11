@@ -568,6 +568,9 @@ try {
     [false, hit, say("recovered")],
     [false, say("Tests failed: expected HTTP 429, received 200."), say("Failed to implement rate limiting")],
     [false, say("API Error: 429")],
+    [false, say("ok"), { ...hit, isSidechain: true }],
+    [true, hit, { type: "assistant", isSidechain: true }],
+    [true, hit, { type: "user", message: { content: [{ type: "tool_result" }] } }],
   ] as const)
     assert.equal(transcriptRateLimited(transcript(...lines)), want, JSON.stringify(lines));
   const event = (type: string, more: object = {}) => ({ type: "event_msg", payload: { type, ...more } });
