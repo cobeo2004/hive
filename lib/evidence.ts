@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CHECKS, redact, type Recipe } from "./recipe";
+import { SSTACK_PROJECT_PATH, verifyChecks } from "./sstack-verify";
 
 // Proof tied to a commit: which checks ran at one exact revision, what each exited with, and
 // whether the tree held that commit and nothing else. The agent's stage says what it reports; this
@@ -11,8 +12,8 @@ export const EVIDENCE_CHECKS = [...CHECKS, "custom"] as const;
 export type EvidenceCheckName = (typeof EVIDENCE_CHECKS)[number];
 export const PRODUCERS = ["agent", "runner"] as const;
 export type Producer = (typeof PRODUCERS)[number];
-/** Where the checks came from: the repo's recipe, package.json scripts, or nowhere. */
-export const CHECK_SOURCES = ["recipe", "package", "none"] as const;
+/** Where the checks came from: .sstack/project.toml's verify list, the repo's recipe, package.json scripts, or nowhere. */
+export const CHECK_SOURCES = ["project.toml", "recipe", "package", "none"] as const;
 export type CheckSource = (typeof CHECK_SOURCES)[number];
 
 export const OUTPUT_TAIL_LINES = 40;
@@ -101,10 +102,24 @@ const PACKAGE_MANAGERS = [
 ] as const;
 
 /**
- * The checks a repo defines: its recipe's checks when it has a recipe, else the package.json
- * scripts named like the recipe's checks, run with the package manager its lockfile names.
+ * The checks a repo defines: its .sstack/project.toml verify list when it has one, else its
+ * recipe's checks when it has a recipe, else the package.json scripts named like the recipe's
+ * checks, run with the package manager its lockfile names.
  */
-export function planChecks({ recipe, packageJson, files }: { recipe: Recipe | null; packageJson: string | null; files: readonly string[] }): CheckPlan {
+export function planChecks({
+  verify = null,
+  recipe,
+  packageJson,
+  files,
+}: {
+  verify?: readonly string[] | null;
+  recipe: Recipe | null;
+  packageJson: string | null;
+  files: readonly string[];
+}): CheckPlan {
+  if (verify?.length) {
+    return { source: "project.toml", setup: recipe?.setup ?? [], checks: verifyChecks(verify), envNames: (recipe?.env ?? []).map((e) => e.name) };
+  }
   if (recipe) {
     return {
       source: "recipe",
@@ -217,23 +232,42 @@ export type EvidenceRow = {
  * What the evidence for this attempt says about `headSha`. `required` is the repo's recorded recipe
  * checks, names and commands, when the factory knows its recipe; without one, the checks the
  * evidence itself found count. An agent plans its checks from its own worktree, so a check whose
- * command differs from the recorded one proves nothing.
+ * command differs from the recorded one proves nothing. Evidence from a project.toml verify list
+ * is held to `verify`, the list recorded at onboarding or the last rebuild: a PR can edit its own
+ * list, so other commands, or no recorded list, leave it untrusted. With a recorded list, evidence
+ * from anywhere else (recipe, package.json, the runner's own) is untrusted too.
  */
-export function headEvidence(rows: readonly EvidenceRow[], headSha: string, required: readonly PlannedCheck[] | null): HeadEvidence {
-  if (required?.length === 0) return { state: "no_checks" };
+export function headEvidence(
+  rows: readonly EvidenceRow[],
+  headSha: string,
+  required: readonly PlannedCheck[] | null,
+  verify: readonly string[] | null = null,
+): HeadEvidence {
+  // A recorded verify list means project.toml evidence can still prove the head, so it decides below.
+  if (required?.length === 0 && !verify?.length) return { state: "no_checks" };
   const atHead = rows.find((r) => r.sha === headSha);
   if (!atHead) {
     const latest = [...rows].sort((a, b) => b.recordedAt.getTime() - a.recordedAt.getTime())[0];
     return latest ? { state: "stale", sha: latest.sha } : { state: "missing" };
   }
-  const named = atHead.checks.filter((c) => c.name !== "custom").map((c) => c.name);
-  if (!required && named.length === 0) return { state: "no_checks" };
-  if (!atHead.clean) return { state: "dirty", sha: headSha };
-  const missing = (required ?? []).filter(({ name }) => !named.includes(name)).map(({ name }) => name);
-  if (missing.length > 0) return { state: "incomplete", sha: headSha, missing };
-  const mismatched = atHead.checks.filter((c) => required?.some((r) => r.name === c.name && r.command.trim() !== c.command.trim())).map((c) => c.name);
-  if (mismatched.length > 0) return { state: "untrusted", sha: headSha, mismatched };
-  const failed = atHead.checks.filter((c) => !c.passed).map((c) => (c.name === "custom" ? "setup" : c.name));
+  const toml = atHead.source === "project.toml";
+  if (toml || verify?.length) {
+    // A recorded verify list replaces the recipe as what counts: only project.toml evidence that ran
+    // exactly that list proves the head (factory-verify runs no setup step for it).
+    if (toml && !atHead.clean) return { state: "dirty", sha: headSha };
+    const ran = atHead.checks.map((c) => c.command.trim());
+    if (!toml || !verify?.length || JSON.stringify(ran) !== JSON.stringify(verify.map((c) => c.trim())))
+      return { state: "untrusted", sha: headSha, mismatched: [`${SSTACK_PROJECT_PATH} verify`] };
+  } else {
+    const named = atHead.checks.filter((c) => c.name !== "custom").map((c) => c.name);
+    if (required?.length === 0 || (!required && named.length === 0)) return { state: "no_checks" };
+    if (!atHead.clean) return { state: "dirty", sha: headSha };
+    const missing = (required ?? []).filter(({ name }) => !named.includes(name)).map(({ name }) => name);
+    if (missing.length > 0) return { state: "incomplete", sha: headSha, missing };
+    const mismatched = atHead.checks.filter((c) => required?.some((r) => r.name === c.name && r.command.trim() !== c.command.trim())).map((c) => c.name);
+    if (mismatched.length > 0) return { state: "untrusted", sha: headSha, mismatched };
+  }
+  const failed = atHead.checks.filter((c) => !c.passed).map((c) => (c.name !== "custom" ? c.name : toml ? c.command : "setup"));
   const passed = atHead.checks.length - failed.length;
   if (failed.length > 0) return { state: "failed", sha: headSha, failed: [...new Set(failed)], passed, total: atHead.checks.length };
   return { state: "verified", sha: headSha, passed, total: atHead.checks.length, producer: atHead.producer };
@@ -282,6 +316,13 @@ export function evidenceLine(summary: EvidenceSummary | null, headSha: string | 
 }
 
 export const CHECK_NAME_LABELS: Record<EvidenceCheckName, string> = { test: "Tests", lint: "Lint", typecheck: "Typecheck", build: "Build", custom: "Setup" };
+
+export const CHECK_SOURCE_LABELS: Record<CheckSource, string> = {
+  "project.toml": `${SSTACK_PROJECT_PATH} verify`,
+  recipe: "recipe checks",
+  package: "package.json scripts",
+  none: "no checks found",
+};
 
 export const PRODUCER_LABELS: Record<Producer, string> = { agent: "the agent", runner: "the factory" };
 

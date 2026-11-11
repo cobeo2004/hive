@@ -140,8 +140,12 @@ const server = await serve(0, async (request) => {
   }
   if (/\/compare\//.test(path)) return Response.json({ behind_by: 7 });
   // The same scripts at every ref, so a PR's package.json edit is a dependency bump, not a check change.
-  if (/^\/repos\/[^/]+\/[^/]+\/contents\/package\.json$/.test(path))
-    return Response.json({ content: Buffer.from(JSON.stringify({ scripts: { lint: "eslint" } })).toString("base64") });
+  // fileAt reads the git tree: ref -> commit -> root tree -> package.json blob.
+  if (/^\/repos\/[^/]+\/[^/]+\/commits$/.test(path)) return Response.json([{ commit: { tree: { sha: "root-tree" } } }]);
+  if (/^\/repos\/[^/]+\/[^/]+\/git\/trees\/root-tree$/.test(path))
+    return Response.json({ truncated: false, tree: [{ path: "package.json", type: "blob", mode: "100644", sha: "pkg-blob" }] });
+  if (/^\/repos\/[^/]+\/[^/]+\/git\/blobs\/pkg-blob$/.test(path))
+    return Response.json({ encoding: "base64", content: Buffer.from(JSON.stringify({ scripts: { lint: "eslint" } })).toString("base64") });
   if ((m = /\/commits\/([^/]+)\/(check-runs|status)$/.exec(path))) {
     const checks = checksOf.get(m[1]!) ?? { runs: [checkRun("ci", "success"), checkRun("Cursor Bugbot", "neutral")], statuses: [] };
     if (m[2] === "check-runs") return Response.json({ total_count: checks.runs.length, check_runs: checks.runs });

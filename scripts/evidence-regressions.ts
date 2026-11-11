@@ -1,11 +1,13 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, eq, inArray, like } from "drizzle-orm";
 import type { MergeAssessment } from "../lib/assessment";
+import type { SessionUser } from "../lib/auth/owner";
+import type { Registry } from "../lib/repositories";
 import type { EvidenceCheck } from "../lib/evidence";
 import type { FactoryEvent } from "../lib/events";
 
@@ -21,7 +23,9 @@ const { hosts, localHost } = await import("../lib/host");
 const { github } = await import("../lib/github/pulls");
 const { evidenceLine, headEvidence, outputTail, parseSummary, planChecks } = await import("../lib/evidence");
 const { writeRepoAutonomy } = await import("../lib/settings");
-const { trustedEdits } = await import("../lib/trusted-checks");
+const { scriptsOf, trustedEdits } = await import("../lib/trusted-checks");
+const { readVerify } = await import("../lib/sstack-verify");
+const { rebuildRepoImage, writeVerify } = await import("../lib/repo-onboarding");
 const { decideMerges, requiredChecks } = await import("../runner/merge-decision");
 const { forgetVerifications, runnerVerification, startVerification, verificationsSettled, verifyAtHead, verifyingKeys, verifyRuntime } = await import(
   "../runner/verify"
@@ -113,6 +117,33 @@ assert.equal(
 );
 assert.deepEqual(planChecks({ recipe: null, packageJson: "{not json", files: [] }).source, "none", "a broken package.json defines nothing");
 assert.deepEqual(planChecks({ recipe: null, packageJson: null, files: [] }).checks, [], "no recipe, no package.json: no checks");
+const hiveVerify = ["bun run lint", "bunx next typegen && bunx tsc --noEmit", "bun run format:check"];
+assert.deepEqual(
+  planChecks({ verify: hiveVerify, recipe, packageJson: JSON.stringify({ scripts: { test: "vitest" } }), files: ["bun.lock"] }),
+  {
+    source: "project.toml",
+    setup: ["bun install"],
+    checks: [
+      { name: "lint", command: "bun run lint" },
+      { name: "typecheck", command: "bunx next typegen && bunx tsc --noEmit" },
+      { name: "custom", command: "bun run format:check" },
+    ],
+    envNames: ["STRIPE_KEY"],
+  },
+  "project.toml's verify list comes first, in its order",
+);
+assert.equal(planChecks({ verify: [], recipe, packageJson: null, files: [] }).source, "recipe", "an empty verify list falls back to the recipe");
+const projectToml = readFileSync(join(import.meta.dirname, "../.sstack/project.toml"), "utf8");
+assert.deepEqual(readVerify(projectToml), hiveVerify, "this repo's verify list");
+assert.deepEqual(readVerify(`verify = ['a "b"', "c \\"d\\"",] # x\n[t]\nverify = ["no"]`), ['a "b"', 'c "d"'], "quotes, a trailing comma and a later table");
+assert.equal(readVerify(`[t]\nverify = ["nested"]`), null, "a verify inside a table is not the list");
+assert.equal(readVerify(`notes = """\nverify = ["true"]\n"""\n`), null, "a verify line inside a multi-line string is not the list");
+assert.equal(readVerify(`notes = '''\nverify = ["true"]\n'''\n`), null, "nor inside a literal multi-line string");
+assert.deepEqual(readVerify(`notes = """\nverify = ["true"]\n"""\nverify = ["false"]`), ["false"], "the list after a multi-line string");
+// the review's decoy: an escaped triple quote does not end the string, so the first verify is text
+assert.deepEqual(readVerify('notes = """a \\""" \nverify = ["true"]\n\\""" b"""\nverify = ["false"]'), ["false"], "an escaped triple quote");
+assert.equal(readVerify("verify = ["), null, "invalid TOML");
+assert.equal(readVerify("verify = [1]"), null, "not strings");
 
 // --- redaction
 const secretValue = "s3cr3t-value-0123456789";
@@ -208,45 +239,136 @@ assert.deepEqual(
   "required comes from the recorded recipe, commands included",
 );
 assert.equal(requiredChecks(rows, "other/repo").required, null, "no recipe, no required list");
+const tomlEv = (commands: string[], over: Partial<Parameters<typeof headEvidence>[0][number]> = {}) =>
+  ev(SHA_A, { source: "project.toml", checks: commands.map((command) => check("custom", true, { command })), ...over });
+assert.deepEqual(
+  headEvidence([tomlEv(["true"])], SHA_A, null, hiveVerify),
+  { state: "untrusted", sha: SHA_A, mismatched: [".sstack/project.toml verify"] },
+  "a PR whose verify list is not the trusted one proves nothing",
+);
+assert.equal(headEvidence([tomlEv(hiveVerify)], SHA_A, null, null).state, "untrusted", "no recorded list, nothing to trust");
+assert.equal(headEvidence([tomlEv(hiveVerify.slice(1))], SHA_A, null, hiveVerify).state, "untrusted", "a dropped command");
+assert.deepEqual(headEvidence([tomlEv(hiveVerify)], SHA_A, planned("test"), hiveVerify), {
+  state: "verified",
+  sha: SHA_A,
+  passed: 3,
+  total: 3,
+  producer: "agent",
+});
+assert.deepEqual(
+  headEvidence([tomlEv(hiveVerify, { checks: [check("custom", false, { command: "bun run format:check" })] })], SHA_A, null, ["bun run format:check"]),
+  { state: "failed", sha: SHA_A, failed: ["bun run format:check"], passed: 0, total: 1 },
+  "a failed verify command is named by its command",
+);
+assert.equal(headEvidence([tomlEv(["true"], { clean: false })], SHA_A, null, hiveVerify).state, "dirty");
+assert.equal(headEvidence([tomlEv(["false\ntrue"])], SHA_A, null, ["false", "true"]).state, "untrusted", "one command with a newline is not two");
+assert.equal(headEvidence([tomlEv(["true"])], SHA_A, [], ["true"]).state, "verified", "a recipe with no checks doesn't hide trusted project.toml evidence");
+assert.equal(headEvidence([tomlEv(["true", "true"])], SHA_A, null, ["true"]).state, "untrusted", "an extra command before the trusted list");
+assert.deepEqual(
+  headEvidence([ev(SHA_A, { source: "recipe", checks: [check("test", true, { command: "true" })] })], SHA_A, [{ name: "test", command: "true" }], ["false"]),
+  { state: "untrusted", sha: SHA_A, mismatched: [".sstack/project.toml verify"] },
+  "a recorded verify list replaces the recipe: recipe evidence proves nothing",
+);
+assert.deepEqual(
+  requiredChecks([{ repo: REPO, onboarding_detail: { verify: hiveVerify } }] as unknown as typeof rows, REPO).verify,
+  hiveVerify,
+  "the recorded verify list",
+);
+
+// --- the rebuild re-records the trusted list from the default branch
+const saved: [string, string[] | null][] = [];
+const rebuildDeps = (toml: string | null) => ({
+  user: async () => ({ role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() }) as unknown as SessionUser,
+  registry: async () => [{ repo: REPO, onboarding_detail: { recipe } }] as unknown as Registry,
+  request: async () => {},
+  projectToml: async () => toml,
+  saveVerify: async (repo: string, verify: string[] | null) => void saved.push([repo, verify]),
+});
+assert.deepEqual(await rebuildRepoImage(rebuildDeps(projectToml), { repo: REPO }), { ok: false, status: 400, message: "Save STRIPE_KEY first." });
+const noSecrets = { ...recipe, env: [] };
+const deps = (toml: string | null) => ({
+  ...rebuildDeps(toml),
+  registry: async () => [{ repo: REPO, onboarding_detail: { recipe: noSecrets } }] as unknown as Registry,
+});
+assert.deepEqual(await rebuildRepoImage(deps(projectToml), { repo: REPO }), { ok: true });
+assert.deepEqual(await rebuildRepoImage(deps(null), { repo: REPO }), { ok: true });
+assert.deepEqual(
+  saved,
+  [
+    [REPO, hiveVerify],
+    [REPO, null],
+  ],
+  "main's list is recorded; no project.toml drops it",
+);
 
 // --- what a PR must not edit
 const scripts = (over: Record<string, string> = {}) => ({ test: "vitest", lint: "eslint .", dev: "next dev", ...over });
-const recipeChecks = [{ name: "test" as const, command: "bun run test" }];
-const edits = (
-  files: string[],
-  base: Record<string, string> | null = scripts(),
-  head: Record<string, string> | null = scripts(),
-  required: typeof recipeChecks | null = recipeChecks,
-) => trustedEdits({ files, required, base, head });
+const edits = (files: string[], base: Record<string, string> | null = scripts(), head: Record<string, string> | null = scripts()) =>
+  trustedEdits({ files, base, head });
 assert.deepEqual(edits(["src/a.ts"]), [], "an ordinary change");
 assert.match(edits([".factory/setup.json"])[0]!, /edits the recipe the factory trusts: \.factory\/setup\.json/, "the recipe");
 assert.match(edits([".github/workflows/ci.yml"])[0]!, /edits CI workflows \(\.github\/workflows\/ci\.yml\)/, "a workflow");
 assert.deepEqual(
   edits(["package.json"], scripts(), scripts({ test: "true" })),
-  ["The pull request edits the check scripts the factory trusts: package.json scripts.test."],
-  "the script a check runs",
+  ["The pull request edits the package.json scripts the factory's checks run through: package.json scripts.test."],
+  "a changed script",
 );
-assert.deepEqual(edits(["package.json"], scripts(), scripts({ dev: "vite" })), [], "a script no check uses");
+// Deliberate: no command parsing, so any script change hands over, even `dev` that no check names.
+assert.match(edits(["package.json"], scripts(), scripts({ dev: "vite" }))[0]!, /scripts\.dev\./, "any script, used by a check or not");
+assert.match(edits(["package.json"], scripts(), { ...scripts(), build: "true" })[0]!, /scripts\.build\./, "an added script");
+assert.match(edits(["package.json"], scripts(), { test: "vitest", lint: "eslint ." })[0]!, /scripts\.dev\./, "a removed script");
+assert.match(edits(["package.json"], scripts(), scripts({ "preverify-ci": "true" }))[0]!, /scripts\.preverify-ci\./, "a head-only lifecycle script");
+assert.match(edits(["package.json"], scripts({ postinstall: "a" }), scripts({ postinstall: "b" }))[0]!, /scripts\.postinstall\./, "a changed lifecycle script");
+assert.match(
+  edits(["package.json"], scripts(), scripts({ zeta: "1", alpha: "1", b: "1", c: "1", d: "1", e: "1", f: "1" }))[0]!,
+  /scripts\.alpha, package\.json scripts\.b, .*scripts\.e and 2 more\./,
+  "sorted, at most 5 listed",
+);
 assert.deepEqual(edits(["package.json"]), [], "a package.json change outside scripts, such as dependencies");
-const chained = { test: "bun run unit", unit: "vitest" };
-assert.match(edits(["package.json"], scripts(chained), scripts({ ...chained, unit: "true" }))[0]!, /scripts\.unit\./, "a script the used script calls counts");
-assert.match(
-  edits(["package.json"], scripts(), scripts({ lint: "true" }), null)[0]!,
-  /scripts\.lint\./,
-  "without a recipe the scripts named like the checks count",
-);
 assert.match(edits(["package.json"], scripts(), null)[0]!, /couldn't be compared/, "an unreadable head is a handover, not a pass");
-const noBuild = { test: "vitest" };
+assert.match(edits(["package.json"], null, scripts())[0]!, /couldn't be compared/, "an unreadable base too");
+// JSON.parse keeps the last duplicate `scripts`, bun runs the first: ambiguous text can't be compared.
+assert.deepEqual(scriptsOf('{"name":"demo","scripts":{"t":"A"},"dependencies":{}}'), { t: "A" }, "a normal package.json parses");
+assert.equal(scriptsOf('{"scripts":{"t":"A"},"scripts":{"t":"B"}}'), null, "duplicate scripts blocks");
+assert.equal(scriptsOf('{"scr\\u0069pts":{"t":"A"},"scripts":{"t":"B"}}'), null, "an escaped scripts key");
 assert.match(
-  edits(["package.json"], noBuild, { ...noBuild, build: "true" }, null)[0]!,
-  /scripts\.build\./,
-  "without a recipe, a check script the head adds counts",
+  edits(["package.json"], scripts(), scriptsOf(`{"scripts":${JSON.stringify(scripts({ test: "true" }))},"scripts":${JSON.stringify(scripts())}}`))[0]!,
+  /couldn't be compared/,
+  "a head with a fake scripts block first is a handover",
 );
+// bun runs the first `"t"`, JSON.parse keeps the last: a non-string value anywhere is ambiguous, not "no script".
+assert.equal(scriptsOf('{"scripts":{"t":"echo A","t":null}}'), null, "a null duplicate script");
+assert.equal(scriptsOf('{"scripts":{"t":"echo A","t":1}}'), null, "a number duplicate script");
+// bun skips an empty value and JSON.parse keeps the last duplicate, so every repeated script name is ambiguous.
+assert.equal(scriptsOf('{"scripts":{"t":"echo A","t":""}}'), null, "an empty last duplicate runs A in bun");
+assert.equal(scriptsOf('{"scripts":{"t":"echo A","t":"echo B"}}'), null, "two string duplicates");
+assert.equal(scriptsOf('{"scripts":{"t":"","t":"echo B"}}'), null, "an empty first duplicate");
+assert.equal(scriptsOf('{"scripts":{"a\\/b":"x","a/b":"y"}}'), null, "an escaped and a plain spelling of one script name");
 assert.match(
-  edits(["package.json"], scripts(chained), scripts({ ...chained, test: "bun run unit && bun run extra", extra: "true" }))[0]!,
-  /scripts\.extra, package\.json scripts\.test\./,
-  "a script the head adds and a used script calls counts",
+  edits(["package.json"], { t: "" }, scriptsOf('{"scripts":{"t":"echo A","t":""}}'))[0]!,
+  /couldn't be compared/,
+  "an empty-duplicate head against a base of an empty script is a handover",
 );
+const ownPackageJson = readFileSync("package.json", "utf8");
+assert.deepEqual(scriptsOf(ownPackageJson), (JSON.parse(ownPackageJson) as { scripts: Record<string, string> }).scripts, "the repo's own package.json parses");
+// Deliberate over-match: a script name that is also a dependency name is a repeated key, so it hands over.
+assert.equal(scriptsOf('{"scripts":{"lint":"x"},"dependencies":{"lint":"1"}}'), null, "a script name that is also a dependency name");
+assert.deepEqual(scriptsOf('{"scripts":{"t":"x"},"dependencies":{"u":"1"},"x":"t"}'), { t: "x" }, "a script name used as a value is not a key");
+assert.equal(scriptsOf('{"scripts":{"t":{"a":1}}}'), null, "an object script");
+assert.equal(scriptsOf('{"scripts":[]}'), null, "scripts as an array");
+assert.equal(scriptsOf('{"scripts":"x"}'), null, "scripts as a string");
+assert.deepEqual(scriptsOf('{"name":"demo"}'), {}, "no scripts key is no scripts");
+assert.match(
+  edits(["package.json"], scripts(), scriptsOf('{"scripts":{"t":"echo A","t":null}}'))[0]!,
+  /couldn't be compared/,
+  "a head with a null duplicate script is a handover",
+);
+assert.deepEqual(edits([".npmrc"]), ["The pull request edits .npmrc, which changes how the factory's check scripts run."], "a root .npmrc");
+assert.deepEqual(edits(["bunfig.toml"]), ["The pull request edits bunfig.toml, which changes how the factory's check scripts run."], "a root bunfig.toml");
+assert.deepEqual(edits(["packages/a/.npmrc", "packages/a/bunfig.toml"]), [], "nested config isn't matched by the root rule");
+assert.deepEqual(edits(["packages/app/package.json"]), [
+  "The pull request edits a nested package.json (packages/app/package.json), whose scripts the factory can't compare.",
+]);
 
 const summary = (over: Record<string, unknown> = {}) =>
   parseSummary({
@@ -450,6 +572,27 @@ try {
     ["recipe", 2, ["test", "typecheck"]],
     "the recipe wins over package.json; the attempt comes from the branch",
   );
+  const tomlRepo = repoWith(
+    `hive/${CLI}-a3`,
+    { test: "exit 1" },
+    { ".factory/setup.json": JSON.stringify({ setup: [], checks: { test: "exit 1" } }), ".sstack/project.toml": `verify = ["true", "echo lint"]\n` },
+  );
+  const fromToml = await runVerify(tomlRepo, ["--json", "--no-post"]);
+  const tomlEvent = eventSchema.parse(JSON.parse(fromToml.stdout));
+  assert.ok(tomlEvent.kind === "evidence");
+  assert.deepEqual(
+    [fromToml.code, tomlEvent.source, tomlEvent.checks.map((c) => [c.name, c.command])],
+    [
+      0,
+      "project.toml",
+      [
+        ["custom", "true"],
+        ["lint", "echo lint"],
+      ],
+    ],
+    "project.toml's verify list wins over the recipe",
+  );
+  assert.match(fromToml.stderr, /running 2 checks from \.sstack\/project\.toml/, "the log names the source");
 
   const offBranch = repoWith("main", { test: "true" });
   const off = await runVerify(offBranch, []);
@@ -460,6 +603,11 @@ try {
   // The runner's own verification, in a fake sandbox that is this machine with temp dirs.
   await writeRepoAutonomy(db, { repo: REPO, autonomy: "auto" }, "owner@example.com", new Date());
   await writeRepoAutonomy(db, { repo: TRIAL_REPO, autonomy: "trial" }, "owner@example.com", new Date());
+  const detailOf = async () => (await db.select().from(repoSettings).where(eq(repoSettings.repo, REPO)))[0]!.onboarding_detail;
+  await writeVerify(db, REPO, hiveVerify);
+  assert.deepEqual((await detailOf())?.verify, hiveVerify, "the rebuild's list is on the row");
+  await writeVerify(db, REPO, null);
+  assert.equal((await detailOf())?.verify, undefined, "and dropped again");
   const origin = join(dir, "origin.git");
   execFileSync("git", ["init", "-q", "--bare", origin]);
   const work = repoWith("main", { test: "true" });
