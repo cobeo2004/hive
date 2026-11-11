@@ -29,6 +29,10 @@ Every text and background pair in both themes reads at 4.5:1 or better. `scripts
 - Panel defaults: Jobs opens on Everyone, Inbox on Mine. A link built outside the panel (`lib/slack.ts`) must land on a view that shows the job (L34, L39).
 - Pages that import `db/client` need `DATABASE_URL` at build time; see [db.md](db.md).
 
+## Workflow canvas (`@xyflow/react`)
+
+Only `components/panel/workflow-flow.tsx` imports `@xyflow/react`, and `workflow-canvas.tsx` loads it client-only (`dynamic`, `ssr: false`). Keep it that way: import the library's stylesheet in that file, not in `app/globals.css`, because the contrast gate rejects unscoped rules (L182). Set theme colours inline from Hive variables, and remember that unlayered library rules beat Tailwind 4 utilities on `.react-flow__*` elements (L185). Backspace must never delete a step: `deleteKeyCode={null}` and filter `remove` changes (L186). The step panel is keyed so Cancel remounts it and drops pending edits (L187).
+
 ## Layout checks
 
 - `components/panel/stats-strip.tsx` draws borders with `bg-border` and `gap-px`: confirm the last grid row has no empty cell at common widths (L85).
