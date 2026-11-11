@@ -1,11 +1,14 @@
 import "./test-guard";
 import assert from "node:assert/strict";
+import { createHmac, randomBytes } from "node:crypto";
 import { eq, inArray, like } from "drizzle-orm";
 
 const { db } = await import("../db/client");
-const { jobs, repoSettings } = await import("../db/schema");
+const { intents, jobs, repoSettings, webhookDeliveries } = await import("../db/schema");
 const { allSources, parseJobs, SOURCES } = await import("../lib/sources");
 const { createGithubAdapter, githubKey } = await import("../lib/sources/github");
+const { GitHubError } = await import("../lib/github/app");
+const { githubIssueIntent } = await import("../lib/webhooks");
 const { isJobKey, parseBranch, attemptBranch } = await import("../lib/factory");
 const { readRegistry } = await import("../lib/repositories");
 const ops = await import("../runner/ops");
@@ -15,13 +18,17 @@ const ON = "owner/on";
 const OFF = "owner/off";
 const DEFAULT = "owner/default";
 const GONE = "owner/gone";
-type Issue = { state: string; labels: { name: string }[]; comments: { id: number; body: string }[]; pull_request?: object; [k: string]: unknown };
+type Comment = { id: number; body: string; created_at: string; user?: { login: string; type: string } };
+type Issue = { state: string; labels: { name: string }[]; comments: Comment[]; pull_request?: object; events: object[]; [k: string]: unknown };
 const gh = new Map<string, Issue>();
 const calls: string[] = [];
 let ids = 100;
 let down = "";
-const put = (repo: string, number: number, over: Partial<Issue> = {}) =>
-  gh.set(`${repo}#${number}`, { number, title: "t", html_url: `u/${number}`, body: null, state: "open", labels: [{ name: "hive" }], comments: [], ...over });
+let gone = 404;
+const perms: Record<string, string> = { writer: "write", boss: "admin", reader: "read" };
+const labeled = (login: string, type = "User") => ({ event: "labeled", label: { name: "hive" }, actor: { login, type } });
+const blank = () => ({ title: "t", body: null, state: "open", labels: [{ name: "hive" }], comments: [], events: [labeled("writer")] });
+const put = (repo: string, number: number, over: Partial<Issue> = {}) => gh.set(`${repo}#${number}`, { number, html_url: `u/${number}`, ...blank(), ...over });
 const request = async (repo: string, method: string, path: string, input?: unknown): Promise<unknown> => {
   calls.push(`${method} ${repo} ${path}`);
   const body = input as { body?: string; labels?: string[] } | undefined;
@@ -34,24 +41,35 @@ const request = async (repo: string, method: string, path: string, input?: unkno
       .map(([, i]) => i)
       .slice((Number(path.match(/&page=(\d+)/)![1]) - 1) * 100)
       .slice(0, 100);
+  const who = path.match(/\/collaborators\/([^/]+)\/permission/);
+  if (who) return { permission: perms[who[1]!] ?? "none" };
   const edit = path.match(/\/issues\/comments\/(\d+)$/);
   if (edit) {
     const hit = [...gh.values()].flatMap((i) => i.comments).find((c) => c.id === Number(edit[1]));
     hit!.body = body!.body!;
     return hit;
   }
-  const [, number, rest, name] = path.match(/\/issues\/(\d+)(?:\/(comments|labels)(?:\/([^?]+))?)?/)!;
-  const issue = gh.get(`${repo}#${number}`)!;
-  if (rest === "comments") return issue.comments[issue.comments.push({ id: ++ids, body: body!.body! }) - 1];
-  if (rest === "labels" && method === "POST") issue.labels.push(...body!.labels!.map((n) => ({ name: n })));
+  const [, number, rest, name] = path.match(/\/issues\/(\d+)(?:\/(comments|labels|events)(?:\/([^?]+))?)?/)!;
+  const issue = gh.get(`${repo}#${number}`);
+  if (!issue) throw new GitHubError("Not Found", gone);
+  if (rest === "events") return issue.events;
+  if (rest === "comments")
+    return method === "GET" ? issue.comments : issue.comments[issue.comments.push({ id: ++ids, body: body!.body!, created_at: "t", user: HIVE }) - 1];
+  if (rest === "labels" && method === "POST")
+    for (const n of body!.labels!.filter((n) => !issue.labels.some((l) => l.name === n))) {
+      issue.labels.push({ name: n });
+      issue.events.push({ ...labeled(HIVE.login, "Bot"), label: { name: n } });
+    }
   if (rest === "labels" && method === "DELETE") issue.labels = issue.labels.filter((l) => l.name !== decodeURIComponent(name!));
   return issue;
 };
 let on = true;
 const adapter = createGithubAdapter(
-  async () => ({ db, request, label: async () => "hive" }),
+  async () => ({ db, request, label: async () => "hive", login: async () => HIVE.login }),
   () => on,
 );
+const HIVE = { login: "hive[bot]", type: "Bot" };
+const say = (n: number, login: string, body: string, type = "User") => comments(ON, n).push({ id: ++ids, body, created_at: "t", user: { login, type } });
 const comments = (repo: string, number: number) => gh.get(`${repo}#${number}`)!.comments;
 const names = (n: number) => gh.get(`${ON}#${n}`)!.labels.map((l) => l.name);
 
@@ -145,6 +163,120 @@ try {
   await fromPoll(() => patch(7, { stage: "failed", stage_event_id: "e5", synced_event_id: "e5" }), old);
   await adapter.requeue(await job(7));
   assert.deepEqual((await claim()).claimed, ["GH-owner-on-7"], "the label added again is a retry");
+  await adapter.announceClaim(await job(7));
+  assert.match(comments(ON, 7).at(-1)!.body, /again \(attempt \d/, "a new attempt gets its own status comment");
+  // R5, R7: a waiting job asks in a comment and carries hive:waiting; the answer is a writer's next comment or the panel's, nothing else.
+  say(8, "writer", "chatter before the question");
+  await patch(8, { stage: "waiting", question: "Which db?", stage_event_id: "w1" });
+  await assert.rejects(adapter.reply!(await job(8), "req-0", "early"), /not posted the question/, "the panel cannot answer before the question is posted");
+  await adapter.writeBack(await job(8), { stage: "waiting", eventId: "w1" });
+  await adapter.writeBack(await job(8), { stage: "waiting", eventId: "w1" });
+  assert.deepEqual(names(8), ["hive", "hive:waiting"]);
+  assert.equal(comments(ON, 8).filter((c) => c.body.includes("Which db?")).length, 1, "the question is posted once");
+  for (const [who, text] of [
+    ["writer", "use postgres"],
+    ["reader", "use mysql"],
+    ["ghost", "use oracle"],
+  ])
+    say(8, who!, text!);
+  for (const text of ["bugbot says hi", "<!-- hive:answer:x --> use oracle"]) say(8, "cursor[bot]", text, "Bot");
+  comments(ON, 8).unshift({ id: 0, body: "<!-- hive:question:w1 -->\nedited in", created_at: "t", user: { login: "cursor[bot]", type: "Bot" } });
+  const plan = await adapter.replies(await job(8));
+  assert.deepEqual(plan.kind === "resume" && plan.replies.map((r) => r.body), ["use postgres"], "only a user with write or admin permission answers");
+  await adapter.reply!(await job(8), "req-1", "or sqlite");
+  await adapter.reply!(await job(8), "req-1", "or sqlite");
+  const both = await adapter.replies(await job(8));
+  assert.deepEqual(
+    both.kind === "resume" && [both.answer, both.question],
+    ["use postgres\n\nor sqlite", "Which db?"],
+    "the panel's reply counts once, without its marker",
+  );
+  await patch(8, { delivered_reply_ids: both.kind === "resume" ? both.replies.map((r) => r.id) : [] });
+  assert.deepEqual(await adapter.replies(await job(8)), { kind: "wait" }, "delivered replies are not answers again");
+  await adapter.acknowledgeReplies(await job(8), []);
+  assert.deepEqual(names(8), ["hive"], "the waiting label goes when the answer is taken");
+  const asking = await job(8);
+  await Promise.all([adapter.reply!(asking, "req-2", "twice"), adapter.reply!(asking, "req-2", "twice")]);
+  assert.equal(comments(ON, 8).filter((c) => c.body.includes(":req-2 -->")).length, 1, "two panel replies at once post once");
+  say(8, HIVE.login, "a note quoting <!-- hive:note:k2 --> in passing", "Bot");
+  await adapter.note(await job(8), "k2", "real");
+  assert.ok(
+    comments(ON, 8).some((c) => c.body.startsWith("<!-- hive:note:k2 -->")),
+    "a quoted marker is not Hive's",
+  );
+  gh.get(`${ON}#8`)!.labels.push({ name: "hive:waiting" });
+  assert.equal(await adapter.writeBack(await job(8), { stage: "queued", eventId: "w1a" }), false);
+  assert.deepEqual(names(8), ["hive"], "a queued write-back clears it too, since the answer queues the job before it is acknowledged");
+  await adapter.note(await job(8), "k", "hello");
+  await adapter.note(await job(8), "k", "hello");
+  assert.equal(comments(ON, 8).filter((c) => c.body.includes("hello")).length, 1, "a note is posted once per key");
+  const inFlight = await job(8);
+  await patch(8, { stage_event_id: "w2" });
+  await adapter.writeBack(await job(8), { stage: "waiting", eventId: "w2" });
+  await adapter.reply!(inFlight, "req-old", "stale");
+  assert.equal((await adapter.replies(await job(8))).kind, "wait", "an answer to an earlier question is not an answer to the next one");
+  gh.get(`${ON}#8`)!.state = "closed";
+  assert.deepEqual(await adapter.replies(await job(8)), { kind: "close", state: "closed" }, "a closed issue ends the wait");
+  assert.deepEqual(names(8), [], "a job closed while waiting loses hive:waiting and the Hive label, since the runner reports no write-back for it");
+  const kept = gh.get(`${ON}#8`)!;
+  gh.delete(`${ON}#8`);
+  for (gone of [404, 410])
+    assert.deepEqual(await adapter.replies(await job(8)), { kind: "close", state: "closed" }, `a deleted issue (${gone}) ends the wait too`);
+  gh.set(`${ON}#8`, kept);
+  gh.get(`${ON}#8`)!.labels.push({ name: "hive" }, { name: "hive:waiting" });
+  await adapter.writeBack(await job(8), { stage: "failed", eventId: "w3" });
+  assert.deepEqual(names(8), [], "a failed job loses hive:waiting and the Hive label");
+  // R7: the Hive label counts only from a user with write access (or Hive retrying a job it holds).
+  put(ON, 30, { events: [labeled("reader")] });
+  put(ON, 31, { events: [labeled("hive[bot]", "Bot")] });
+  put(ON, 32, { events: [labeled("reader"), labeled("boss")] });
+  const started = (await adapter.ready()).map((d) => d.externalId).filter((e) => /#3\d$/.test(e));
+  assert.deepEqual(started, [`${ON}#32`], "only the latest applier counts, and a bot's label starts nothing");
+  for (const n of [30, 31, 32]) gh.delete(`${ON}#${n}`);
+  // M3: a failed job retries on Hive's own label only; another bot's is no retry.
+  const was7 = await job(7);
+  await patch(7, { stage: "failed", stage_event_id: "e9", synced_event_id: "e9" });
+  const retries = async () => (await adapter.ready()).some((d) => d.externalId === `${ON}#7`);
+  gh.get(`${ON}#7`)!.events.push(labeled("cursor[bot]", "Bot"));
+  assert.equal(await retries(), false, "another bot re-adding the label does not retry a failed job");
+  gh.get(`${ON}#7`)!.events.push(labeled(HIVE.login, "Bot"));
+  assert.equal(await retries(), true, "Hive's own login does");
+  await patch(7, { stage: was7.stage, stage_event_id: was7.stage_event_id, synced_event_id: was7.synced_event_id });
+  // R3, R4: issue and comment deliveries wake the runner; a person's comment is an answer, a bot's or a PR's is nothing.
+  const event = { repository: { full_name: ON }, issue: { number: 8 } };
+  const wake = (kind: string, action: string, extra: object = {}, issue: object = {}) =>
+    githubIssueIntent(kind, { action, ...event, issue: { number: 8, ...issue }, ...extra }, "Hive");
+  assert.equal(wake("issues", "labeled", { label: { name: "hive" } })?.kind, "claim", "the Hive label wakes a claim, whatever its case");
+  assert.equal(wake("issues", "labeled", { label: { name: "bug" } }), null);
+  assert.equal(wake("issues", "opened")?.kind, "claim");
+  assert.deepEqual(wake("issue_comment", "created", { comment: { user: { type: "User" } } }), { kind: "answer", jobId: id(8) });
+  assert.equal(wake("issue_comment", "created", { comment: { user: { type: "Bot" } } }), null);
+  assert.equal(wake("issue_comment", "created", { comment: { user: { type: "User" } } }, { pull_request: {} }), null, "a PR's comments are not answers");
+  const secret = randomBytes(16).toString("hex");
+  process.env.GITHUB_APP_WEBHOOK_SECRET = secret;
+  const { POST } = await import("../app/api/webhooks/[source]/route");
+  const ctx = { params: Promise.resolve({ source: "github" }) };
+  const hooks = (kind: string, delivery: string, signature: string) => ({
+    "x-github-event": kind,
+    "x-github-delivery": delivery,
+    "x-hub-signature-256": signature,
+  });
+  const post = (raw: string, delivery: string, signature = `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`, kind = "issues") =>
+    POST(new Request("http://panel/api/webhooks/github", { method: "POST", headers: hooks(kind, delivery, signature), body: raw }), ctx);
+  const raw = JSON.stringify({ action: "labeled", label: { name: "hive" }, ...event });
+  assert.equal((await post(raw, "gh-src-1", "sha256=00")).status, 401, "a bad signature is refused");
+  process.env.FACTORY_GITHUB_ISSUES = "";
+  assert.deepEqual(await (await post(raw, "gh-src-0")).json(), { duplicate: false, intent: null }, "switch off: the delivery wakes nothing");
+  process.env.FACTORY_GITHUB_ISSUES = "on";
+  assert.deepEqual(await (await post(raw, "gh-src-1")).json(), { duplicate: false, intent: "claim" });
+  const other = (repo: string) => JSON.stringify({ action: "labeled", label: { name: "hive" }, repository: { full_name: repo }, issue: { number: 8 } });
+  assert.equal((await (await post(other(OFF), "gh-src-2")).json()).intent, null, "a repo that is disabled wakes nothing");
+  assert.equal((await (await post(other("stranger/repo"), "gh-src-3")).json()).intent, null, "nor does one that is not registered");
+  const comment = JSON.stringify({ action: "created", comment: { user: { type: "User" } }, ...event });
+  await patch(8, { stage: "implementing" });
+  assert.equal((await (await post(comment, "gh-src-4", undefined, "issue_comment")).json()).intent, null, "a comment on a job not waiting wakes nothing");
+  await patch(8, { stage: "waiting" });
+  assert.equal((await (await post(comment, "gh-src-5", undefined, "issue_comment")).json()).intent, "answer", "a comment on a waiting job does");
   for (let n = 300; n <= 400; n++) put(DEFAULT, n);
   down = ON;
   assert.equal((await adapter.ready()).filter((d) => d.repo === DEFAULT).length, 101);
@@ -153,6 +285,8 @@ try {
   process.exitCode = 1;
 } finally {
   await db.delete(jobs).where(like(jobs.id, "github:%"));
+  await db.delete(intents).where(like(intents.id, "github:gh-src-%"));
+  await db.delete(webhookDeliveries).where(like(webhookDeliveries.delivery_id, "github:gh-src-%"));
   await db.delete(repoSettings).where(inArray(repoSettings.repo, [ON, OFF, DEFAULT, GONE]));
   process.exit(process.exitCode ?? 0);
 }

@@ -5,9 +5,9 @@ import { z } from "zod";
 import type * as schema from "../../db/schema";
 import { jobs } from "../../db/schema";
 import { attemptBranch, jobKey } from "../factory";
-import { GITHUB_API, GitHubError, githubRequest, installationTokens, type RepoName } from "../github/app";
+import { appCredentials, appJwt, GITHUB_API, GitHubError, githubRequest, installationTokens, type RepoName } from "../github/app";
 import { NO_OVERRIDES } from "../ticket-overrides";
-import type { Job as AnyJob, JobDraft, SourceAdapter } from "./types";
+import type { Job as AnyJob, JobDraft, Reply, SourceAdapter } from "./types";
 import { SourceGoneError } from "./types";
 
 type Job = AnyJob<"github">;
@@ -16,16 +16,29 @@ type Db = NodePgDatabase<typeof schema>;
 /** The switch. PR B moves it into Settings; until then it is read from the env and is off by default. */
 export const githubIssuesOn = (env: Readonly<Record<string, string | undefined>> = process.env) => env.FACTORY_GITHUB_ISSUES === "on";
 
-const issues = z.array(
-  z.object({
-    number: z.number().int(),
-    title: z.string(),
-    html_url: z.string(),
-    body: z.string().nullable(),
-    labels: z.array(z.object({ name: z.string() })),
-    pull_request: z.unknown().optional(),
-  }),
-);
+const issueSchema = z.object({
+  number: z.number().int(),
+  title: z.string(),
+  html_url: z.string(),
+  body: z.string().nullable(),
+  labels: z.array(z.object({ name: z.string() })),
+  pull_request: z.unknown().optional(),
+});
+const commentSchema = z.object({
+  id: z.number().int(),
+  body: z.string().nullable(),
+  created_at: z.string(),
+  user: z.object({ login: z.string(), type: z.string() }).nullable(),
+});
+
+/** On the issue exactly while the job waits on a person (R5). */
+const WAITING = "hive:waiting";
+/** Hive's comments carry a hidden marker, so a retry finds the one it posted and never posts it twice. */
+const mark = (kind: string, id: string) => `<!-- hive:${kind}:${id} -->`;
+const ANSWER = /^<!-- hive:answer:\S+ -->/;
+const bot = (c: z.infer<typeof commentSchema>) => c.user?.type === "Bot";
+/** Hive's own comment: the App's login wrote it and its marker opens it (a marker quoted further down, or copied by another bot, is not one). */
+const marked = (c: z.infer<typeof commentSchema>, own: string, marker: string) => c.user?.login === own && !!c.body?.startsWith(marker);
 
 export type GithubDeps = {
   /** One GitHub call as the repo's installation; a 404 throws GitHubError like any other refusal. */
@@ -33,13 +46,18 @@ export type GithubDeps = {
   db: Db;
   /** The Hive label, the one Settings → Linear holds for both sources (R16). */
   label: () => Promise<string>;
+  /** The App's own login on its comments, `<slug>[bot]`; what tells Hive's comments from another bot's. */
+  login: () => Promise<string>;
 };
 
+let appLogin: string | undefined;
 async function runtimeDeps(): Promise<GithubDeps> {
   const [{ db }, { linearSettings }] = await Promise.all([import("../../db/client"), import("../linear-settings")]);
   return {
     db,
     label: async () => (await linearSettings(db)).label,
+    login: async () =>
+      (appLogin ??= `${z.object({ slug: z.string() }).parse((await githubRequest(GITHUB_API, appJwt(appCredentials()), "GET", "/app")).json).slug}[bot]`),
     request: async (repo, method, path, body) => {
       const token = await installationTokens.get(repo as RepoName);
       try {
@@ -54,7 +72,7 @@ async function runtimeDeps(): Promise<GithubDeps> {
 
 const soft = (p: Promise<unknown>) =>
   p.catch((error) => {
-    if (error instanceof GitHubError && error.status === 404) return undefined;
+    if (error instanceof GitHubError && (error.status === 404 || error.status === 410)) return undefined;
     throw error;
   });
 
@@ -66,20 +84,62 @@ export function githubKey(repo: string, number: number) {
   return jobKey("GH", number, plain ? slug : `${slug.slice(0, 23).replace(/-+$/, "")}-h-${hash}`);
 }
 
-/** Every open issue carrying the label, a page at a time. */
-async function openIssues(d: GithubDeps, repo: string, label: string) {
-  const all: z.infer<typeof issues> = [];
+/** Every item of a list endpoint, a page at a time. */
+async function listAll<T extends z.ZodType>(d: GithubDeps, repo: string, path: string, item: T) {
+  const all: z.infer<T>[] = [];
   for (let page = 1; ; page++) {
-    const got = issues.parse(await d.request(repo, "GET", `/repos/${repo}/issues?state=open&labels=${encodeURIComponent(label)}&per_page=100&page=${page}`));
+    const got = z.array(item).parse(await d.request(repo, "GET", `${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`));
     all.push(...got);
     if (got.length < 100) return all;
   }
 }
 
+const issuePath = (job: Pick<Job, "writeback">) => `/repos/${job.writeback.repo}/issues/${job.writeback.number}`;
+const queue = new Map<string, Promise<unknown>>();
+/** Runs `work` after any earlier work under the same key in this process, so a check-then-post cannot run twice at once. */
+function serial<T>(key: string, work: () => Promise<T>): Promise<T> {
+  const run = (queue.get(key) ?? Promise.resolve()).catch(() => {}).then(work);
+  queue.set(key, run);
+  return run.finally(() => {
+    if (queue.get(key) === run) queue.delete(key);
+  });
+}
+
+/** Posts `text` under a hidden marker unless Hive's own comment with that marker is already there. */
+async function postOnce(d: GithubDeps, job: Job, marker: string, text: string) {
+  const path = `${issuePath(job)}/comments`;
+  const own = await d.login();
+  await serial(`${path}${marker}`, async () => {
+    if ((await listAll(d, job.writeback.repo, path, commentSchema)).some((c) => marked(c, own, marker))) return;
+    await d.request(job.writeback.repo, "POST", path, { body: `${marker}\n${text}` });
+  });
+}
+
+const dropLabel = (d: GithubDeps, job: Job, name: string) =>
+  soft(d.request(job.writeback.repo, "DELETE", `${issuePath(job)}/labels/${encodeURIComponent(name)}`));
+
+/** R7: only a user with write or admin permission on the repo can answer. */
+async function isWriter(d: GithubDeps, repo: string, login: string) {
+  const got = soft(d.request(repo, "GET", `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`));
+  return ["admin", "write"].includes(z.object({ permission: z.string() }).safeParse(await got).data?.permission ?? "");
+}
+
+const eventSchema = z.object({
+  event: z.string(),
+  label: z.object({ name: z.string() }).optional(),
+  actor: z.object({ login: z.string(), type: z.string() }).nullable(),
+});
+
+/** R7: the Hive label authorises the issue's body only if its latest applier has write access, or is Hive itself (its own bot login, never another bot) retrying a job it already holds. */
+async function labelledByWriter(d: GithubDeps, repo: string, number: number, label: string, retry: boolean) {
+  const events = await listAll(d, repo, `/repos/${repo}/issues/${number}/events`, eventSchema);
+  const by = events.filter((e) => e.event === "labeled" && e.label?.name.toLowerCase() === label.toLowerCase()).at(-1)?.actor;
+  return !by ? false : by.type === "Bot" ? retry && by.login === (await d.login()) : isWriter(d, repo, by.login);
+}
+
 export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>, on: () => boolean = githubIssuesOn): SourceAdapter<"github"> {
   let loaded: GithubDeps | undefined;
   const deps = async () => (loaded ??= await load());
-  const issuePath = (job: Pick<Job, "writeback">) => `/repos/${job.writeback.repo}/issues/${job.writeback.number}`;
   /** R5: the attempt's one status comment, edited in place; made once if the attempt has none yet. */
   async function setStatus(d: GithubDeps, job: Job, text: string) {
     const { repo } = job.writeback;
@@ -104,13 +164,20 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       const label = await d.label();
       const { readRegistry } = await import("../repositories");
       // Each job as it was before the poll reads GitHub: a retry is allowed only if its attempt, stage and synced event are unchanged and the failure was written back (a failure with no event id never was) (see reclaimIf).
-      const rows = await d.db.select().from(jobs).where(eq(jobs.source, "github"));
-      const seen = new Map(rows.map((j) => [j.external_id, j]));
+      const rows = await d.db
+        .select({ id: jobs.external_id, stage: jobs.stage, attempt: jobs.attempt, synced_event_id: jobs.synced_event_id })
+        .from(jobs)
+        .where(eq(jobs.source, "github"));
+      const seen = new Map(rows.map((j) => [j.id, j]));
       const drafts: JobDraft<"github">[] = [];
       for (const { repo } of (await readRegistry(d.db)).filter((r) => r.enabled)) {
         try {
-          for (const issue of (await openIssues(d, repo, label)).filter((i) => !i.pull_request)) {
+          for (const issue of (await listAll(d, repo, `/repos/${repo}/issues?state=open&labels=${encodeURIComponent(label)}`, issueSchema)).filter(
+            (i) => !i.pull_request,
+          )) {
             const was = seen.get(`${repo}#${issue.number}`);
+            // A new job, or a retry of a failed one, needs the label from someone who may file work here.
+            if ((!was || was.stage === "failed") && !(await labelledByWriter(d, repo, issue.number, label, !!was))) continue;
             drafts.push({
               externalId: `${repo}#${issue.number}`,
               key: githubKey(repo, issue.number),
@@ -135,9 +202,9 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       const again = job.attempt > 1 ? ` again (attempt ${job.attempt}, branch ${attemptBranch(job.key, job.attempt)})` : "";
       await setStatus(await deps(), job, `Hive picked this up${again}.`);
     },
-    async writeBack(job, { stage }) {
-      if (stage === "queued") return false;
+    async writeBack(job, { stage, eventId }) {
       const d = await deps();
+      if (stage === "queued") return dropLabel(d, job, WAITING).then(() => false); // an answer queues the job before it is acknowledged
       const { repo } = job.writeback;
       const label = await d.label();
       try {
@@ -147,24 +214,66 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
           [
             `Hive: **${stage}**`,
             job.pr_url && `Pull request: ${job.pr_url}`,
-            stage === "waiting" && "Waiting for an answer: reply in the Hive panel.",
+            stage === "waiting" && "Waiting for an answer: reply with a comment here (from someone with write access), or in the Hive panel.",
             stage === "failed" && `Add the \`${label}\` label again to retry.`,
           ]
             .filter(Boolean)
             .join("\n\n"),
         );
+        if (stage === "waiting") {
+          await postOnce(d, job, mark("question", eventId), `**Hive needs an answer**\n\n${job.question ?? job.stage_summary}`);
+          await d.request(repo, "POST", `${issuePath(job)}/labels`, { labels: [WAITING] });
+        } else await dropLabel(d, job, WAITING);
         // Back to unstarted without the label, so the poll does not claim it again in a loop; the label retries it.
-        if (stage === "failed") await soft(d.request(repo, "DELETE", `${issuePath(job)}/labels/${encodeURIComponent(label)}`));
+        if (stage === "failed") await dropLabel(d, job, label);
         return true;
       } catch (error) {
         if (error instanceof GitHubError && error.status === 404) throw new SourceGoneError(error.message);
         throw error;
       }
     },
-    // Questions, answers and stops arrive in later PRs: until then a waiting job waits and a running one is stopped from the panel.
-    replies: async () => ({ kind: "wait" }),
-    acknowledgeReplies: async () => {},
-    note: async () => {},
+    async replies(job) {
+      const d = await deps();
+      const { repo } = job.writeback;
+      // A deleted or transferred issue (404/410) ends the wait like a closed one, so it does not fail every pass.
+      const issue = await soft(d.request(repo, "GET", issuePath(job)));
+      if (!issue || z.object({ state: z.string() }).parse(issue).state === "closed") {
+        // The runner marks a closed job as already reported, so no write-back follows to clear its labels.
+        await Promise.all([dropLabel(d, job, WAITING), d.label().then((label) => dropLabel(d, job, label))]);
+        return { kind: "close", state: "closed" };
+      }
+      const all = await listAll(d, repo, `${issuePath(job)}/comments`, commentSchema);
+      const own = await d.login();
+      const asked = all.find((c) => job.stage_event_id && marked(c, own, mark("question", job.stage_event_id)));
+      if (!asked) return { kind: "wait" };
+      const skip = new Set([...job.source_state.factoryCommentIds, ...job.delivered_reply_ids]);
+      const after = all.filter((c) => c.id > asked.id && !skip.has(String(c.id)) && c.user);
+      const people = [...new Set(after.filter((c) => !bot(c)).map((c) => c.user!.login))];
+      const writers = new Map(await Promise.all(people.map(async (login) => [login, await isWriter(d, repo, login)] as const)));
+      // The panel posts as the App, which also posted the question: an answer is a comment from the App's login opening with the marker; any other bot is ignored.
+      const replies: Reply[] = after
+        .filter((c) => (bot(c) ? c.user!.login === own && !!c.body?.startsWith(`<!-- hive:answer:${job.stage_event_id}:`) : writers.get(c.user!.login)))
+        .map((c) => ({ id: String(c.id), body: (c.body ?? "").replace(ANSWER, "").trim(), createdAt: c.created_at }));
+      if (replies.length === 0) return { kind: "wait" };
+      return { kind: "resume", question: job.question ?? asked.body ?? "", replies, answer: replies.map((r) => r.body).join("\n\n") };
+    },
+    async acknowledgeReplies(job) {
+      await dropLabel(await deps(), job, WAITING);
+    },
+    async note(job, key, body) {
+      await postOnce(await deps(), job, mark("note", key), body);
+    },
+    async reply(job, requestId, body) {
+      const d = await deps();
+      const own = await d.login();
+      // The job waits in the database before its question is written back; the panel's answer must not precede it, and only the runner posts it.
+      const asked = (await listAll(d, job.writeback.repo, `${issuePath(job)}/comments`, commentSchema)).some((c) =>
+        marked(c, own, mark("question", job.stage_event_id ?? "")),
+      );
+      if (!asked) throw new Error("Hive has not posted the question on the issue yet; answer again in a moment.");
+      await postOnce(d, job, mark("answer", `${job.stage_event_id}:${requestId}`), body);
+    },
+    // Stops arrive in a later PR: until then a running job is stopped from the panel.
     stopWanted: async () => [],
     confirmStop: async () => ({ stop: false }),
     labels: async () => [],

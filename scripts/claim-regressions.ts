@@ -267,7 +267,7 @@ try {
         repos: async () => [REPO],
         registry: async () => [],
       }),
-      (e: Error) => !/refused by the jobs table/.test(e.message),
+      (e: Error) => /null value in column "title"/.test(String((e.cause as Error | undefined)?.message)) && !/refused by the jobs table/.test(e.message),
       "an error that is not a duplicate key is not swallowed",
     );
   } finally {

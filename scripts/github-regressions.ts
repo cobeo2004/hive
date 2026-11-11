@@ -337,7 +337,7 @@ async function setupScriptEndToEnd(api: string) {
         { url: "https://panel.invalid/api/webhooks/github", active: true },
         `${base}/callback`,
         `${base}/installed`,
-        ["pull_request", "pull_request_review", "push", "issues"],
+        ["pull_request", "pull_request_review", "push", "issues", "issue_comment"],
       ],
     );
     assert.deepEqual(manifest.default_permissions, {
