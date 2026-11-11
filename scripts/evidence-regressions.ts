@@ -118,6 +118,7 @@ assert.equal(
 assert.deepEqual(planChecks({ recipe: null, packageJson: "{not json", files: [] }).source, "none", "a broken package.json defines nothing");
 assert.deepEqual(planChecks({ recipe: null, packageJson: null, files: [] }).checks, [], "no recipe, no package.json: no checks");
 const hiveVerify = ["bun run lint", "bunx next typegen && bunx tsc --noEmit", "bun run format:check"];
+const repoVerify = ["bun install --frozen-lockfile", ...hiveVerify]; // .sstack/project.toml installs first (lesson L19)
 assert.deepEqual(
   planChecks({ verify: hiveVerify, recipe, packageJson: JSON.stringify({ scripts: { test: "vitest" } }), files: ["bun.lock"] }),
   {
@@ -134,7 +135,7 @@ assert.deepEqual(
 );
 assert.equal(planChecks({ verify: [], recipe, packageJson: null, files: [] }).source, "recipe", "an empty verify list falls back to the recipe");
 const projectToml = readFileSync(join(import.meta.dirname, "../.sstack/project.toml"), "utf8");
-assert.deepEqual(readVerify(projectToml), hiveVerify, "this repo's verify list");
+assert.deepEqual(readVerify(projectToml), repoVerify, "this repo's verify list");
 assert.deepEqual(readVerify(`verify = ['a "b"', "c \\"d\\"",] # x\n[t]\nverify = ["no"]`), ['a "b"', 'c "d"'], "quotes, a trailing comma and a later table");
 assert.equal(readVerify(`[t]\nverify = ["nested"]`), null, "a verify inside a table is not the list");
 assert.equal(readVerify(`notes = """\nverify = ["true"]\n"""\n`), null, "a verify line inside a multi-line string is not the list");
@@ -295,7 +296,7 @@ assert.deepEqual(await rebuildRepoImage(deps(null), { repo: REPO }), { ok: true 
 assert.deepEqual(
   saved,
   [
-    [REPO, hiveVerify],
+    [REPO, repoVerify],
     [REPO, null],
   ],
   "main's list is recorded; no project.toml drops it",
