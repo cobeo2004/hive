@@ -67,12 +67,34 @@ function Nav({
   const fade = cn("transition-opacity duration-150", collapsed && "pointer-events-none opacity-0");
   return (
     <div className="flex h-full min-h-0 flex-col whitespace-nowrap">
-      <div className="flex shrink-0 items-center gap-2.5 px-3.5 pt-3 pb-2.5">
+      <div className={cn("flex shrink-0 items-center gap-2.5 px-3.5 pt-3 pb-2.5", collapsed && "flex-col gap-2 px-0")}>
         <svg viewBox="0 0 24 24" aria-hidden="true" className="size-[18px] shrink-0">
           <path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="var(--lime)" />
         </svg>
-        <b className={cn("text-[15px] font-bold tracking-tight text-foreground", fade)}>Hive</b>
-        <span className={cn("rounded-md border px-1.5 text-[11px] font-semibold text-muted-foreground", fade)}>Unibuz</span>
+        <b className={cn("text-[15px] font-bold tracking-tight text-foreground", fade, collapsed && "hidden")}>Hive</b>
+        <span className={cn("rounded-md border px-1.5 text-[11px] font-semibold text-muted-foreground", fade, collapsed && "hidden")}>Unibuz</span>
+        {onToggle && (
+          <RailTip
+            collapsed
+            label={
+              <span className="flex items-center gap-1.5">
+                {collapsed ? "Expand" : "Collapse"}
+                <Kbd>[</Kbd>
+              </span>
+            }
+          >
+            <Button
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!collapsed}
+              className={cn(!collapsed && "ms-auto -me-1.5")}
+              onClick={onToggle}
+              size="icon-sm"
+              variant="ghost"
+            >
+              <PanelLeftIcon />
+            </Button>
+          </RailTip>
+        )}
       </div>
       <nav aria-label="Panel" data-collapsed={collapsed || undefined} className="flex shrink-0 flex-col gap-4 overflow-x-hidden border-b px-1.5 pt-1 pb-2">
         {NAV.map((group) => (
@@ -117,28 +139,9 @@ function Nav({
         {sidebar}
       </div>
       {collapsed && <div className="flex-1" />}
-      {/* The rail toggle keeps the bottom-left corner in both states; the theme menu sits beside it, or above it when collapsed. */}
-      <div className="relative flex h-12 shrink-0 items-center gap-1 border-t px-1.5">
-        {onToggle && (
-          <RailTip
-            collapsed
-            label={
-              <span className="flex items-center gap-1.5">
-                {collapsed ? "Expand" : "Collapse"}
-                <Kbd>[</Kbd>
-              </span>
-            }
-          >
-            <Button aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={onToggle} size="icon-sm" variant="ghost">
-              <PanelLeftIcon />
-            </Button>
-          </RailTip>
-        )}
-        <div className={cn("flex min-w-0 items-center gap-1", collapsed && "absolute bottom-full left-1.5 mb-1.5 flex-col")}>
-          <ThemeToggle />
-          <UserMenu user={user} />
-          <span className={cn("min-w-0 truncate text-xs text-foreground", collapsed && "hidden")}>{user.name}</span>
-        </div>
+      <div className={cn("flex h-12 shrink-0 items-center gap-1 border-t px-1.5", collapsed && "justify-center px-0")}>
+        <UserMenu user={user} />
+        <span className={cn("min-w-0 truncate text-xs text-foreground", collapsed && "hidden")}>{user.name}</span>
       </div>
     </div>
   );
@@ -168,6 +171,9 @@ function Crumbs({ onMenu }: { onMenu: () => void }) {
           )}
         </span>
       ))}
+      <div className="ms-auto">
+        <ThemeToggle />
+      </div>
     </nav>
   );
 }

@@ -13,7 +13,7 @@ export function ThemeToggle() {
         <SunIcon className="scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
         <MoonIcon className="absolute scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
       </MenuTrigger>
-      <MenuPopup align="start" side="top">
+      <MenuPopup align="end" side="bottom">
         <MenuGroup>
           <MenuRadioGroup value={theme} onValueChange={setTheme}>
             <MenuRadioItem value="light" closeOnClick>
