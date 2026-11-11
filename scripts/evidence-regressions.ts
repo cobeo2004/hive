@@ -336,6 +336,21 @@ assert.match(
   /couldn't be compared/,
   "a head with a fake scripts block first is a handover",
 );
+// bun runs the first `"t"`, JSON.parse keeps the last: a non-string value anywhere is ambiguous, not "no script".
+assert.equal(scriptsOf('{"scripts":{"t":"echo A","t":null}}'), null, "a null duplicate script");
+assert.equal(scriptsOf('{"scripts":{"t":"echo A","t":1}}'), null, "a number duplicate script");
+assert.equal(scriptsOf('{"scripts":{"t":{"a":1}}}'), null, "an object script");
+assert.equal(scriptsOf('{"scripts":[]}'), null, "scripts as an array");
+assert.equal(scriptsOf('{"scripts":"x"}'), null, "scripts as a string");
+assert.deepEqual(scriptsOf('{"name":"demo"}'), {}, "no scripts key is no scripts");
+assert.match(
+  edits(["package.json"], scripts(), scriptsOf('{"scripts":{"t":"echo A","t":null}}'))[0]!,
+  /couldn't be compared/,
+  "a head with a null duplicate script is a handover",
+);
+assert.deepEqual(edits([".npmrc"]), ["The pull request edits .npmrc, which changes how the factory's check scripts run."], "a root .npmrc");
+assert.deepEqual(edits(["bunfig.toml"]), ["The pull request edits bunfig.toml, which changes how the factory's check scripts run."], "a root bunfig.toml");
+assert.deepEqual(edits(["packages/a/.npmrc", "packages/a/bunfig.toml"]), [], "nested config isn't matched by the root rule");
 assert.deepEqual(edits(["packages/app/package.json"]), [
   "The pull request edits a nested package.json (packages/app/package.json), whose scripts the factory can't compare.",
 ]);

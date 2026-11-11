@@ -9,18 +9,22 @@ import { RECIPE_PATH } from "./recipe";
 
 const WORKFLOWS = [".github/workflows/**"];
 const PACKAGE_JSON = "package.json";
+const ROOT_CONFIG = [".npmrc", "bunfig.toml"];
 
 export type Scripts = Readonly<Record<string, string>>;
 
-/** The string-valued `scripts` of a package.json text; null when it is missing, not JSON or ambiguous. */
+/** The `scripts` of a package.json text; null when it isn't JSON, is ambiguous or holds anything but string scripts. */
 export function scriptsOf(packageJson: string | null): Scripts | null {
   if (packageJson === null) return null;
   // JSON.parse keeps the last duplicate key but bun runs the first, so a second `scripts` block (or a
   // `\u`-escaped spelling of one) could hide the scripts that really run. Over-matching only hands over.
   if ((packageJson.match(/"scripts"/g) ?? []).length > 1 || /\\u/.test(packageJson)) return null;
   try {
-    const scripts = (JSON.parse(packageJson) as { scripts?: Record<string, unknown> } | null)?.scripts ?? {};
-    return Object.fromEntries(Object.entries(scripts).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+    const scripts: unknown = (JSON.parse(packageJson) as { scripts?: unknown } | null)?.scripts ?? {};
+    // A non-string value (`"t": null` after `"t": "echo A"`) means a duplicate key JSON.parse and bun read differently.
+    if (typeof scripts !== "object" || scripts === null || Array.isArray(scripts)) return null;
+    const values = Object.values(scripts);
+    return values.every((value) => typeof value === "string") ? (scripts as Scripts) : null;
   } catch {
     return null;
   }
@@ -38,6 +42,7 @@ export function trustedEdits({ files, base, head }: { files: readonly string[]; 
     reasons.push(
       `The pull request edits CI workflows (${workflows.slice(0, 3).join(", ")}${workflows.length > 3 ? ` and ${workflows.length - 3} more` : ""}).`,
     );
+  for (const file of ROOT_CONFIG) if (files.includes(file)) reasons.push(`The pull request edits ${file}, which changes how the factory's check scripts run.`);
   for (const file of files)
     if (file !== PACKAGE_JSON && file.split("/").pop() === PACKAGE_JSON)
       reasons.push(`The pull request edits a nested package.json (${file}), whose scripts the factory can't compare.`);
