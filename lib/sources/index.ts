@@ -4,6 +4,7 @@ import { linear } from "./linear";
 import { isRegisteredSource, jobId, SOURCE_SHAPES, type SourceShape } from "./shapes";
 import type { Job, JobSource, SourceAdapter } from "./types";
 
+export { syncGithubLabelsNow } from "./github-labels";
 export { jobId } from "./shapes";
 
 // The runner, the panel and the ingest function reach a source only through its adapter, by the

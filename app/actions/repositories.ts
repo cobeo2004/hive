@@ -5,6 +5,7 @@ import { machines } from "@/db/schema";
 import { currentUser } from "@/lib/auth/server";
 import type { RepoName } from "@/lib/github/app";
 import { installationRepos } from "@/lib/github/installation";
+import { sourcesOn } from "@/lib/job-sources";
 import { github } from "@/lib/github/pulls";
 import { reportedHarnesses } from "@/lib/machine";
 import { modalEnvConfigured, modalSecretStore } from "@/lib/modal-secrets";
@@ -30,7 +31,7 @@ import {
   type DefaultRepoInput,
   type RepositoryInput,
 } from "@/lib/repositories";
-import { panelSource } from "@/lib/sources";
+import { panelSource, syncGithubLabelsNow } from "@/lib/sources";
 
 const user = currentUser;
 const registry = () => readRegistry(db);
@@ -64,7 +65,12 @@ export async function addRepository(input: { repo: string }) {
       registry,
       installable,
       create: (repo, by) => writeNewRepository(db, repo, by, new Date()),
-      syncLabels: (groups) => panelSource().panelSyncLabelGroups!(groups),
+      syncLabels: async (groups) => {
+        // Linear's Repository label only where Linear is a source (R14); GitHub's labels only where it is (R15).
+        const linear = (await sourcesOn(db)).linear ? await panelSource().panelSyncLabelGroups!(groups) : { team: "", created: [], problems: [] };
+        const github = await syncGithubLabelsNow(db).catch((error) => [`GitHub labels: ${error instanceof Error ? error.message : String(error)}`]);
+        return { ...linear, problems: [...linear.problems, ...github] };
+      },
     },
     input,
   );
