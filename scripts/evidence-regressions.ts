@@ -24,7 +24,7 @@ const { github } = await import("../lib/github/pulls");
 const { evidenceLine, headEvidence, outputTail, parseSummary, planChecks } = await import("../lib/evidence");
 const { writeRepoAutonomy } = await import("../lib/settings");
 const { trustedEdits } = await import("../lib/trusted-checks");
-const { readVerify, scanVerify } = await import("../lib/sstack-verify");
+const { readVerify } = await import("../lib/sstack-verify");
 const { rebuildRepoImage, writeVerify } = await import("../lib/repo-onboarding");
 const { decideMerges, requiredChecks } = await import("../runner/merge-decision");
 const { forgetVerifications, runnerVerification, startVerification, verificationsSettled, verifyAtHead, verifyingKeys, verifyRuntime } = await import(
@@ -134,23 +134,16 @@ assert.deepEqual(
 );
 assert.equal(planChecks({ verify: [], recipe, packageJson: null, files: [] }).source, "recipe", "an empty verify list falls back to the recipe");
 const projectToml = readFileSync(join(import.meta.dirname, "../.sstack/project.toml"), "utf8");
-assert.deepEqual(readVerify(projectToml), hiveVerify, "Bun.TOML reads this repo's verify list");
-assert.deepEqual(scanVerify(projectToml), hiveVerify, "the panel's scanner reads it the same");
-assert.deepEqual(scanVerify(`verify = ['a "b"', "c \\"d\\"",] # x\n[t]\nverify = ["no"]`), ['a "b"', 'c "d"'], "quotes, a trailing comma and a later table");
-assert.equal(scanVerify(`brief = "x"\n[t]\nverify = ["nested"]`), null, "a verify inside a table is not the list");
-assert.equal(scanVerify(`notes = """\nverify = ["true"]\n"""\n`), null, "a verify line inside a multi-line string is not the list");
-assert.equal(scanVerify(`notes = '''\nverify = ["true"]\n'''\n`), null, "nor inside a literal multi-line string");
-for (const [toml, list] of [
-  [`notes = """\nverify = ["true"]\n"""\nverify = ["false"]`, ["false"]],
-  [`notes = """\nx\n"""\nverify = ["true"]`, ["true"]],
-  [`notes = '''\nx\n'''\nverify = ["true"]`, ["true"]],
-] as const) {
-  assert.deepEqual(scanVerify(toml), list, "the list after a multi-line string is still read");
-  assert.deepEqual(scanVerify(toml), readVerify(toml), "and the scanner agrees with Bun.TOML");
-}
-assert.equal(scanVerify(`notes = """\nverify = ["true"]`), null, "an unterminated multi-line string fails safe");
-assert.equal(scanVerify(`verify = ["a\\e"]`), null, "an escape JSON doesn't know fails safe instead of throwing");
-assert.deepEqual(scanVerify(`verify = ["a\\tb\\u0041"]`), ["a\tbA"], "escapes decode");
+assert.deepEqual(readVerify(projectToml), hiveVerify, "this repo's verify list");
+assert.deepEqual(readVerify(`verify = ['a "b"', "c \\"d\\"",] # x\n[t]\nverify = ["no"]`), ['a "b"', 'c "d"'], "quotes, a trailing comma and a later table");
+assert.equal(readVerify(`[t]\nverify = ["nested"]`), null, "a verify inside a table is not the list");
+assert.equal(readVerify(`notes = """\nverify = ["true"]\n"""\n`), null, "a verify line inside a multi-line string is not the list");
+assert.equal(readVerify(`notes = '''\nverify = ["true"]\n'''\n`), null, "nor inside a literal multi-line string");
+assert.deepEqual(readVerify(`notes = """\nverify = ["true"]\n"""\nverify = ["false"]`), ["false"], "the list after a multi-line string");
+// the review's decoy: an escaped triple quote does not end the string, so the first verify is text
+assert.deepEqual(readVerify('notes = """a \\""" \nverify = ["true"]\n\\""" b"""\nverify = ["false"]'), ["false"], "an escaped triple quote");
+assert.equal(readVerify("verify = ["), null, "invalid TOML");
+assert.equal(readVerify("verify = [1]"), null, "not strings");
 
 // --- redaction
 const secretValue = "s3cr3t-value-0123456789";
@@ -315,6 +308,30 @@ for (const command of ["bun --silent run verify-ci", "bun run --silent verify-ci
     1,
     `flags don't hide the script a verify command runs: ${command}`,
   );
+const flip = (verify: string[], name = "format:check") =>
+  trustedEdits({ files: ["package.json"], required: null, verify, base: { [name]: "false" }, head: { [name]: "true" } });
+for (const command of ['bun run format:""check', 'bun run "format:check"', "bun run 'format':check"]) {
+  const reasons = flip([command]);
+  assert.equal(reasons.length, 1, `quoting doesn't hide the script: ${command}`);
+  assert.match(reasons[0]!, /scripts\.format:check/);
+}
+assert.match(flip(["bun run lint && bun run typecheck"], "lint")[0]!, /scripts\.lint\./, "a compound command is split");
+const hiveScripts = { lint: "eslint .", dev: "next dev", "format:check": "prettier --check ." };
+const hiveEdit = (name: string) =>
+  trustedEdits({ files: ["package.json"], required: null, verify: hiveVerify, base: hiveScripts, head: { ...hiveScripts, [name]: "true" } });
+assert.match(hiveEdit("lint")[0]!, /scripts\.lint\./, "this repo's verify list sees lint");
+assert.deepEqual(hiveEdit("dev"), [], "and not dev");
+for (const command of ["bun run $X", "bun run `x`", "bun run $(echo test)", "bun run a\nbun run b", 'bun run "fmt:*"', 'bun run "unterminated']) {
+  const reasons = flip([command], "x");
+  assert.equal(reasons.length, 1, `unreadable: ${JSON.stringify(command)}`);
+  assert.match(reasons[0]!, /can't be read to tell which scripts it runs/);
+}
+assert.deepEqual(
+  trustedEdits({ files: ["src/a.ts"], required: null, verify: ["bun run $X"], base: {}, head: {} }),
+  [],
+  "an unreadable command only matters when package.json is edited",
+);
+assert.match(flip(["echo test"], "test")[0]!, /scripts\.test\./, "over-matching only hands over more");
 const scripts = (over: Record<string, string> = {}) => ({ test: "vitest", lint: "eslint .", dev: "next dev", ...over });
 const recipeChecks = [{ name: "test" as const, command: "bun run test" }];
 const edits = (

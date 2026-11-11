@@ -23,19 +23,51 @@ export function scriptsOf(packageJson: string | null): Scripts | null {
   }
 }
 
-// ponytail: any word that names a script counts as running it. It over-matches (`echo test`), which
-// only hands over more; parsing each package manager's flags is what let `bun run --silent x` slip by.
-const WORD = /[\w][\w:.-]*/g;
-
 /**
- * The scripts the commands may run in any of these versions, following one script calling another.
- * A script only the head has counts too, so adding one is as visible as changing one.
+ * A command as POSIX-style argv tokens: adjacent quoted and bare pieces join (`format:""check` is
+ * `format:check`), and unquoted whitespace, `&`, `;` and `|` end a token. null when it can't be read
+ * statically: a backslash, backtick, `$`, newline, glob character, unquoted `()<>` or an open quote.
  */
-export function usedScripts(commands: readonly string[], ...versions: readonly Scripts[]): string[] {
+export function tokenize(command: string): string[] | null {
+  if (/[\\`$\n\r*?]/.test(command)) return null;
+  const tokens: string[] = [];
+  let token = "";
+  const end = () => {
+    if (token) tokens.push(token);
+    token = "";
+  };
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!;
+    if (c === "'" || c === '"') {
+      const close = command.indexOf(c, i + 1);
+      if (close === -1) return null;
+      token += command.slice(i + 1, close);
+      i = close;
+    } else if (/[\s&;|]/.test(c)) end();
+    else if (/[()<>]/.test(c)) return null;
+    else token += c;
+  }
+  end();
+  return tokens;
+}
+
+// ponytail: any token that names a script counts as running it. It over-matches (`echo test`), which
+// only hands over more; parsing each package manager's flags is what let `bun run --silent x` slip by.
+/**
+ * The scripts the commands may run in any of these versions, following one script calling another
+ * (head-only scripts count, so adding one is as visible as changing one), and the unreadable commands.
+ */
+export function usedScripts(commands: readonly string[], ...versions: readonly Scripts[]): { used: string[]; unreadable: string[] } {
   const used = new Set<string>();
+  const unreadable: string[] = [];
   const queue = [...commands];
   for (let command = queue.pop(); command !== undefined; command = queue.pop()) {
-    for (const [name] of command.matchAll(WORD)) {
+    const parsed = tokenize(command);
+    if (!parsed) {
+      unreadable.push(command);
+      continue;
+    }
+    for (const name of parsed) {
       if (used.has(name)) continue;
       const bodies = versions.flatMap((scripts) => (Object.hasOwn(scripts, name) ? [scripts[name]!] : []));
       if (bodies.length === 0) continue;
@@ -43,7 +75,7 @@ export function usedScripts(commands: readonly string[], ...versions: readonly S
       queue.push(...bodies);
     }
   }
-  return [...used].sort();
+  return { used: [...used].sort(), unreadable };
 }
 
 /**
@@ -76,9 +108,13 @@ export function trustedEdits({
     if (!base || !head) reasons.push("The pull request edits package.json, and its scripts couldn't be compared with the base branch's.");
     else {
       const commands = [...(required ? required.map((c) => c.command) : CHECKS.map((name) => `bun run ${name}`)), ...(verify ?? [])];
-      const changed = usedScripts(commands, base, head).filter((name) => base[name] !== head[name]);
+      const { used, unreadable } = usedScripts(commands, base, head);
+      const changed = used.filter((name) => base[name] !== head[name]);
       if (changed.length > 0)
         reasons.push(`The pull request edits the check scripts the factory trusts: ${changed.map((name) => `package.json scripts.${name}`).join(", ")}.`);
+      const list = unreadable.slice(0, 3).map((c) => `\`${c}\``);
+      if (list.length > 0)
+        reasons.push(`The pull request edits package.json, and the check command ${list.join(", ")} can't be read to tell which scripts it runs.`);
     }
   }
   return reasons;
