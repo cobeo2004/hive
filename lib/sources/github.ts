@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { join } from "node:path";
+import { eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type * as schema from "../../db/schema";
 import { jobs } from "../../db/schema";
 import { attemptBranch, jobKey } from "../factory";
 import { appCredentials, appJwt, GITHUB_API, GitHubError, githubRequest, installationTokens, type RepoName } from "../github/app";
-import { NO_OVERRIDES } from "../ticket-overrides";
+import { forbidInTest } from "../test-mode";
+import type { SourceOverrides } from "../ticket-overrides";
+import { ATTACHMENTS_DIR, GITHUB_IMAGE, localizeLinearImages } from "./linear";
 import type { Job as AnyJob, JobDraft, Reply, SourceAdapter } from "./types";
 import { SourceGoneError } from "./types";
 
@@ -23,6 +26,8 @@ const issueSchema = z.object({
   body: z.string().nullable(),
   labels: z.array(z.object({ name: z.string() })),
   pull_request: z.unknown().optional(),
+  user: z.object({ login: z.string(), type: z.string() }).nullish(),
+  assignees: z.array(z.object({ login: z.string(), type: z.string() })).default([]),
 });
 const commentSchema = z.object({
   id: z.number().int(),
@@ -48,6 +53,9 @@ export type GithubDeps = {
   label: () => Promise<string>;
   /** The App's own login on its comments, `<slug>[bot]`; what tells Hive's comments from another bot's. */
   login: () => Promise<string>;
+  /** R11: an installation token for the repo, and the fetch that downloads an issue's attachments with it. */
+  token: (repo: string) => Promise<string>;
+  fetch: typeof fetch;
 };
 
 let appLogin: string | undefined;
@@ -58,6 +66,11 @@ async function runtimeDeps(): Promise<GithubDeps> {
     label: async () => (await linearSettings(db)).label,
     login: async () =>
       (appLogin ??= `${z.object({ slug: z.string() }).parse((await githubRequest(GITHUB_API, appJwt(appCredentials()), "GET", "/app")).json).slug}[bot]`),
+    token: (repo) => installationTokens.get(repo as RepoName),
+    fetch: (input, init) => {
+      forbidInTest("GitHub's attachment host");
+      return fetch(input, init);
+    },
     request: async (repo, method, path, body) => {
       const token = await installationTokens.get(repo as RepoName);
       try {
@@ -140,6 +153,26 @@ async function labelledByWriter(d: GithubDeps, repo: string, number: number, lab
   return !by ? false : by.type === "Bot" ? retry && by.login === (await d.login()) : isWriter(d, repo, by.login);
 }
 
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+/** R9: `harness:<name>` and `runs-on:<name>` labels. A job always runs in its own repo (R2), so there is no repository override. */
+const labelled = (labels: string[], prefix: string) => labels.filter((l) => l.toLowerCase().startsWith(prefix)).map((l) => l.slice(prefix.length).trim());
+
+/** R8: a person's public profile email, the only one GitHub shows. A bot, a hidden email or a failed lookup gives no owner hint, never a failed poll. */
+async function publicEmail(d: GithubDeps, repo: string, who?: { login: string; type: string } | null) {
+  if (!who || who.type === "Bot") return null;
+  const got = await soft(d.request(repo, "GET", `/users/${encodeURIComponent(who.login)}`)).catch(() => undefined);
+  return z.object({ email: z.string().nullable() }).safeParse(got).data?.email ?? null;
+}
+
+/** Why the issue should stop being Hive's, or undefined while it still is; `merged` says the job's PR merged (a merge closes the issue it fixes, which is not a stop). */
+const DELETED = "the issue was deleted in GitHub";
+const stopReason = (issue: unknown, label: string, merged: boolean) => {
+  const got = z.object({ state: z.string(), labels: z.array(z.object({ name: z.string() })) }).safeParse(issue).data;
+  if (!got) return DELETED;
+  if (got.state === "closed") return merged ? undefined : "the issue was closed in GitHub";
+  return got.labels.some((l) => same(l.name, label)) ? undefined : `the ${label} label was removed in GitHub`;
+};
+
 export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>, on: () => boolean = githubIssuesOn): SourceAdapter<"github"> {
   let loaded: GithubDeps | undefined;
   const deps = async () => (loaded ??= await load());
@@ -147,9 +180,11 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
   let pausedUntil = 0;
   /** Issues already told their repo is off: one note each, remembered for this process (a restart reads the issue's comments once more, and finds the note). */
   const declined = new Set<string>();
-  /** An issue labelled in a repo Hive has switched off gets one note saying so. A locked or deleted issue must not fail the poll, so it is tried once. */
-  async function declineOnce(d: GithubDeps, repo: string, number: number, why: string, text: string) {
-    if (declined.has(`${repo}#${number}:${why}`)) return;
+  /** A disabled repo that could not be read (no installation) is not tried again for a while: each try mints a token. */
+  const idle = new Map<string, number>();
+  /** An issue labelled in a repo Hive has switched off gets one note saying so, if someone who may file work here put the label on. A locked or deleted issue must not fail the poll, so it is tried once. */
+  async function declineOnce(d: GithubDeps, repo: string, number: number, why: string, text: string, by?: () => Promise<boolean>) {
+    if (declined.has(`${repo}#${number}:${why}`) || (by && !(await by()))) return;
     declined.add(`${repo}#${number}:${why}`);
     await postOnce(d, { writeback: { kind: "github", repo, number } }, mark("declined", why), text).catch((error) =>
       console.error("github: decline note failed", repo, number, error),
@@ -196,6 +231,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       const registry = await readRegistry(d.db);
       const failed: string[] = [];
       for (const { repo, enabled } of registry) {
+        if (!enabled && Date.now() < (idle.get(repo) ?? 0)) continue;
         try {
           for (const issue of (await listAll(d, repo, `/repos/${repo}/issues?state=open&labels=${encodeURIComponent(label)}`, issueSchema)).filter(
             (i) => !i.pull_request,
@@ -209,6 +245,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
                   issue.number,
                   "disabled",
                   `Hive will not run this: ${repo} is not enabled in Hive. Enabling the repository is enough; the next poll picks this issue up.`,
+                  () => labelledByWriter(d, repo, issue.number, label, false),
                 );
               continue;
             }
@@ -222,13 +259,16 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
               description: issue.body,
               writeback: { kind: "github", repo, number: issue.number },
               sourceState: { labels: issue.labels.map((l) => l.name) },
+              // R8: only a new job takes an owner (the first insert sets it); a retry skips the lookups.
+              ...(!was && { owner: { assigneeEmail: await publicEmail(d, repo, issue.assignees[0]), creatorEmail: await publicEmail(d, repo, issue.user) } }),
               repo, // R2: the claim refuses it rather than route it elsewhere
               reclaimIf: sql`${jobs.stage}::text is not distinct from ${was?.stage ?? null} and ${jobs.attempt} is not distinct from ${was?.attempt ?? null}::int and ${jobs.synced_event_id} is not distinct from ${was?.synced_event_id ?? null}::text and ${jobs.synced_event_id} = ${jobs.stage_event_id}`,
             });
           }
         } catch (error) {
           // One repo's outage (a revoked installation) must not stop intake from the others.
-          if (enabled) console.error("github: could not read issues of", repo, error); // a disabled repo may have no installation: not worth a line every poll
+          if (enabled) console.error("github: could not read issues of", repo, error);
+          else idle.set(repo, Date.now() + 10 * 60_000); // a disabled repo may have no installation: not worth a line, or a token, every poll
           if (error instanceof GitHubError && error.retryAfterMs) {
             pausedUntil = Date.now() + error.retryAfterMs;
             break;
@@ -318,36 +358,56 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
         marked(c, own, mark("question", job.stage_event_id ?? "")),
       );
       if (!asked) throw new Error("Hive has not posted the question on the issue yet; answer again in a moment.");
-      // The request is noted in the row first. A claim already held proves nothing was posted (its holder may have died before the POST, or failed it), so the marker check below still decides; only the holder gives the claim back on a failed post.
-      const key = `${job.stage_event_id}:${requestId}`;
-      const requests = sql`coalesce(${jobs.source_state}->'answerRequests', '[]'::jsonb)`;
-      const held = sql`to_jsonb(${key}::text)`;
-      const claimed = await d.db
-        .update(jobs)
-        .set({ source_state: sql`jsonb_set(${jobs.source_state}, '{answerRequests}', ${requests} || ${held})` })
-        .where(and(eq(jobs.id, job.id), sql`not (${requests} @> ${held})`))
-        .returning({ id: jobs.id });
-      try {
-        await postOnce(d, job, mark("answer", key), body);
-      } catch (error) {
-        if (claimed.length > 0)
-          await d.db
-            .update(jobs)
-            .set({ source_state: sql`jsonb_set(${jobs.source_state}, '{answerRequests}', ${requests} - ${key}::text)` })
-            .where(eq(jobs.id, job.id));
-        throw error;
-      }
+      await postOnce(d, job, mark("answer", `${job.stage_event_id}:${requestId}`), body);
     },
-    // Stops arrive in a later PR: until then a running job is stopped from the panel.
-    stopWanted: async () => [],
-    confirmStop: async () => ({ stop: false }),
+    // R12: a closed issue or a removed Hive label takes the job away; a missed webhook is caught by the poll.
+    async stopWanted(open) {
+      const d = await deps();
+      const label = await d.label();
+      const wanted = await Promise.all(
+        open.map(async (job) => {
+          const issue = await soft(d.request(job.writeback.repo, "GET", issuePath(job)));
+          const prNumber = job.pr_url?.match(/\/pull\/(\d+)/)?.[1];
+          const closed = z.object({ state: z.literal("closed") }).safeParse(issue).success;
+          const merged =
+            closed &&
+            !!prNumber &&
+            z.object({ merged: z.boolean() }).safeParse(await soft(d.request(job.writeback.repo, "GET", `/repos/${job.writeback.repo}/pulls/${prNumber}`))).data
+              ?.merged === true;
+          const reason = stopReason(issue, label, merged);
+          return reason ? { job, reason } : undefined;
+        }),
+      );
+      return wanted.filter((w) => !!w);
+    },
+    async confirmStop(externalId) {
+      const d = await deps();
+      const at = externalId.lastIndexOf("#");
+      const issue = await soft(d.request(externalId.slice(0, at), "GET", `/repos/${externalId.slice(0, at)}/issues/${externalId.slice(at + 1)}`));
+      // Still open (the label came off): reopen then clears the job's waiting label.
+      return stopReason(issue, await d.label(), false)
+        ? { stop: true, reopen: z.object({ state: z.literal("open") }).safeParse(issue).success }
+        : { stop: false };
+    },
     labels: async () => [],
-    async reopen() {},
+    reopen: async (job) => void (await dropLabel(await deps(), job, WAITING)),
     async requeue(job) {
       const d = await deps();
       await d.request(job.writeback.repo, "POST", `${issuePath(job)}/labels`, { labels: [await d.label()] });
     },
-    overrides: () => NO_OVERRIDES,
+    overrides: (state): SourceOverrides => ({ harness: labelled(state.labels, "harness:"), runsOn: labelled(state.labels, "runs-on:"), repository: [] }),
+    async localizeImages(job, text) {
+      const d = await deps();
+      const [row] = await d.db.select({ writeback: jobs.writeback }).from(jobs).where(eq(jobs.key, job.key));
+      const repo = z.object({ repo: z.string() }).safeParse(row?.writeback).data?.repo;
+      if (!repo) return text;
+      return localizeLinearImages(text, {
+        apiKey: `Bearer ${await d.token(repo)}`,
+        pattern: GITHUB_IMAGE,
+        dir: join(/* turbopackIgnore: true */ ATTACHMENTS_DIR, job.key),
+        fetch: d.fetch,
+      });
+    },
     issueBlock(job) {
       // The title is as untrusted as the body: both go inside the fence.
       const body = `Title: ${job.title}\n\n${job.description?.trim() || "(The issue has no description.)"}`;
