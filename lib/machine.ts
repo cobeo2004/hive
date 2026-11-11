@@ -10,6 +10,8 @@ export const heartbeatSchema = z.object({
   memory: known(z.object({ usedBytes: z.number().nonnegative(), totalBytes: z.number().positive() })),
   disk: known(z.object({ freeBytes: z.number().nonnegative(), totalBytes: z.number().positive() })),
   capacity: known(z.object({ max: z.number().int().positive(), inFlight: z.number().int().nonnegative() })),
+  /** The Hive `~/.sstack` defaults this runner applied (their sha) or why it could not; absent before runners reported it. */
+  sstackDefaults: known(z.union([z.object({ sha: z.string() }), z.object({ error: z.string() })])).optional(),
 });
 export type Heartbeat = z.infer<typeof heartbeatSchema>;
 
@@ -134,9 +136,10 @@ export const parseHeartbeat = (value: unknown): Heartbeat | null => {
   if (typeof value !== "object" || value === null) return null;
   const fields = value as Record<string, unknown>;
   return Object.fromEntries(
-    Object.entries(heartbeatSchema.shape).map(([key, schema]) => {
+    Object.entries(heartbeatSchema.shape).flatMap(([key, schema]) => {
       const parsed = schema.safeParse(fields[key]);
-      return [key, parsed.success ? parsed.data : UNKNOWN];
+      const value = parsed.success ? parsed.data : UNKNOWN;
+      return value === undefined ? [] : [[key, value]]; // an optional field that is absent stays absent
     }),
   ) as Heartbeat;
 };

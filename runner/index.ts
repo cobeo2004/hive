@@ -32,6 +32,7 @@ const { syncOverrideLabels } = await import("./overrides");
 const { baseImageIdle, rebuildBaseImage, stopBaseImage } = await import("./base-image");
 const { advanceOnboarding, onboardRepo, repoPushed, requestRebuild } = await import("./onboarding");
 const { pollClaudeUsage } = await import("./account-usage");
+const { syncDefaults } = await import("./sstack-defaults");
 const { repoPushDetailSchema } = await import("../lib/webhooks");
 const { notifySlack, sendSlackTest, slackFromEnv } = await import("./slack");
 const { keepListening } = await import("./realtime");
@@ -222,6 +223,8 @@ async function tick() {
     stopsConfirmed: await isolated(() => confirmStops()),
     pairingsExpired: await isolated(expirePairings),
     synced: await isolated(writeBackPass),
+    // Applies the Hive ~/.sstack defaults once doctor accepts them here; a second tick writes nothing.
+    defaultsSynced: await isolated(syncDefaults),
     // Starts a rebuild when the pins drifted and returns; the build runs beside the queue.
     baseImage: await isolated(async () =>
       rebuildBaseImage({

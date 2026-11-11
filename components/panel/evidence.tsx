@@ -7,6 +7,7 @@ import {
   CHECK_NAME_LABELS,
   formatDuration,
   parseSummary,
+  CHECK_SOURCE_LABELS,
   PRODUCER_LABELS,
   shortSha,
   type EvidenceCheck,
@@ -70,7 +71,7 @@ function CheckItem({ check }: { check: CheckRow }) {
 function provenance(row: { producer: EvidenceSummary["producer"]; source: EvidenceSummary["source"]; clean: boolean }) {
   return [
     `Run by ${PRODUCER_LABELS[row.producer]}`,
-    row.source === "recipe" ? "recipe checks" : row.source === "package" ? "package.json scripts" : "no checks found",
+    CHECK_SOURCE_LABELS[row.source],
     !row.clean && "uncommitted changes, so it proves nothing about the commit",
   ]
     .filter(Boolean)

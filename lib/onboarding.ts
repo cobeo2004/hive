@@ -69,6 +69,8 @@ export const onboardingDetailSchema = z.object({
   /** Where the recipe came from: the repo's main, or an agent's PR not merged yet. */
   recipeSource: z.enum(["committed", "agent"]).optional(),
   recipePr: z.string().optional(),
+  /** The trusted .sstack/project.toml verify list, recorded at onboarding or by an admin's rebuild; evidence from another list is untrusted. */
+  verify: z.array(z.string()).optional(),
   /** The recipe PR the factory watches for a Bugbot check run, from when it was recorded, until require_bugbot is set from it. */
   bugbotProbe: z.object({ pr: z.string(), since: z.string() }).optional(),
   summary: z.string().optional(),

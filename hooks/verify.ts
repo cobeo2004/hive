@@ -20,14 +20,15 @@ import { parseBranch } from "../lib/factory";
 import { readIngestTarget, reportEvents } from "../lib/outbox";
 import { parseRecipe, RECIPE_PATH, UNMERGED_RECIPE_PATH } from "../lib/recipe";
 import { mcpIdentity } from "../lib/report-identity";
+import { readVerify, SSTACK_PROJECT_PATH } from "../lib/sstack-verify";
 
 // factory-verify: runs the repo's checks at the current HEAD and reports what ran as evidence for
 // that exact commit, through the outbox, so the merge decision can hold the PR's head to it.
 //
 //   bun <factory root>/hooks/verify.ts [--json] [--no-post] [--timeout-minutes N]
 //
-// The checks are the recipe's (.factory/setup.json), else the package.json scripts test, lint,
-// typecheck and build. Uncommitted changes, or a HEAD that moves while the checks run, mark the
+// The checks are .sstack/project.toml's verify list, else the recipe's (.factory/setup.json), else
+// the package.json scripts test, lint, typecheck and build. Uncommitted changes, or a HEAD that moves while the checks run, mark the
 // evidence dirty: it then proves nothing about the commit. Exits 0 only when the tree is clean and
 // every check passed.
 
@@ -86,6 +87,15 @@ function readRecipe(top: string) {
   return null;
 }
 
+/** The verify list of the worktree's .sstack/project.toml, else null. */
+function readProjectVerify(top: string) {
+  const path = join(top, SSTACK_PROJECT_PATH);
+  if (!existsSync(path)) return null;
+  const verify = readVerify(readFileSync(path, "utf8"));
+  if (!verify) say(`${SSTACK_PROJECT_PATH} has no readable verify list; falling back to the recipe`);
+  return verify;
+}
+
 function printResults(checks: readonly EvidenceCheck[]) {
   for (const check of checks)
     say(
@@ -104,6 +114,7 @@ async function main() {
   const sha = await git(top, "rev-parse", "HEAD");
   const dirty = (await git(top, "status", "--porcelain")) !== "";
   const plan = planChecks({
+    verify: readProjectVerify(top),
     recipe: readRecipe(top),
     packageJson: existsSync(join(top, "package.json")) ? readFileSync(join(top, "package.json"), "utf8") : null,
     files: readdirSync(top),
@@ -112,7 +123,7 @@ async function main() {
   if (plan.checks.length === 0) say(`no checks defined: ${RECIPE_PATH} names none and package.json has no test, lint, typecheck or build script`);
   else
     say(
-      `running ${plan.checks.length} check${plan.checks.length === 1 ? "" : "s"} from the ${plan.source === "recipe" ? "recipe" : "package.json scripts"} at ${shortSha(sha)}`,
+      `running ${plan.checks.length} check${plan.checks.length === 1 ? "" : "s"} from ${plan.source === "project.toml" ? SSTACK_PROJECT_PATH : `the ${plan.source === "recipe" ? "recipe" : "package.json scripts"}`} at ${shortSha(sha)}`,
     );
 
   const secrets = [...plan.envNames, ...SECRET_ENV].map((name) => process.env[name] ?? "").concat(readIngestTarget()?.secret ?? "");
