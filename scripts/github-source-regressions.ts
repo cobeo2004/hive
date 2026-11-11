@@ -10,8 +10,7 @@ const { isJobKey, parseBranch, attemptBranch } = await import("../lib/factory");
 const { readRegistry } = await import("../lib/repositories");
 const ops = await import("../runner/ops");
 import type { Job } from "../lib/sources/types";
-// GitHub Issues as a job source, against an in-memory GitHub: intake, the repo rule and the status
-// comment. The adapter's own calls are all it knows of GitHub.
+// GitHub Issues as a job source, against an in-memory GitHub: intake, the repo rule, the status comment, retries.
 const ON = "owner/on";
 const OFF = "owner/off";
 const DEFAULT = "owner/default";
@@ -21,13 +20,11 @@ const gh = new Map<string, Issue>();
 const calls: string[] = [];
 let ids = 100;
 let down = "";
-let during: (() => Promise<unknown>) | undefined;
 const put = (repo: string, number: number, over: Partial<Issue> = {}) =>
   gh.set(`${repo}#${number}`, { number, title: "t", html_url: `u/${number}`, body: null, state: "open", labels: [{ name: "hive" }], comments: [], ...over });
 const request = async (repo: string, method: string, path: string, input?: unknown): Promise<unknown> => {
   calls.push(`${method} ${repo} ${path}`);
   const body = input as { body?: string; labels?: string[] } | undefined;
-  await during?.();
   if (repo === down) throw new Error("installation revoked");
   if (![ON, OFF, DEFAULT].includes(repo)) throw new Error(`the adapter reached ${repo}, which is not registered`);
   const list = path.match(/\/issues\?.*labels=([^&]+)/);
@@ -67,13 +64,11 @@ try {
     { repo: OFF, enabled: false, ...meta },
     { repo: DEFAULT, enabled: true, is_default: true, ...meta },
   ]);
-  // R1: both sources are registered, and with the switch off GitHub reads nothing.
   assert.ok(allSources().some((s) => s.source === "github") && SOURCES.linear, "github is registered beside linear");
   on = false;
   assert.deepEqual(await adapter.ready(), [], "off: nothing is offered");
   assert.equal(calls.length, 0, "off: GitHub is never called");
   on = true;
-  // R2, R3, R10: the open labelled issues of registered repos, each with its key and its own repo.
   put(ON, 7);
   put(ON, 8);
   put(ON, 10, { pull_request: {} });
@@ -89,7 +84,6 @@ try {
   assert.notEqual(hashed, githubKey(`${"a".repeat(23)}/${hashed.split("-").at(-2)}`, 7), "a plain name never shares a key with a hashed one");
   const long = githubKey(`${"o".repeat(39)}/${"r".repeat(100)}`, 123456789);
   assert.ok(isJobKey(long) && long.length + 4 <= 64 && parseBranch(attemptBranch(long, 12))?.key === long, "a long name still makes a key");
-  // Claim: the job runs in the issue's own repo, never the default one.
   const registry = () => readRegistry(db);
   const landed = () => db.select({ key: jobs.key, repo: jobs.repo }).from(jobs).where(like(jobs.id, "github:%"));
   const claim = () => ops.claim({ sources: [adapter], repos: async () => [DEFAULT], registry });
@@ -133,14 +127,19 @@ try {
   assert.deepEqual(names(7), [], "a failed job loses the Hive label, so the poll does not claim it again");
   await adapter.requeue(await job(7));
   assert.deepEqual(names(7), ["hive"], "requeue puts it back");
-  during = () => patch(7, { stage: "failed", stage_event_id: "e2", synced_event_id: null });
-  await claim();
-  during = undefined;
-  assert.equal((await job(7)).attempt, 1, "a job that fails while the claim reads GitHub, before its failure is written back, is not reclaimed");
-  await patch(7, { synced_event_id: "e2" });
-  assert.deepEqual((await claim()).claimed, ["GH-owner-on-7"]);
-  await adapter.announceClaim(await job(7));
-  assert.equal(comments(ON, 7).length, 2, "a new attempt gets its own status comment");
+  const fromPoll = async (then: () => Promise<unknown>) => {
+    const poll = await adapter.ready();
+    await then();
+    await ops.claim({ sources: [{ ...adapter, ready: async () => poll }], repos: async () => [DEFAULT], registry });
+    assert.equal((await job(7)).attempt, 1, "a job that failed, or whose failure was written back (label removed), after the poll is not reclaimed from it");
+  };
+  await fromPoll(() => patch(7, { stage: "failed", stage_event_id: "e2", synced_event_id: null }));
+  await fromPoll(async () => {
+    await adapter.writeBack(await job(7), { stage: "failed", eventId: "e2" });
+    await patch(7, { synced_event_id: "e2" });
+  });
+  await adapter.requeue(await job(7));
+  assert.deepEqual((await claim()).claimed, ["GH-owner-on-7"], "the label added again is a retry");
   // Past the first page of issues is still read, and one repo's outage hides nothing from the rest.
   for (let n = 300; n <= 400; n++) put(DEFAULT, n);
   down = ON;

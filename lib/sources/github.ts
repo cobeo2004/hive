@@ -45,7 +45,6 @@ async function runtimeDeps(): Promise<GithubDeps> {
       try {
         return (await githubRequest(GITHUB_API, token, method, path, { body })).json;
       } catch (error) {
-        // A token GitHub stopped accepting is dropped, so the next call mints a new one.
         if (error instanceof GitHubError && error.status === 401) installationTokens.evict(repo as RepoName, token);
         throw error;
       }
@@ -87,7 +86,6 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
     const id = job.source_state.statusAttempt === job.attempt ? job.source_state.statusCommentId : null;
     if (id && (await soft(d.request(repo, "PATCH", `/repos/${repo}/issues/comments/${id}`, { body: text })))) return;
     const made = z.object({ id: z.number().int() }).parse(await d.request(repo, "POST", `${issuePath(job)}/comments`, { body: text }));
-    // The id is Hive's own from here on, so it can never read as a reply.
     const patch = JSON.stringify({
       statusCommentId: made.id,
       statusAttempt: job.attempt,
@@ -105,11 +103,17 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       const d = await deps();
       const label = await d.label();
       const { readRegistry } = await import("../repositories");
+      // What each job's events were before the poll reads GitHub: a retry is allowed only if they are unchanged and written back (see reclaimIf).
+      const rows = await d.db
+        .select({ id: jobs.external_id, ev: jobs.stage_event_id, synced: jobs.synced_event_id })
+        .from(jobs)
+        .where(eq(jobs.source, "github"));
+      const seen = new Map(rows.map((j) => [j.id, j]));
       const drafts: JobDraft<"github">[] = [];
-      const errors: unknown[] = [];
       for (const { repo } of (await readRegistry(d.db)).filter((r) => r.enabled)) {
         try {
           for (const issue of (await openIssues(d, repo, label)).filter((i) => !i.pull_request)) {
+            const was = seen.get(`${repo}#${issue.number}`);
             drafts.push({
               externalId: `${repo}#${issue.number}`,
               key: githubKey(repo, issue.number),
@@ -119,16 +123,14 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
               writeback: { kind: "github", repo, number: issue.number },
               sourceState: { labels: issue.labels.map((l) => l.name) },
               repo, // R2: the claim refuses it rather than route it elsewhere
-              reclaimIf: sql`${jobs.synced_event_id} is not distinct from ${jobs.stage_event_id}`,
+              reclaimIf: sql`${jobs.stage_event_id} is not distinct from ${was?.ev ?? null}::text and ${jobs.synced_event_id} is not distinct from ${was?.synced ?? null}::text and ${jobs.synced_event_id} is not distinct from ${jobs.stage_event_id}`,
             });
           }
         } catch (error) {
           // One repo's outage (a revoked installation) must not stop intake from the others.
           console.error("github: could not read issues of", repo, error);
-          errors.push(error);
         }
       }
-      if (errors.length && !drafts.length) throw errors[0];
       return drafts;
     },
     async announceClaim(job) {

@@ -27,7 +27,7 @@ export type JobDraft<S extends JobSource = JobSource> = {
   sourceState: SourceStateDraftOf<S>;
   /** The repo the job must run in, for a source whose items live in one; the claim never routes it elsewhere. */
   repo?: string;
-  /** Another condition on a reclaim, checked in the claim's own update, so it cannot race with a failure landing meanwhile. */
+  /** Another condition on a reclaim, checked in the claim's own update against the row as it is then. */
   reclaimIf?: SQL;
   /** Who is on the item, for picking the job's owner when the claim first inserts it (R8a). */
   owner?: OwnerHints;
