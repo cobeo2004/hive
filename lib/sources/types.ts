@@ -78,10 +78,12 @@ export interface SourceAdapter<S extends JobSource> {
   labels(job: Job<S>): Promise<string[]>;
   /** Returns a stopped job to the source's not-started state, so adding the label again retries it. */
   reopen(job: Job<S>): Promise<void>;
+  /** Tells the item's owner, once, why the claim refused it (the repo is not enabled, or its key is taken). Best effort: a failure is the source's to swallow. */
+  decline?(draft: JobDraft<S>, why: string): Promise<void>;
   /** Puts a failed job where the source's intake offers it again, as a person adding the factory label does; the next claim starts a new attempt. */
   requeue(job: Job<S>): Promise<void>;
   /** The launch message's issue section where the source's text is untrusted: its own rules, then the text fenced. Without it the description is shown as it is. */
-  issueBlock?(job: Pick<Job<S>, "writeback" | "description">): string;
+  issueBlock?(job: Pick<Job<S>, "writeback" | "title" | "description">): string;
   /** The noun phrase naming the job in messages to the thread, such as "Linear issue FAC-7". */
   describe(job: Pick<Job<S>, "key">): string;
   /**

@@ -566,7 +566,9 @@ export async function claim({
       failed.push(`${source.source}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  const { refused = [], ...claimed } = ready.length === 0 ? { claimed: [] as string[], inFlight: 0 } : await claimDrafts(ready, repos, registry);
+  const { refused = [], declined = [], ...claimed } = ready.length === 0 ? { claimed: [] as string[], inFlight: 0 } : await claimDrafts(ready, repos, registry);
+  // Outside the claim's transaction, which holds the lock: a source that can tell the item's owner why it was refused does so now.
+  await Promise.allSettled(declined.map(({ source, draft, why }) => source.decline?.(draft, why)));
   failed.push(...refused);
   if (failed.length > 0) throw new Error(`could not read ready work from ${failed.join("; ")} (claimed ${claimed.claimed.join(", ") || "nothing"})`);
   return claimed;
@@ -585,6 +587,7 @@ async function claimDrafts(
   const me = await mine();
   // A draft that names its repo runs there or nowhere: never in the default repo or a checkout it did not ask for.
   const refused: string[] = [];
+  const declined: { source: SourceAdapter<JobSource>; draft: JobDraft; why: string }[] = [];
   return db.transaction(async (tx) => {
     // The lock's name predates other sources; runners on older code take the same one.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('marshal-factory linear-poll'))`);
@@ -599,6 +602,7 @@ async function claimDrafts(
       const now = new Date();
       if (draft.repo && !known.some((r) => r.repo === draft.repo && r.enabled)) {
         refused.push(`${source.source} ${draft.key} lives in ${draft.repo}, which is not an enabled repository, so it was not claimed`);
+        declined.push({ source, draft, why: `${draft.repo} is not an enabled repository in Hive` });
         continue;
       }
       const target = draft.repo ?? targetOf(source, draft);
@@ -673,6 +677,7 @@ async function claimDrafts(
           if (cause?.code !== "23505") throw error;
           await tx.execute(sql`rollback to savepoint draft`);
           refused.push(`${source.source} ${draft.key} was refused by the jobs table: ${cause.message}`);
+          declined.push({ source, draft, why: `another job already holds the key ${draft.key}` });
           return [];
         });
       await tx.execute(sql`release savepoint draft`);
@@ -680,7 +685,7 @@ async function claimDrafts(
       inFlight++;
       claimed.push(draft.key);
     }
-    return { claimed, inFlight, refused };
+    return { claimed, inFlight, refused, declined };
   });
 }
 
@@ -699,7 +704,8 @@ export async function announceClaims() {
 export function launchMessage(job: Job) {
   const ownerNote = ownerNoteSection(job);
   return [
-    `Work ${sourceFor(job.source).describe(job)}: ${job.title.replace(/[\r\n\u2028\u2029]+/g, " ")}`,
+    // A source that fences the issue (issueBlock) carries the title in the fence too.
+    `Work ${sourceFor(job.source).describe(job)}${sourceFor(job.source).issueBlock ? "" : `: ${job.title.replace(/[\r\n\u2028\u2029]+/g, " ")}`}`,
     job.url,
     "",
     "This is an unattended Hive run. Follow the factory playbook named under Factory playbook at the end of this message. Report every stage with the report_stage tool, never ask in this thread, never merge yourself: end with a merge assessment and the factory decides. Before you report pr, run factory-verify on the commit you pushed (the report_stage reply for verifying names the command); the factory merges only a head whose checks passed there.",
