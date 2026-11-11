@@ -7,9 +7,8 @@ import type { LaunchPlan } from "../runner/overrides";
 
 const { db } = await import("../db/client");
 const { agentAccounts, jobs, repoSstackConfig, runs: runRows } = await import("../db/schema");
-const { bindThread, claimLaunch, config, deliverStops, pendingLaunches, reconcileStops, releaseLaunch, threads } = await import("../runner/ops");
-const { launchMessage, watchdog } = await import("../runner/ops");
-const { newKeyPair, RATE_LIMITED, rateLimitedReason, seal } = await import("../lib/creds");
+const { bindThread, claimLaunch, config, deliverStops, pendingLaunches, reconcileStops, releaseLaunch, threads, watchdog } = await import("../runner/ops");
+const { newKeyPair, RATE_LIMITED, seal } = await import("../lib/creds");
 const { rateLimitRuntime } = await import("../runner/account-usage");
 const { transcriptRateLimited } = await import("../lib/transcript");
 const { parseRollout } = await import("../lib/codex-usage");
@@ -21,7 +20,7 @@ const { eventSchema } = await import("../lib/events");
 const { github } = await import("../lib/github/pulls");
 const { pinnedVersions } = await import("../lib/sandbox");
 const { sandboxHarness, sandboxRuntime } = await import("../runner/sandbox");
-const { jobId, parseJob, sourceFor } = await import("../lib/sources");
+const { jobId, sourceFor } = await import("../lib/sources");
 const { linearJob } = await import("./fixtures");
 const { createLinearAdapter } = await import("../lib/sources/linear");
 const { factorySchema, TEST_MACHINE_ID } = await import("../lib/config");
@@ -605,54 +604,59 @@ try {
   text = transcript({ type: "user" }, hit);
   await assert.rejects(watchdog(), /deployed ingest function/); // the failure row is written before the event posts
 
-  // 1.3 on an untracked harness: inference runs before the watchdog and reads the signal before finalising a stopped thread, whatever status T3 settled on or PR it opened.
+  // 1.3 on an untracked harness, whatever status T3 settled on: with a PR open the job stays at pr with one note and is never relaunched; with none it fails for the next account.
   const openPr = "https://github.com/ski043/factory-demo/pull/1";
   const post = ingestClient.post;
   const posted: { jobKey?: string; stage?: string }[] = [];
-  ingestClient.post = async (event) => (posted.push(event), ingest(db, [eventSchema.parse(event)])); // the waiting post goes through the real projection
-  const rows = [
-    { status: "failed", signal: false, stage: "failed", pr: false },
-    { status: "failed", signal: true, stage: "failed", pr: false },
-    { status: "completed", signal: true, stage: "failed", pr: false },
-    { status: "interrupted", signal: true, stage: "failed", pr: false },
-    { status: "completed", signal: false, stage: "waiting", pr: false },
+  ingestClient.post = async (event) => (posted.push(event), ingest(db, [eventSchema.parse(event)])); // the stage posts go through the real projection
+  const rows: { status: string; signal: boolean; pr: boolean; stage: string; inside?: boolean }[] = [
+    { status: "failed", signal: false, pr: false, stage: "failed" },
+    { status: "completed", signal: false, pr: false, stage: "waiting" },
     ...["failed", "completed", "interrupted"].flatMap((status) => [
-      { status, signal: true, stage: "failed", pr: true },
-      { status, signal: false, stage: "pr", pr: true },
+      { status, signal: true, pr: false, stage: "failed" },
+      { status, signal: true, pr: false, inside: true, stage: "implementing" },
+      { status, signal: false, pr: true, stage: "pr" },
+      { status, signal: true, pr: true, stage: "pr" },
+      { status, signal: true, pr: true, inside: true, stage: "pr" },
     ]),
   ];
-  for (const { status, signal, stage, pr } of rows) {
+  for (const { status, signal, stage, pr, inside } of rows) {
     github.pullRequestForBranch = async () => (pr ? { url: openPr, state: "open" } : null);
-    const cx = `${id}-cx-${status}-${signal}${pr ? "-pr" : ""}`;
+    const cx = `${id}-cx-${status}-${signal}${pr ? "-pr" : ""}${inside ? "-in" : ""}`;
     threads.read = async () => ({ state: "stopped", status, lastMessage: null });
-    await seed(cx, { provider: "codex", t3_thread_id: `t-${cx}`, stage_at: new Date(0) });
+    await seed(cx, { provider: "codex", t3_thread_id: `t-${cx}`, stage_at: inside ? new Date() : new Date(0) });
     rateLimitRuntime.signal = async () => signal;
-    await inferUntracked({ only: [cx] });
-    await watchdog();
+    for (let pass = 0; pass < (signal ? 2 : 1); pass++) await inferUntracked({ only: [cx] });
     const retried: string[] = [];
     await relaunchRateLimited((async (jid: string) => (retried.push(jid), {})) as never);
     const row = (await db.select().from(jobs).where(eq(jobs.key, cx)))[0]!;
     const summary = row.stage_summary ?? "";
-    const tag = `${status}/${signal}: ${summary}`;
+    const tag = `${status}/${signal}/${pr ? "pr" : "no pr"}${inside ? "/inside the grace" : ""}: ${summary}`;
     assert.equal(row.stage, stage, tag);
-    assert.equal(summary.includes(RATE_LIMITED), signal, tag);
-    if (signal && pr) assert.ok(summary.includes(openPr), `${tag}: the failure names the open PR so the retry continues it`);
-    const asPr = posted.some((e) => e.jobKey === cx && e.stage === "pr");
-    assert.equal(asPr, stage === "pr", `${tag}: a rate-limited attempt is never posted as pr`);
+    assert.equal(summary.includes(RATE_LIMITED), signal && !pr && !inside, tag);
+    assert.equal(/rate limit/.test(summary), signal && pr, `${tag}: a PR held at pr says why`);
+    assert.equal(posted.filter((e) => e.jobKey === cx && e.stage === "pr").length, stage === "pr" ? 1 : 0, `${tag}: exactly one pr note, however many passes`);
     if (stage === "failed") assert.ok(summary.includes(signal ? RATE_LIMITED : "its T3 thread failed"), tag);
-    assert.equal(retried.filter((j) => j === jobId("linear", cx)).length, signal ? 1 : 0, `${tag}: a rate-limited attempt is retried once, any other is not`);
+    const retries = retried.filter((j) => j === jobId("linear", cx)).length;
+    assert.equal(retries, signal && !pr && !inside ? 1 : 0, `${tag}: only a rate-limited attempt without a PR is retried, once`);
   }
-  ingestClient.post = post;
+  // A grace row still in flight would fill the machine's launch slots for the pool-wait case below.
+  await db
+    .update(jobs)
+    .set({ stage: "failed" })
+    .where(like(jobs.key, `${id}-cx-%-in`));
 
-  // The retry continues the open PR on its branch; with no PR, or any other failure, it starts fresh.
-  const base = parseJob((await db.select().from(jobs).where(eq(jobs.key, rl)))[0]!);
-  const withFailure = (previous_failure: string) => launchMessage({ ...base, previous_failure });
-  const branch = `hive/${rl}`;
-  const continued = withFailure(`${rateLimitedReason("implementing", { url: openPr, branch })}.`);
-  assert.ok(continued.includes(openPr) && continued.includes(`git fetch origin ${branch}`) && continued.includes("open NO second PR"), continued);
-  assert.ok(!continued.includes("Start fresh from main"), continued);
-  for (const plain of [`Watchdog stopped this run: ${rateLimitedReason("implementing")}.`, "its T3 thread failed (stage implementing)."])
-    assert.ok(withFailure(plain).includes("Start fresh from main on this branch."), plain);
+  // The same on a tracked harness: the watchdog holds a rate-limited job that has its PR at pr, once, and never fails or retries it.
+  const hold = `${id}-hold`;
+  await seed(hold, { t3_thread_id: "mcp:hold", pr_url: openPr });
+  threads.state = async (threadId) => (threadId === "mcp:rl" || threadId === "mcp:hold" ? "stopped" : "running");
+  rateLimitRuntime.signal = async () => true;
+  await watchdog();
+  await watchdog();
+  const held = (await db.select().from(jobs).where(eq(jobs.key, hold)))[0]!;
+  assert.deepEqual([held.stage, /rate limit/.test(held.stage_summary ?? "")], ["pr", true], "a tracked rate-limited job with a PR stays at pr, never failed");
+  assert.equal(posted.filter((e) => e.jobKey === hold && e.stage === "pr").length, 1, "its note is posted once");
+  ingestClient.post = post;
 
   const waiting = `${id}-wait`;
   await db.insert(jobs).values(linearJob(waiting, waiting, { stage: "queued" }));

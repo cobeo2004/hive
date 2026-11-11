@@ -2,7 +2,7 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { db } from "../db/client";
 import { jobs } from "../db/schema";
 import type { Stage } from "../lib/events";
-import { rateLimitedReason } from "../lib/creds";
+import { RATE_LIMITED } from "../lib/creds";
 import { attemptBranch } from "../lib/factory";
 import type { RepoName } from "../lib/github/app";
 import { github } from "../lib/github/pulls";
@@ -10,7 +10,7 @@ import { hosts, isHibernated } from "../lib/host";
 import { parseJobs } from "../lib/sources";
 import type { Job } from "../lib/sources/types";
 import { causeOf, runnerEventId } from "../lib/stages";
-import { rateLimitedRun } from "./account-usage";
+import { holdAtPr, rateLimitedRun } from "./account-usage";
 import { bindingOf } from "./binding";
 import { thisMachine } from "./heartbeat";
 import { config, harnessDrivers, IN_FLIGHT, jobTracked, postEvent, postMerged, threads, watchdogFail } from "./ops";
@@ -61,15 +61,14 @@ async function inferJob(job: Job, now: number): Promise<string | undefined> {
   const branch = attemptBranch(job.key, job.attempt);
   let lookup: ReturnType<typeof github.pullRequestForBranch> | undefined;
   const prOnBranch = () => (lookup ??= github.pullRequestForBranch(job.repo as RepoName, branch));
-  // R10a: the one place the rate-limit signal is read, before anything finalises a stopped thread
-  // (this pass runs before the watchdog, which skips pr and waiting jobs). A gone thread is the watchdog's to fail.
-  const thread = quiet ? await threads.read(job.t3_thread_id, hosts.forJob(job)) : undefined;
-  if (thread?.state === "stopped" && (await rateLimitedRun(job, hosts.forJob(job)))) {
+  // R10a: the one place the rate-limit signal is read, first and whatever the grace, before anything finalises a
+  // stopped thread (this pass runs before the watchdog). A gone thread is the watchdog's to fail.
+  const thread = await threads.read(job.t3_thread_id, hosts.forJob(job));
+  if (thread.state === "stopped" && (await rateLimitedRun(job, hosts.forJob(job)))) {
     const found = job.pr_url ? null : await prOnBranch();
-    if (found?.state !== "merged") {
-      const url = job.pr_url ?? (found?.state === "open" ? found.url : undefined);
-      return (await watchdogFail(job, rateLimitedReason(job.stage, url ? { url, branch } : undefined))) ? "failed" : undefined;
-    }
+    const url = job.pr_url ?? (found?.state === "open" ? found.url : undefined);
+    if (url) return (await holdAtPr(job, url)) ? "pr" : undefined;
+    if (found?.state !== "merged") return quiet && (await watchdogFail(job, `${RATE_LIMITED} (stage ${job.stage})`)) ? "failed" : undefined;
   }
   if (!job.pr_url && (quiet || !reported)) {
     const pr = await prOnBranch();
@@ -82,7 +81,7 @@ async function inferJob(job: Job, now: number): Promise<string | undefined> {
       return "pr";
     }
   }
-  if (thread?.state !== "stopped") return undefined;
+  if (!quiet || thread.state !== "stopped") return undefined;
   const settled = settledAs(thread.status);
   switch (settled) {
     case "failed":

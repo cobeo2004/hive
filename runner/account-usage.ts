@@ -1,14 +1,16 @@
 import { and, desc, eq, isNull, lt } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
-import { accountUsage, agentAccounts, runs, type RunRow } from "../db/schema";
+import { accountUsage, agentAccounts, runs, type JobRow, type RunRow } from "../db/schema";
 import { unseal } from "../lib/creds";
 import { codexUsage, readRollouts, ROLLOUT_SLACK_MS, type Limits, type Rollout } from "../lib/codex-usage";
 import { attemptBranch, isMcpSession } from "../lib/factory";
 import type { JobHost } from "../lib/host";
+import { runnerEventId } from "../lib/stages";
 import { transcriptPathFor, transcriptRateLimited } from "../lib/transcript";
 import { forbidInTest } from "../lib/test-mode";
 import { codexHomeOf } from "./codex-usage";
+import { postEvent } from "./ingest-client";
 
 // The 5h and 7d meters of each subscription account (R11a): Claude's are polled from Anthropic's
 // OAuth usage endpoint, Codex's ride on the rollouts the runner already reads. API-key accounts
@@ -142,4 +144,22 @@ export async function rateLimitedRun(job: { key: string; attempt: number }, host
   } catch {
     return false;
   }
+}
+
+const HELD = "The account hit its rate limit";
+
+/** R10a: no account fallback once a PR exists (a relaunch could only open a second one): the job stays at pr with one note. Returns whether it posted. */
+export async function holdAtPr(job: Pick<JobRow, "key" | "external_id" | "attempt" | "session_id" | "stage" | "stage_summary">, prUrl: string) {
+  if (job.stage === "pr" && job.stage_summary?.startsWith(HELD)) return false;
+  await postEvent({
+    eventId: runnerEventId("inferred", job.external_id, job.attempt, "pr", "rate-limited"),
+    sessionId: job.session_id ?? runnerEventId("inferred", job.external_id, job.attempt),
+    at: Date.now(),
+    kind: "stage",
+    stage: "pr",
+    jobKey: job.key,
+    summary: `${HELD}, and Hive will not relaunch it now that ${prUrl} is open.`,
+    prUrl,
+  });
+  return true;
 }
