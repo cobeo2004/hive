@@ -124,13 +124,11 @@ export async function accountFor(jobKey: string, provider: CredsProvider, runner
     .select({ id: runs.account_id, branch: runs.branch, at: runs.last_event_at })
     .from(runs)
     .where(and(eq(runs.job_key, jobKey), isNotNull(runs.account_id)));
-  const kept = prior.find((r) => r.branch === branch)?.id;
-  // A manual retry after an ordinary failure goes back to the owner; only a rate limit moves on.
   const limited = job?.failure?.includes(RATE_LIMITED);
   const skip = new Set(prior.flatMap((r) => (limited && r.branch !== branch && r.at.getTime() > Date.now() - 5 * 3_600_000 ? [r.id!] : [])));
   // With no pool and no default, a full owner account still beats nothing, and a Claude job with every account skipped waits: the harness is never switched.
   const row =
-    rows.find((r) => r.id === kept) ??
+    rows.find((r) => r.id === prior.find((p) => p.branch === branch)?.id) ??
     pickAccount(rows, owner, provider, new Map(meters.map((m) => [m.id, m.pct])), config.factory.pool, skip) ??
     (runnerDefault ? undefined : pickAccount(rows, owner, provider, new Map(), config.factory.pool, skip)) ??
     (rows.length > 0 && !runnerDefault && provider === "claude" ? "wait" : undefined);

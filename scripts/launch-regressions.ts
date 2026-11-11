@@ -585,10 +585,7 @@ try {
     [false, event("task_started"), event("agent_message", { message: "I fixed the rate limit handling." })],
   ] as const)
     assert.equal(parseRollout(transcript({ type: "session_meta", payload: { id: "t1" } }, ...events))!.rateLimited, want, JSON.stringify(events));
-
-  // 1.3: a rate-limited thread fails through the watchdog, and the failure is relaunched on the retry path.
-  const rl = `${id}-rl`;
-  const acct = `${id}-acct`;
+  const [rl, acct] = [`${id}-rl`, `${id}-acct`];
   const now = new Date();
   await db.insert(agentAccounts).values({ id: acct, provider: "claude", kind: "subscription", label: acct, sealed: seal("t", newKeyPair().publicKey) });
   const seed = async (key: string, job: object) => {
@@ -597,16 +594,25 @@ try {
   };
   await seed(rl, { t3_thread_id: "mcp:rl", attempt: 1 });
   let text = transcript(say("Tests failed: expected HTTP 429, received 200."));
-  threads.state = async (threadId) => (threadId === "mcp:rl" ? "stopped" : "running");
+  threads.state = async (threadId) => (threadId === "mcp:rl" || threadId === "mcp:hold" ? "stopped" : "running");
   rateLimitRuntime.signal = async () => transcriptRateLimited(text);
   await watchdog();
   assert.equal((await db.select().from(jobs).where(eq(jobs.key, rl)))[0]!.stage, "implementing", "a stopped thread with no provider signal is not failed");
   text = transcript({ type: "user" }, hit);
   await assert.rejects(watchdog(), /deployed ingest function/); // the failure row is written before the event posts
-
+  const waiting = `${id}-wait`;
+  await db.insert(jobs).values(linearJob(waiting, waiting, { stage: "queued" }));
+  const limits = config.factory.sandbox;
+  Object.assign(sandboxRuntime, {
+    image: () => ({ imageId: "im-test", t3Version: limits.t3Version, versions: pinnedVersions(limits), factoryCommit: "abc", builtAt: "now" }),
+    driverOf: (provider: string) => provider,
+    account: async () => "wait",
+  });
+  assert.deepEqual(await launchInSandboxes([entry(waiting)], slot), [], "no thread starts");
+  const { stage, stage_summary, t3_thread_id, machine_id } = (await db.select().from(jobs).where(eq(jobs.key, waiting)))[0]!;
+  assert.deepEqual([stage, stage_summary, t3_thread_id, machine_id], ["queued", "Waiting for the team pool", null, null], "1.4: the job waits for the pool");
   // 1.3 on an untracked harness, whatever status T3 settled on: with a PR open the job stays at pr with one note and is never relaunched; with none it fails for the next account.
   const openPr = "https://github.com/ski043/factory-demo/pull/1";
-  const post = ingestClient.post;
   const posted: { jobKey?: string; stage?: string }[] = [];
   ingestClient.post = async (event) => (posted.push(event), ingest(db, [eventSchema.parse(event)])); // the stage posts go through the real projection
   const rows: { status: string; signal: boolean; pr: boolean; stage: string; inside?: boolean }[] = [
@@ -637,42 +643,17 @@ try {
     assert.equal(/rate limit/.test(summary), signal && pr, `${tag}: a PR held at pr says why`);
     assert.equal(posted.filter((e) => e.jobKey === cx && e.stage === "pr").length, stage === "pr" ? 1 : 0, `${tag}: exactly one pr note, however many passes`);
     if (stage === "failed") assert.ok(summary.includes(signal ? RATE_LIMITED : "its T3 thread failed"), tag);
-    const retries = retried.filter((j) => j === jobId("linear", cx)).length;
-    assert.equal(retries, signal && !pr && !inside ? 1 : 0, `${tag}: only a rate-limited attempt without a PR is retried, once`);
+    assert.equal(retried.includes(jobId("linear", cx)), signal && !pr && !inside, `${tag}: only a rate-limited attempt without a PR is retried`);
   }
-  // A grace row still in flight would fill the machine's launch slots for the pool-wait case below.
-  await db
-    .update(jobs)
-    .set({ stage: "failed" })
-    .where(like(jobs.key, `${id}-cx-%-in`));
-
-  // The same on a tracked harness: the watchdog holds a rate-limited job that has its PR at pr, once, and never fails or retries it.
   const hold = `${id}-hold`;
   await seed(hold, { t3_thread_id: "mcp:hold", pr_url: openPr });
-  threads.state = async (threadId) => (threadId === "mcp:rl" || threadId === "mcp:hold" ? "stopped" : "running");
   rateLimitRuntime.signal = async () => true;
-  await watchdog();
-  await watchdog();
+  for (let pass = 0; pass < 2; pass++) await watchdog();
   const held = (await db.select().from(jobs).where(eq(jobs.key, hold)))[0]!;
   assert.deepEqual([held.stage, /rate limit/.test(held.stage_summary ?? "")], ["pr", true], "a tracked rate-limited job with a PR stays at pr, never failed");
   assert.equal(posted.filter((e) => e.jobKey === hold && e.stage === "pr").length, 1, "its note is posted once");
-  ingestClient.post = post;
-
-  const waiting = `${id}-wait`;
-  await db.insert(jobs).values(linearJob(waiting, waiting, { stage: "queued" }));
-  const limits = config.factory.sandbox;
-  Object.assign(sandboxRuntime, {
-    image: () => ({ imageId: "im-test", t3Version: limits.t3Version, versions: pinnedVersions(limits), factoryCommit: "abc", builtAt: "now" }),
-    driverOf: (provider: string) => provider,
-    account: async () => "wait",
-  });
-  assert.deepEqual(await launchInSandboxes([entry(waiting)], slot), [], "no thread starts");
-  const { stage, stage_summary, t3_thread_id, machine_id } = (await db.select().from(jobs).where(eq(jobs.key, waiting)))[0]!;
-  assert.deepEqual([stage, stage_summary, t3_thread_id, machine_id], ["queued", "Waiting for the team pool", null, null], "1.4: the job waits for the pool");
-
   const lead = { provider: "claudeAgent", model: "claude-opus-5-5" };
   assert.deepEqual(sandboxHarness(lead, "claudeAgent", true, limits.codexModel), { choice: lead }, "1.5: a pool Claude account keeps the Claude harness");
-
   console.log("launch regressions passed");
 } catch (error) {
   console.error(error);

@@ -122,8 +122,7 @@ export const rateLimitRuntime = {
   async signal(run: RunRow, host: JobHost) {
     if (!isMcpSession(run.session_id)) {
       const path = transcriptPathFor(run);
-      const text = path ? await host.readFile(path) : null;
-      return text !== null && transcriptRateLimited(text);
+      return !!path && transcriptRateLimited((await host.readFile(path)) ?? "");
     }
     const startedAt = run.started_at.getTime();
     const rollouts = await readRollouts(host, codexHomeOf(host), startedAt - ROLLOUT_SLACK_MS);
@@ -146,11 +145,9 @@ export async function rateLimitedRun(job: { key: string; attempt: number }, host
   }
 }
 
-const HELD = "The account hit its rate limit";
-
 /** R10a: no account fallback once a PR exists (a relaunch could only open a second one): the job stays at pr with one note. Returns whether it posted. */
 export async function holdAtPr(job: Pick<JobRow, "key" | "external_id" | "attempt" | "session_id" | "stage" | "stage_summary">, prUrl: string) {
-  if (job.stage === "pr" && job.stage_summary?.startsWith(HELD)) return false;
+  if (job.stage === "pr" && job.stage_summary?.startsWith("The account hit its rate limit")) return false;
   await postEvent({
     eventId: runnerEventId("inferred", job.external_id, job.attempt, "pr", "rate-limited"),
     sessionId: job.session_id ?? runnerEventId("inferred", job.external_id, job.attempt),
@@ -158,7 +155,7 @@ export async function holdAtPr(job: Pick<JobRow, "key" | "external_id" | "attemp
     kind: "stage",
     stage: "pr",
     jobKey: job.key,
-    summary: `${HELD}, and Hive will not relaunch it now that ${prUrl} is open.`,
+    summary: `The account hit its rate limit, and Hive will not relaunch it now that ${prUrl} is open.`,
     prUrl,
   });
   return true;

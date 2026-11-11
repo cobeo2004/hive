@@ -109,9 +109,9 @@ try {
   assert.deepEqual(await secretOf("CRD-gone"), { id: "creds-pool", secret: "token-of-pool" }, "so does a job that is gone");
 
   // R10a: the owner's account under 95% of its 5h window, else the pool's; each attempt records its account.
-  const meter = async (account_id: string, used_pct: number) => {
-    await db.delete(accountUsage).where(eq(accountUsage.account_id, account_id));
-    await db.insert(accountUsage).values({ account_id, window: "5h", used_pct, read_at: new Date() });
+  const meter = async (used_pct: number, ...ids: string[]) => {
+    await db.delete(accountUsage).where(inArray(accountUsage.account_id, ids));
+    await db.insert(accountUsage).values(ids.map((account_id) => ({ account_id, window: "5h" as const, used_pct, read_at: new Date() })));
   };
   const stamp = async (thread: string, branch: string, accountId: string) => {
     const at = new Date();
@@ -120,29 +120,23 @@ try {
   };
   const ranOn = () => db.select({ branch: runs.branch, account: runs.account_id }).from(runs).where(eq(runs.job_key, keys.a)).orderBy(runs.branch);
   const failed = (attempt: number, previous_failure: string | null) => db.update(jobs).set({ attempt, previous_failure }).where(eq(jobs.key, keys.a));
-  await meter("creds-a", 50);
+  await meter(50, "creds-a");
   assert.deepEqual(await secretOf(keys.a), { id: "creds-a", secret: "token-of-a" }, "1.1: the owner under 95% runs on its own account");
   await stamp("t-1", "hive/CRD-1", "creds-a");
-  assert.deepEqual(await ranOn(), [{ branch: "hive/CRD-1", account: "creds-a" }], "1.1: runs.account_id is the owner's");
   await failed(2, null);
-  await meter("creds-a", 95);
+  await meter(95, "creds-a");
   assert.deepEqual(await secretOf(keys.a), { id: "creds-pool", secret: "token-of-pool" }, "1.2: at 95% the pool account runs");
-
-  const pool = config.factory.pool;
-  await meter("creds-pool", 95);
-  pool.pauseInstead = true;
+  await meter(95, "creds-pool");
+  config.factory.pool.pauseInstead = true;
   assert.equal(await secretOf(keys.a), "wait", "1.4: pool at its threshold with pauseInstead on waits");
-  pool.pauseInstead = false;
-
-  await meter("creds-a", 10);
-  await meter("creds-pool", 10);
+  config.factory.pool.pauseInstead = false;
+  await meter(10, "creds-a", "creds-pool");
   await failed(2, `Watchdog stopped this run: ${RATE_LIMITED} (stage implementing).`);
   assert.deepEqual(await secretOf(keys.a), { id: "creds-pool", secret: "token-of-pool" }, "1.3: the owner's account just rate-limited, so the pool's runs");
   await stamp("t-2", "hive/CRD-1-a2", "creds-pool");
   const ran = (await ranOn()).map((r) => `${r.branch}:${r.account}`);
   assert.deepEqual(ran, ["hive/CRD-1:creds-a", "hive/CRD-1-a2:creds-pool"], "1.3: each attempt's runs.account_id says which account ran it");
   await failed(1, null);
-
   // The pool's rows beat the runner default, and B's account is never A's, whatever is left.
   await db.delete(agentAccounts).where(inArray(agentAccounts.id, ["creds-a", "creds-pool"]));
   assert.deepEqual(await secretOf(keys.a), { id: null, secret: "runner-token" }, "A has none and the pool is empty: the runner default, never B's");
