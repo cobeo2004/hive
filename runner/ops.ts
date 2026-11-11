@@ -599,6 +599,8 @@ async function claimDrafts(
         continue;
       }
       const target = draft.repo ?? targetOf(source, draft);
+      // One draft the table refuses (a key another job holds) must not abort the rest of the claim.
+      await tx.execute(sql`savepoint draft`);
       const inserted = await tx
         .insert(jobs)
         .values({
@@ -662,7 +664,12 @@ async function claimDrafts(
           // No new attempt while a launch is pending or a stop is owed; see runner/binding.ts.
           setWhere: canReclaimSql,
         })
-        .returning({ key: jobs.key });
+        .returning({ key: jobs.key })
+        .catch(async () => {
+          await tx.execute(sql`rollback to savepoint draft`);
+          refused.push(`${source.source} ${draft.key} was refused by the jobs table (does another job hold its key?)`);
+          return [];
+        });
       if (inserted.length === 0) continue;
       inFlight++;
       claimed.push(draft.key);
@@ -693,8 +700,7 @@ export function launchMessage(job: Job) {
     "",
     "## Issue",
     "",
-    job.description?.trim() || "(The issue has no description.)",
-    ...[sourceFor(job.source).launchNote?.(job)].flatMap((note) => (note ? ["", note] : [])),
+    sourceFor(job.source).issueBlock?.(job) ?? (job.description?.trim() || "(The issue has no description.)"),
     ...(job.previous_failure
       ? ["", `This is attempt ${job.attempt}. The previous attempt failed: ${job.previous_failure} Start fresh from main on this branch.`]
       : []),

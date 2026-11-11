@@ -77,8 +77,8 @@ export interface SourceAdapter<S extends JobSource> {
   reopen(job: Job<S>): Promise<void>;
   /** Puts a failed job where the source's intake offers it again, as a person adding the factory label does; the next claim starts a new attempt. */
   requeue(job: Job<S>): Promise<void>;
-  /** What the source adds to the thread's launch message, such as how the PR closes the item. */
-  launchNote?(job: Pick<Job<S>, "key" | "writeback">): string;
+  /** The launch message's issue section where the source's text is untrusted: its own rules, then the text fenced. Without it the description is shown as it is. */
+  issueBlock?(job: Pick<Job<S>, "writeback" | "description">): string;
   /** The noun phrase naming the job in messages to the thread, such as "Linear issue FAC-7". */
   describe(job: Pick<Job<S>, "key">): string;
   /**

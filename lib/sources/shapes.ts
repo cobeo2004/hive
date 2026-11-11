@@ -22,10 +22,8 @@ const github = {
   writeback: z.object({ kind: z.literal("github"), repo: z.string(), number: z.number().int() }),
   sourceState: z.object({
     labels: z.array(z.string()),
-    /** The attempt's one status comment, edited in place, and the attempt it belongs to. */
     statusCommentId: z.number().int().nullable().default(null),
     statusAttempt: z.number().int().default(0),
-    /** Every comment Hive posted on the issue; anything else on it is a person. */
     factoryCommentIds: z.array(z.string()).default([]),
   }),
 };
