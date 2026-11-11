@@ -21,6 +21,8 @@ import { harnessLine, showsDecision, whereLine, type BoardCard } from "./cards";
 import { EvidenceLine } from "./evidence";
 import { formatUsd, spendOf } from "./format";
 import { jobsHref } from "./job-view";
+import { ModelChip } from "./model-chip";
+import { isPrReady } from "./run-card";
 import { useOwnerParam } from "./use-owner-param";
 import { decisionLine } from "./merge-decision";
 import { useRowKeys } from "./row-keys";
@@ -72,6 +74,10 @@ function Row({
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="truncate">{card.title}</span>
         {card.latest?.status === "active" && <Spinner className="size-3 shrink-0 text-muted-foreground" />}
+        {isPrReady(card) && <span className="shrink-0 rounded-full bg-(--lime) px-2 text-[11px] font-medium text-(--on-lime)">PR ready</span>}
+      </span>
+      <span className="hidden shrink-0 @2xl:block">
+        <ModelChip model={card.latest?.model ?? null} />
       </span>
       {repoLabels && <span className="hidden w-28 shrink-0 truncate text-xs text-muted-foreground @2xl:block">{card.repo && repoLabels.get(card.repo)}</span>}
       <span className={cn("hidden w-32 shrink-0 truncate text-xs @sm:block @xl:w-56", decision?.tone)}>{decision?.text}</span>
@@ -198,7 +204,7 @@ export function JobList({
           const pickedHere = pickableIds.filter((id) => picked.has(id)).length;
           return (
             <section key={stage} aria-label={STAGE_META[stage].label}>
-              <div className="sticky top-0 z-10 flex h-9 items-center border-b bg-muted/72 backdrop-blur-sm">
+              <div className="sticky top-0 z-10 flex h-9 items-center border-b bg-(--surface-1)/90 backdrop-blur-sm">
                 <PickCell>
                   {pickableIds.length > 0 && (
                     <Checkbox
@@ -217,7 +223,7 @@ export function JobList({
                 >
                   <ChevronRightIcon className={cn("size-3.5 text-muted-foreground transition-transform duration-200 ease-out", open && "rotate-90")} />
                   <span className={cn("size-2 rounded-full", STAGE_META[stage].dot)} />
-                  <span className="font-medium">{STAGE_META[stage].label}</span>
+                  <span className="text-xs font-medium text-(--ink-2)">{STAGE_META[stage].label}</span>
                   <span className="text-xs text-muted-foreground tabular-nums">{rows.length}</span>
                 </button>
               </div>

@@ -6,10 +6,10 @@ import { MeterBar } from "./usage-meter";
 
 function Stat({ label, value, note, tone, meter }: { label: string; value: string; note: string; tone?: string; meter?: number | null }) {
   return (
-    <div className="basis-44 flex-1 border-b border-r bg-background px-5 py-3.5">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={cn("mt-0.5 text-xl font-semibold tabular-nums", tone)}>{value}</div>
-      <div className="text-xs text-faint">{note}</div>
+    <div className="flex flex-col gap-0.75 bg-card px-3.5 py-3">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className={cn("text-xl leading-[26px] font-semibold tabular-nums", tone)}>{value}</div>
+      <div className="text-xs text-muted-foreground">{note}</div>
       {meter !== undefined && <MeterBar pct={meter} label={label} className="mt-1.5" />}
     </div>
   );
@@ -36,9 +36,8 @@ export function StatsStrip({
 
   const pool = meters.pool.fiveHourPct;
 
-  // Cells carry their own borders, so a wrapped last row leaves no grey tracks.
   return (
-    <section className="flex flex-wrap">
+    <section className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-px overflow-hidden rounded-md border bg-border">
       <Stat label="Active runs" value={String(active)} note="working now" tone={active ? "text-primary" : undefined} />
       <Stat label="Idle runs" value={String(idle)} note="waiting for a prompt" />
       <Stat label="Running agents" value={String(runningAgents)} note="subagents in flight" />

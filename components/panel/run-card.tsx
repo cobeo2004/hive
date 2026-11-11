@@ -20,9 +20,21 @@ import { Time } from "./time";
 
 const cardClass = (selected: boolean) =>
   cn(
-    "relative flex flex-col gap-1 rounded-lg border bg-card p-2.5 text-left text-sm transition-colors hover:border-input",
-    selected && "border-primary ring-1 ring-primary",
+    "relative grid gap-2 rounded-2xl border-[1.5px] bg-background p-3 text-left text-sm shadow-xs transition-colors hover:border-(--border-strong) dark:shadow-none",
+    selected && "border-primary ring-3 ring-(--primary-soft)",
   );
+
+/** Lime marks a job at `pr` with every check green, and nothing else. */
+export const isPrReady = (card: Pick<BoardCard, "stage" | "evidence">) => card.stage === "pr" && card.evidence?.tone === "success";
+
+/** `#1309` for a GitHub pull URL, null for anything else. */
+export function prNumber(url: string | null) {
+  if (!url || !URL.canParse(url)) return null;
+  const segments = new URL(url).pathname.split("/");
+  const at = segments.indexOf("pull");
+  const n = at < 0 ? "" : (segments[at + 1] ?? "");
+  return n !== "" && [...n].every((c) => c >= "0" && c <= "9") ? `#${n}` : null;
+}
 
 /** What the given runs cost, their subagents included. */
 const attemptCost = (runs: readonly RunRow[], agents: readonly AgentRow[]) =>
@@ -145,17 +157,37 @@ export function StageCard({
   const { latest } = card;
   const where = card.runsOn && whereLine(card.runsOn, machineName);
   const sandbox = card.runsOn?.kind === "modal" ? card.runsOn.sandbox : null;
+  const pr = prNumber(card.prUrl);
   return (
-    <div data-card={card.id} className={cn(cardClass(selected), "gap-1.5")}>
+    <div data-card={card.id} className={cardClass(selected)}>
       {latest && (
         <Link
           href={jobsHref("board", latest.session_id, false, owner)}
           scroll={false}
           aria-label={`Open ${card.jobKey ?? card.title}`}
-          className="absolute inset-0 rounded-lg"
+          className="absolute inset-0 rounded-2xl"
         />
       )}
-      <div className="line-clamp-2 font-medium leading-snug text-pretty">{card.title}</div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">
+          {latest?.status === "active" && <Spinner className="size-2.5 shrink-0" aria-label="Working" />}
+          <span className="truncate">{card.jobKey ?? card.id.slice(0, 8)}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+          {isPrReady(card) && <span className="rounded-full bg-(--lime) px-2 text-[11.5px] font-medium text-(--on-lime)">PR ready</span>}
+          {pr && card.prUrl && (
+            <a href={card.prUrl} target="_blank" rel="noreferrer" className="relative underline-offset-2 hover:underline">
+              PR {pr}
+            </a>
+          )}
+        </span>
+      </div>
+      <div className="line-clamp-2 text-[13.5px] leading-[19px] font-medium text-pretty">{card.title}</div>
+      {card.stage === "waiting" && card.question ? (
+        <p className="line-clamp-2 text-xs leading-[17px] text-warning">{card.question}</p>
+      ) : (
+        card.summary && <p className="line-clamp-2 text-xs leading-[17px] text-(--ink-2)">{card.summary}</p>
+      )}
       {showsDecision(card) && <MergeLine decision={card.mergeDecision} />}
       {card.evidence && <EvidenceLine line={card.evidence} />}
       {card.stop && <StopLine view={card.stop.view} t3Href={t3Href} />}
@@ -164,12 +196,16 @@ export function StageCard({
           Stuck · nudged <Time date={card.nudgedAt} />
         </p>
       )}
-      {card.stage === "waiting" && card.question && <p className="line-clamp-2 text-xs text-warning">{card.question}</p>}
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        {latest?.status === "active" && <Spinner className="size-2.5 shrink-0" aria-label="Working" />}
-        <span className="shrink-0 font-mono">{card.jobKey ?? card.id.slice(0, 8)}</span>
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <ModelChip model={latest?.model ?? null} />
         {repoLabel && <span className="min-w-0 truncate">{repoLabel}</span>}
         <span className="ms-auto flex shrink-0 items-center gap-2">
+          {where && (
+            <span title={sandbox ? `${where} · ${sandbox}` : where} className="flex items-center gap-1">
+              {card.runsOn?.kind === "modal" ? <CloudIcon className="size-3.5" aria-label={where} /> : <MonitorIcon className="size-3.5" aria-label={where} />}
+              {sandbox === "hibernated" && <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-label="hibernated" />}
+            </span>
+          )}
           {card.attempt > 1 && <span>attempt {card.attempt}</span>}
           {!card.harness || card.harness.tracking === "full" ? (
             <span className="font-mono" title="Spend of this attempt">
@@ -177,12 +213,6 @@ export function StageCard({
             </span>
           ) : (
             <span title={TRACKING_HINT[card.harness.tracking]}>{card.harness.tracking === "stages" ? "cost unknown" : "not tracked"}</span>
-          )}
-          {where && (
-            <span title={sandbox ? `${where} · ${sandbox}` : where} className="flex items-center gap-1">
-              {card.runsOn?.kind === "modal" ? <CloudIcon className="size-3.5" aria-label={where} /> : <MonitorIcon className="size-3.5" aria-label={where} />}
-              {sandbox === "hibernated" && <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-label="hibernated" />}
-            </span>
           )}
         </span>
       </div>
