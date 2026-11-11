@@ -60,7 +60,8 @@ async function ensureIgnored(host: JobHost, checkout: string) {
  * so a seed never rides into the next job launched from the same checkout (launchEntries starts one at a
  * time, so seeds never interleave). After `start` returns an id nothing may reach the caller as an error:
  * the id comes back and failures go to `onError`. A start whose thread may exist keeps its seed for the
- * agent that may be running on it; only a clear failure restores.
+ * agent that may be running on it; only a clear failure restores. A seed left by an unnamed worktree or
+ * an ambiguous start stays, with its gate, in the checkout until the next launch from it restores the original. sstack runs in that checkout meanwhile read it.
  */
 export async function startUnattended(
   host: JobHost,

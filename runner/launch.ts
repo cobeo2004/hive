@@ -100,6 +100,7 @@ export async function startLead(
   harness: HarnessChoice,
   registry: Registry,
   onError?: GateLog,
+  waitMs = 15_000,
 ) {
   const { SSTACK_PLAN_GATE } = await launchEnv(entry.owner, entry.repo, resolvePolicy(registry, entry.repo).autonomy);
   return startUnattended(
@@ -107,8 +108,15 @@ export async function startLead(
     checkout,
     SSTACK_PLAN_GATE,
     () => startThread(host, checkout, entry.branch, entry.threadTitle, message, harness),
-    // Ten tries, not thirty: a worktree T3 never names keeps the seed, which still holds this job's gate.
-    (threadId) => worktreeHead(threadId, host, 10).then((tree) => tree?.path),
+    // A worktree T3 never names keeps the seed, which still holds this job's gate.
+    (threadId) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const lookup = worktreeHead(threadId, host)
+        .then((tree) => tree?.path)
+        .catch(() => undefined);
+      const deadline = new Promise<void>((resolve) => (timer = setTimeout(resolve, waitMs)));
+      return Promise.race([lookup, deadline.then(() => undefined)]).finally(() => clearTimeout(timer));
+    },
     maybeStarted,
     onError,
   );
@@ -382,7 +390,7 @@ async function launchLocal(
       const host = hosts.forJob(entry);
       const checkout = checkouts.get(entry.repo)!;
       const message = await withPlaybook(await withLocalImages(entry.source, entry.key, entry.message), "local", host, checkout);
-      return startLead(host, checkout, entry, message, entry.harness, registry);
+      return startLead(host, checkout, entry, message, entry.harness, registry, (event, detail) => overrideRuntime.log(event, detail));
     },
     bind: bindThread,
     release: releaseLaunch,

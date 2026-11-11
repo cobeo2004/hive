@@ -335,8 +335,8 @@ try {
   const existing = '[dispatch]\nvia = "headless"\n# note\n[unattended]\nplan_gate = "auto"\n';
 
   /** A host with an in-memory file map that records every write and every call, in order. */
-  type GateOpts = { seed?: string; worktree?: string; startFails?: Error; worktreeWriteFails?: boolean; ignoreExit?: number };
-  function gateFiles({ seed, worktree = GATE_WT, startFails, worktreeWriteFails, ignoreExit = 0 }: GateOpts = {}) {
+  type GateOpts = { seed?: string; worktree?: string; startFails?: Error; worktreeWriteFails?: boolean; ignoreExit?: number; showHangs?: boolean };
+  function gateFiles({ seed, worktree = GATE_WT, startFails, worktreeWriteFails, ignoreExit = 0, showHangs = false }: GateOpts = {}) {
     const files = new Map<string, string>([[excludePath, "# git excludes\n"], ...(seed === undefined ? [] : ([[seedPath, seed]] as [string, string][]))]);
     const writes: { path: string; text: string }[] = [];
     const calls: string[] = [];
@@ -347,6 +347,7 @@ try {
         calls.push(command === "git" ? `git ${sub}` : sub === "start" ? "start" : `t3 ${sub}`);
         if (command !== "git") {
           if (startFails) throw startFails;
+          if (showHangs && sub === "show") return new Promise<never>(() => undefined);
           return { stdout: sub === "start" ? '{"threadId":"mcp:gate"}' : JSON.stringify({ thread: { worktreePath: worktree || null } }), stderr: "" };
         }
         if (sub === "check-ignore" && ignoreExit) throw Object.assign(new Error(`check-ignore exited ${ignoreExit}`), { code: ignoreExit });
@@ -405,8 +406,11 @@ try {
     [mayRun, true],
   ] as const) {
     const run = await startGate(gateFiles({ seed: existing, startFails: error }));
-    assert.match(String(run.started), new RegExp(error.message), "the failure reaches the caller");
-    assert.equal(run.files.get(seedPath) === existing, !kept, kept ? "an ambiguous start keeps its seed" : "a clear failure restores the file");
+    assert.deepEqual(
+      [String(run.started).includes(error.message), run.files.get(seedPath) === existing],
+      [true, !kept],
+      "the failure reaches the caller and only an ambiguous start keeps its seed",
+    );
   }
 
   // An orphaned seed reads back as the file it replaced, so the next launch restores that and not the seed.
@@ -417,7 +421,7 @@ try {
   assert.equal(orphan.files.get(seedPath), existing, "the launch after an orphaned seed restores the original, not the stale seed");
   assert.ok(
     orphan.writes.some((w) => w.path === worktreePath && w.text.includes("[dispatch]")),
-    "and the user's other keys reach the job's own worktree",
+    "and the user's other keys reach the worktree",
   );
 
   const broken = gateFiles({ seed: "[unattended\n" });
@@ -429,22 +433,45 @@ try {
   const gitBroken = await startGate(gateFiles({ ignoreExit: 2 }));
   assert.match(String(gitBroken.started), /check-ignore exited 2/, "a broken check-ignore stops the launch instead of duplicating the line");
 
+  const gateBase = {
+    key: "k",
+    sandbox_id: null,
+    attempt: 1,
+    source: "linear" as const,
+    repo: SEED_DIR,
+    branch: "hive/k",
+    threadTitle: "k",
+    message: "m",
+    harness,
+    ticket: null,
+    owner: null as string | null,
+  };
+  const gateEntry = (over: Partial<typeof gateBase> = {}) => ({ ...gateBase, ...over });
+
   // A failure after start returns the id: the thread is live, so it is bound and its seed stays.
   const wedged = gateFiles({ worktreeWriteFails: true });
   const boundKeys: string[] = [];
   const releasedKeys: string[] = [];
-  const gates = await launchEntries(
-    [{ key: "k", sandbox_id: null, attempt: 1, source: "linear", repo: SEED_DIR, branch: "b", threadTitle: "t", message: "m", harness, ticket: null }],
-    {
-      claim: async () => true,
-      start: () => gateLaunch(wedged),
-      bind: async (key, id) => void boundKeys.push(`${key}:${id}`),
-      release: async (key) => void releasedKeys.push(key),
-      now: Date.now,
-    },
-  );
+  const gates = await launchEntries([gateEntry()], {
+    claim: async () => true,
+    start: () => gateLaunch(wedged),
+    bind: async (key, id) => void boundKeys.push(`${key}:${id}`),
+    release: async (key) => void releasedKeys.push(key),
+    now: Date.now,
+  });
   assert.deepEqual([gates[0]?.threadId, boundKeys, releasedKeys], ["mcp:gate", ["k:mcp:gate"], []], "a post-start failure binds, never releases");
   assert.match(wedged.files.get(seedPath) ?? "", /plan_gate = "inbox"/, "and leaves the seed, because the worktree never got its copy");
+
+  const [hung, hungBound] = [gateFiles({ showHangs: true }), [] as string[]]; // a hung show must not hold the queue
+  const [hungLaunch] = await launchEntries([gateEntry({ key: "hung" })], {
+    claim: async () => true,
+    start: () => startLead(hung.host, SEED_DIR, gateEntry({ key: "hung" }), "Work HUNG-1", harness, [], undefined, 30),
+    bind: async (key, id) => void hungBound.push(`${key}:${id}`),
+    release: async () => assert.fail("a deadline launch is not released"),
+    now: Date.now,
+  });
+  assert.deepEqual([hungLaunch?.threadId, Number(hungLaunch?.startMs) < 1_000, hungBound], ["mcp:gate", true, ["hung:mcp:gate"]]);
+  assert.match(hung.files.get(seedPath) ?? "", /plan_gate = "inbox"/, "the deadline leaves the seed");
 
   // MUTATION CHECK for the launch sites: one that starts a thread itself, without startLead, fails here.
   const launchSource = readFileSync(new URL("../runner/launch.ts", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "");
@@ -466,19 +493,7 @@ try {
       await db.insert(repoSettings).values({ repo: optedRepo, autonomy: "auto", updated_at: new Date(), updated_by: optedUser });
       const [policy] = await db.select().from(repoSettings).where(eq(repoSettings.repo, optedRepo));
       const launch = gateFiles();
-      const entry = {
-        key: "gate-opt",
-        sandbox_id: null,
-        attempt: 1,
-        source: "linear" as const,
-        repo: optedRepo,
-        branch: "hive/gate-opt",
-        threadTitle: "GATE-1",
-        message: "m",
-        harness,
-        ticket: null,
-        owner: optedUser,
-      };
+      const entry = gateEntry({ key: "gate-opt", repo: optedRepo, threadTitle: "GATE-1", owner: optedUser });
       assert.equal(await startLead(launch.host, SEED_DIR, entry, "Work GATE-1", harness, [policy!]), "mcp:gate");
       assertGateFileWritten(launch.writes, launch.calls, "inbox");
     } finally {
