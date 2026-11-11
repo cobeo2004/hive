@@ -234,7 +234,7 @@ try {
   assert.deepEqual(names(8), ["hive"], "the waiting label goes when the answer is taken");
   const asking = await job(8);
   await Promise.all([adapter.reply!(asking, "req-2", "twice"), adapter.reply!(asking, "req-2", "twice")]);
-  assert.equal(comments(ON, 8).filter((c) => c.body.includes("hive:answer:req-2")).length, 1, "two panel replies at once post once");
+  assert.equal(comments(ON, 8).filter((c) => c.body.includes(":req-2 -->")).length, 1, "two panel replies at once post once");
   say(8, HIVE.login, "a note quoting <!-- hive:note:k2 --> in passing", "Bot");
   await adapter.note(await job(8), "k2", "real");
   assert.ok(
@@ -247,9 +247,10 @@ try {
   await adapter.note(await job(8), "k", "hello");
   await adapter.note(await job(8), "k", "hello");
   assert.equal(comments(ON, 8).filter((c) => c.body.includes("hello")).length, 1, "a note is posted once per key");
-  await adapter.reply!(await job(8), "req-old", "stale");
+  const inFlight = await job(8);
   await patch(8, { stage_event_id: "w2" });
   await adapter.writeBack(await job(8), { stage: "waiting", eventId: "w2" });
+  await adapter.reply!(inFlight, "req-old", "stale");
   assert.equal((await adapter.replies(await job(8))).kind, "wait", "an answer to an earlier question is not an answer to the next one");
   gh.get(`${ON}#8`)!.state = "closed";
   assert.deepEqual(await adapter.replies(await job(8)), { kind: "close", state: "closed" }, "a closed issue ends the wait");

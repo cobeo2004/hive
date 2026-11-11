@@ -258,7 +258,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       const writers = new Map(await Promise.all(people.map(async (login) => [login, await isWriter(d, repo, login)] as const)));
       // The panel posts as the App, which also posted the question: an answer is a comment from the App's login opening with the marker; any other bot is ignored.
       const replies: Reply[] = after
-        .filter((c) => (bot(c) ? c.user!.login === own && ANSWER.test(c.body ?? "") : writers.get(c.user!.login)))
+        .filter((c) => (bot(c) ? c.user!.login === own && !!c.body?.startsWith(`<!-- hive:answer:${job.stage_event_id}:`) : writers.get(c.user!.login)))
         .map((c) => ({ id: String(c.id), body: (c.body ?? "").replace(ANSWER, "").trim(), createdAt: c.created_at }));
       if (replies.length === 0) return { kind: "wait" };
       return { kind: "resume", question: job.question ?? asked.body ?? "", replies, answer: replies.map((r) => r.body).join("\n\n") };
@@ -277,7 +277,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
         marked(c, own, mark("question", job.stage_event_id ?? "")),
       );
       if (!asked) throw new Error("Hive has not posted the question on the issue yet; answer again in a moment.");
-      await postOnce(d, job, mark("answer", requestId), body);
+      await postOnce(d, job, mark("answer", `${job.stage_event_id}:${requestId}`), body);
     },
     // Stops arrive in a later PR: until then a running job is stopped from the panel.
     stopWanted: async () => [],
