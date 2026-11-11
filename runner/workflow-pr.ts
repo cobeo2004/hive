@@ -24,7 +24,7 @@ export const workflowDeps: {
   checkout: (repo: RepoName) => Promise<string | null>;
   dir: string;
   remote: (repo: RepoName) => string;
-  doctor: (cwd: string) => Promise<Doctor>;
+  doctor: (cwd: string, env?: Record<string, string>) => Promise<Doctor>;
   github: Pick<typeof github, "createPull">;
   now: () => Date;
 } = {
@@ -34,9 +34,9 @@ export const workflowDeps: {
   dir: tmpdir(),
   remote: (repo) => `https://github.com/${repo}.git`,
   // A non-zero exit is a result, not an error; a doctor that cannot start (ENOENT) rejects.
-  async doctor(cwd) {
+  async doctor(cwd, env) {
     try {
-      const { stdout, stderr } = await workflowDeps.host.run(process.env.SSTACK_DOCTOR ?? "sstack-doctor", [], { cwd, timeoutMs: 120_000 });
+      const { stdout, stderr } = await workflowDeps.host.run(process.env.SSTACK_DOCTOR ?? "sstack-doctor", [], { cwd, env, timeoutMs: 120_000 });
       return { code: 0, output: stdout + stderr };
     } catch (error) {
       const { code, stdout = "", stderr = "" } = error as ExecError;

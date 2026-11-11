@@ -172,10 +172,11 @@ function Workspaces({ inventory }: { inventory: Inventory | null }) {
 }
 
 /** The facts that say whether the machine can take work, in one line under its name. */
-function Facts({ machine, inventory }: { machine: MachineRow; inventory: Inventory | null }) {
+function Facts({ machine, inventory, heartbeat }: { machine: MachineRow; inventory: Inventory | null; heartbeat: Heartbeat | null }) {
   const t3 = known(inventory?.t3);
   const sha = known(inventory?.runnerSha);
   const connect = inventory ? known(inventory.connect) : null;
+  const defaults = known(heartbeat?.sstackDefaults);
   return (
     <dl className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
       <div className="flex gap-1.5">
@@ -192,6 +193,18 @@ function Facts({ machine, inventory }: { machine: MachineRow; inventory: Invento
       <div className="flex gap-1.5">
         <dt>Runner</dt>
         <dd className="font-mono">{sha ? sha.slice(0, 7) : "unknown"}</dd>
+      </div>
+      <div className="flex min-w-0 gap-1.5">
+        <dt>Defaults</dt>
+        {defaults && "error" in defaults ? (
+          <dd className="truncate text-destructive" title={defaults.error}>
+            {defaults.error}
+          </dd>
+        ) : defaults ? (
+          <dd className="font-mono">at {defaults.sha.slice(0, 7)}</dd>
+        ) : (
+          <dd>none yet</dd>
+        )}
       </div>
       <div className="flex min-w-0 gap-1.5">
         <dt>ID</dt>
@@ -221,7 +234,7 @@ function MachineSection({ machine, now }: { machine: MachineRow; now: number | n
             {now !== null && ` · ${ago(now - machine.last_seen_at.getTime())}`}
           </span>
         </div>
-        <Facts machine={machine} inventory={inventory} />
+        <Facts machine={machine} inventory={inventory} heartbeat={heartbeat} />
       </header>
       {/* An offline machine's numbers are its last heartbeat's, so they fade. */}
       <div className={cn(online === false && "opacity-60")}>
