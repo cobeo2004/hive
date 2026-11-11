@@ -245,6 +245,9 @@ try {
     "a marker quoted mid-comment is not Hive's comment",
   );
   gh.get(`${ON}#8`)!.labels.push({ name: WAITING_LABEL });
+  assert.equal(await adapter.writeBack(await job(8), { stage: "queued", eventId: "w1a" }), false);
+  assert.deepEqual(names(8), ["hive"], "a queued write-back clears it too, since the answer queues the job before it is acknowledged");
+  gh.get(`${ON}#8`)!.labels.push({ name: WAITING_LABEL });
   await adapter.writeBack(await job(8), { stage: "implementing", eventId: "w1b" });
   assert.deepEqual(names(8), ["hive"], "a write-back after resuming clears a hive:waiting an acknowledgement failed to remove");
   await adapter.note(await job(8), "k", "hello");

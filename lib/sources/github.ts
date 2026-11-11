@@ -212,8 +212,9 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       await setStatus(await deps(), job, `Hive picked this up${again}.`);
     },
     async writeBack(job, { stage, eventId }) {
-      if (stage === "queued") return false;
       const d = await deps();
+      // A job queued by an answer whose acknowledgement failed still carries the label.
+      if (stage === "queued") return dropLabel(d, job, WAITING).then(() => false);
       const { repo } = job.writeback;
       const label = await d.label();
       try {
