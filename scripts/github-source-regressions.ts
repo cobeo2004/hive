@@ -336,7 +336,7 @@ try {
   const owner = (n: number) => offered.find((d) => d.externalId === `${ON}#${n}`)?.owner;
   assert.deepEqual(owner(40), { assigneeEmail: null, creatorEmail: "w@x.io" }, "a bot assignee is no owner, so the creator's email stands");
   assert.deepEqual(owner(41), { assigneeEmail: "dev@x.io", creatorEmail: null }, "an email the profile hides is none");
-  assert.equal(owner(8), undefined, "a job that exists is not looked up again");
+  assert.equal(owner(7), undefined, "a job that exists is not looked up again");
   assert.ok(!calls.includes("GET owner/on /users/hive%5Bbot%5D"), "a bot's profile is never read");
   for (const n of [40, 41]) gh.delete(`${ON}#${n}`);
   // R9: harness:<name> and runs-on:<name> labels.
@@ -372,7 +372,10 @@ try {
   // R11: the issue's attachments are downloaded with the installation token, to the hosts GitHub serves them from and no others.
   const shot = "https://github.com/user-attachments/assets/aaaa-1111";
   const tagged = "https://private-user-images.githubusercontent.com/1/2.png?jwt=a.b";
-  const pictured = await adapter.localizeImages!(run, `![shot](${shot})\n<img width="9" alt="x" src="${tagged}" />\n![e](https://evil.example/a.png)`);
+  const pictured = await adapter.localizeImages!(
+    run,
+    `![shot](${shot})\n<img width="9" alt="x" src="${tagged}" />\n![e](https://evil.example/a.png)\n![r](https://github.com/o/r/raw/x.png)`,
+  );
   assert.deepEqual(
     fetched.map((f) => [f.url, f.auth]),
     [
@@ -382,7 +385,10 @@ try {
     "the token goes to GitHub's hosts only",
   );
   assert.equal(pictured.match(new RegExp(`\\[image: ${join(ATTACHMENTS_DIR, run.key)}/\\w+\\.png\\]`, "g"))?.length, 2, "both forms point at saved files");
-  assert.ok(pictured.includes("![e](https://evil.example/a.png)") && pictured.includes("## Images"), "another host's image is left alone");
+  assert.ok(
+    pictured.includes("![e](https://evil.example/a.png)") && pictured.includes("![r](https://github.com/o/r/raw/x.png)") && pictured.includes("## Images"),
+    "another host's image is left alone",
+  );
   await rm(join(ATTACHMENTS_DIR, run.key), { recursive: true, force: true });
   // R3, R4: issue and comment deliveries wake the runner; a person's comment is an answer, a bot's or a PR's is nothing.
   const event = { repository: { full_name: ON }, issue: { number: 8 } };
