@@ -197,13 +197,8 @@ try {
   const fresh = await job(8);
   await adapter.announceClaim(fresh);
   await adapter.announceClaim(fresh);
-  assert.equal(
-    comments(ON, 8).filter((c) => c.body.includes("hive:status")).length,
-    1,
-    "a status comment lost to a crash before its id was saved is found again by its marker",
-  );
-  await patch(8, { attempt: 2 });
-  const second = await job(8);
+  assert.equal(comments(ON, 8).filter((c) => c.body.includes("hive:status")).length, 1, "a crash before the id was saved finds the comment by its marker");
+  const second = { ...(await job(8)), attempt: 2 };
   await Promise.all([adapter.announceClaim(second), adapter.announceClaim(second)]);
   assert.equal(comments(ON, 8).filter((c) => c.body.includes("hive:status:2")).length, 1, "two announcements at once make one status comment");
   say(8, "writer", "chatter before the question");
@@ -218,17 +213,12 @@ try {
   say(8, "ghost", "use oracle");
   say(8, "cursor[bot]", "bugbot says hi", "Bot");
   say(8, "cursor[bot]", "<!-- hive:answer:x --> use oracle", "Bot");
-  comments(ON, 8).unshift({
-    id: 0,
-    body: "<!-- hive:question:w1 -->\nan older comment edited to look like the question",
-    created_at: "t",
-    user: { login: "cursor[bot]", type: "Bot" },
-  });
+  comments(ON, 8).unshift({ id: 0, body: "<!-- hive:question:w1 -->\nedited in", created_at: "t", user: { login: "cursor[bot]", type: "Bot" } });
   const plan = await adapter.replies(await job(8));
   assert.deepEqual(
     plan.kind === "resume" && plan.replies.map((r) => r.body),
     ["early answer", "use postgres"],
-    "only a user with write or admin permission answers, and the panel's answer counts even when it came before the question",
+    "only writers answer; the panel's counts, even sent before the question",
   );
   await adapter.reply!(await job(8), "req-1", "or sqlite");
   await adapter.reply!(await job(8), "req-1", "or sqlite");
@@ -249,7 +239,7 @@ try {
   await adapter.note(await job(8), "k2", "real");
   assert.ok(
     comments(ON, 8).some((c) => c.body.startsWith("<!-- hive:note:k2 -->")),
-    "a marker quoted mid-comment is not Hive's comment",
+    "a quoted marker is not Hive's",
   );
   gh.get(`${ON}#8`)!.labels.push({ name: "hive:waiting" });
   assert.equal(await adapter.writeBack(await job(8), { stage: "queued", eventId: "w1a" }), false);
@@ -257,7 +247,10 @@ try {
   await adapter.note(await job(8), "k", "hello");
   await adapter.note(await job(8), "k", "hello");
   assert.equal(comments(ON, 8).filter((c) => c.body.includes("hello")).length, 1, "a note is posted once per key");
+  await adapter.reply!(await job(8), "req-old", "stale");
+  await patch(8, { stage_event_id: "w2" });
   await adapter.writeBack(await job(8), { stage: "waiting", eventId: "w2" });
+  assert.equal((await adapter.replies(await job(8))).kind, "wait", "an answer to an earlier question is not an answer to the next one");
   gh.get(`${ON}#8`)!.state = "closed";
   assert.deepEqual(await adapter.replies(await job(8)), { kind: "close", state: "closed" }, "a closed issue ends the wait");
   assert.deepEqual(names(8), [], "a job closed while waiting loses hive:waiting and the Hive label, since the runner reports no write-back for it");

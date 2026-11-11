@@ -115,6 +115,8 @@ async function postOnce(d: GithubDeps, job: Job, marker: string, text: string) {
   });
 }
 
+const ask = (d: GithubDeps, job: Job, eventId: string) =>
+  postOnce(d, job, mark("question", eventId), `**Hive needs an answer**\n\n${job.question ?? job.stage_summary}`);
 const dropLabel = (d: GithubDeps, job: Job, name: string) =>
   soft(d.request(job.writeback.repo, "DELETE", `${issuePath(job)}/labels/${encodeURIComponent(name)}`));
 
@@ -229,7 +231,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
             .join("\n\n"),
         );
         if (stage === "waiting") {
-          await postOnce(d, job, mark("question", eventId), `**Hive needs an answer**\n\n${job.question ?? job.stage_summary}`);
+          await ask(d, job, eventId);
           await d.request(repo, "POST", `${issuePath(job)}/labels`, { labels: [WAITING] });
         } else await dropLabel(d, job, WAITING);
         // Back to unstarted without the label, so the poll does not claim it again in a loop; the label retries it.
@@ -253,14 +255,12 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       const asked = all.find((c) => job.stage_event_id && marked(c, own, mark("question", job.stage_event_id)));
       if (!asked) return { kind: "wait" };
       const skip = new Set([...job.source_state.factoryCommentIds, ...job.delivered_reply_ids]);
-      const ownAnswer = (c: z.infer<typeof commentSchema>) => c.user?.login === own && ANSWER.test(c.body ?? "");
-      // The panel can answer a waiting job before its question is on the issue, so its answer may come first.
-      const after = all.filter((c) => (c.id > asked.id || ownAnswer(c)) && !skip.has(String(c.id)) && c.user);
+      const after = all.filter((c) => c.id > asked.id && !skip.has(String(c.id)) && c.user);
       const people = [...new Set(after.filter((c) => !bot(c)).map((c) => c.user!.login))];
       const writers = new Map(await Promise.all(people.map(async (login) => [login, await isWriter(d, repo, login)] as const)));
       // The panel posts as the App, which also posted the question: an answer is a comment from the App's login opening with the marker; any other bot is ignored.
       const replies: Reply[] = after
-        .filter((c) => (bot(c) ? ownAnswer(c) : writers.get(c.user!.login)))
+        .filter((c) => (bot(c) ? c.user!.login === own && ANSWER.test(c.body ?? "") : writers.get(c.user!.login)))
         .map((c) => ({ id: String(c.id), body: (c.body ?? "").replace(ANSWER, "").trim(), createdAt: c.created_at }));
       if (replies.length === 0) return { kind: "wait" };
       return { kind: "resume", question: job.question ?? asked.body ?? "", replies, answer: replies.map((r) => r.body).join("\n\n") };
@@ -272,7 +272,10 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       await postOnce(await deps(), job, mark("note", key), body);
     },
     async reply(job, requestId, body) {
-      await postOnce(await deps(), job, mark("answer", requestId), body);
+      const d = await deps();
+      // The job waits in the database before its question is written back; an answer must not precede its question.
+      if (job.stage_event_id) await ask(d, job, job.stage_event_id);
+      await postOnce(d, job, mark("answer", requestId), body);
     },
     // Stops arrive in a later PR: until then a running job is stopped from the panel.
     stopWanted: async () => [],
