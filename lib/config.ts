@@ -69,6 +69,8 @@ export const factorySchema = z
     teamKey: z.string().default("FAC"),
     label: z.string().default("hive"),
     maxInFlight: z.number().int().positive().default(4),
+    /** Local (on-this-Mac) jobs a runner holds at once; a local claim beyond it is refused (R22.3). */
+    maxLocal: z.number().int().positive().default(3),
     /** A working job with no event for this long, or whose thread stopped, gets one nudge. */
     stuckAfterMinutes: z.number().positive().default(30),
     /** A stopped thread counts as stuck only after this much quiet, so a turn that just ended isn't. */
