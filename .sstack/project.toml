@@ -5,6 +5,7 @@ docs   = ["docs/prd.md", "docs/glossary.md", "docs/operations.md"]
 # ponytail: test:regressions left out — it needs a Postgres in TEST_DATABASE_URL, and
 # playbook-regressions fails until R13 (M4). Run it by hand via [test.code].
 verify = [
+  "bun install --frozen-lockfile",       # fresh worktrees have no node_modules (lesson L19)
   "bun run lint",
   "bunx next typegen && bunx tsc --noEmit",
   "bun run format:check",                 # CI format job (lesson L17)
