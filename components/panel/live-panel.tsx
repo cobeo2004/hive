@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { startTransition, Suspense, use, useMemo, useOptimistic, useSyncExternalStore, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import type { AgentRow, AuditRow, EventRow, JobEvidenceRow, JobRow, MachineRow, RepoSettingsRow, RunRow } from "@/db/schema";
+import type { AccountMeters } from "@/lib/account-meters";
 import { Board } from "./board";
 import { panelCards } from "./cards";
 import { splitArchived } from "@/lib/archive";
@@ -178,6 +179,7 @@ export function LivePanel({
   jobView: currentJobView,
   owner: currentOwner,
   me,
+  meters,
   repo: currentRepo,
   archived,
   registry,
@@ -195,6 +197,7 @@ export function LivePanel({
   owner: OwnerView;
   /** Who is looking, for Mine; null when signed out. */
   me: Viewer | null;
+  meters: AccountMeters;
   /** The repo the jobs page and the inbox show, from ?repo or the remembered one; null shows all. */
   repo: string | null;
   /** The jobs page shows the archive, from ?archived=1. */
@@ -344,7 +347,7 @@ export function LivePanel({
         }
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <StatsStrip runs={runRows} agentsBySession={agentsBySession} startOfToday={startOfToday} />
+        <StatsStrip runs={runRows} agentsBySession={agentsBySession} startOfToday={startOfToday} meters={meters} />
         <div className={cn("grid min-h-0 flex-1 grid-cols-1", selectedRun && !runFull && "lg:grid-cols-[minmax(0,1fr)_min(600px,46%)]")}>
           {/* Below lg an open run takes the whole width; closing it brings the page back. The class covers the first paint. */}
           {!runCovers && <div className={cn("contents", selectedRun && "max-lg:hidden")}>{content}</div>}
