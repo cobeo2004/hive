@@ -105,7 +105,7 @@ const shop = registry[1]!;
 const picked = (p: ReturnType<typeof launch>) => (p.kind === "launch" ? [p.harness.provider, p.execution] : [p.kind]);
 assert.deepEqual(picked(launch([], undefined)), ["claudeAgent", "local"], "no repo default: Settings");
 assert.deepEqual(picked(launch([], shop)), ["codex", "modal"], "the repo default beats Settings");
-assert.deepEqual(picked(launch([L("Cursor", "Harness")], shop)), ["cursor", "modal"], "a Harness label beats the repo default");
+assert.deepEqual(picked(launch([L("Claude Code", "Harness")], shop)), ["claudeAgent", "modal"], "a Harness label beats the repo default");
 assert.deepEqual(picked(launch([L("Local", "Runs on")], shop)), ["codex", "local"], "a Runs on label beats the repo default");
 assert.deepEqual(picked(launch([], row(B, { execution: "local" }))), ["claudeAgent", "local"], "a repo default for one field leaves the other to Settings");
 assert.equal(

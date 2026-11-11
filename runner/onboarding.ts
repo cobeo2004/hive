@@ -47,6 +47,7 @@ import { startThread } from "./launch";
 import { launchSettings } from "./ops";
 import { leasedSlots, loginFailed, TOKEN_REFRESH_MS, uniqueViolation, writeBackLogin } from "./lifecycle";
 import { CodexLoginError, sandboxHarness, sandboxRuntime, sandboxSecrets, setupSandbox, usableSlots, writeGithubToken } from "./sandbox";
+import { snapshotSstack } from "./sstack-snapshot";
 import { threads } from "./threads";
 
 // Runs a repo's onboarding on Modal, tracked on its registry row rather than as a job. Each step is
@@ -481,6 +482,7 @@ async function advanceBuild(row: RepoSettingsRow, run: StartedRun) {
   if (previous && previous !== finished.imageId)
     await deleteSnapshot(previous).catch((error: unknown) => log("onboarding:image-delete-failed", { repo: row.repo, image: previous, error: message(error) }));
   log("onboarding:image-built", { repo: row.repo, image: finished.imageId, commit: finished.commit.slice(0, 7) });
+  await snapshotSstack(row.repo).catch((error: unknown) => log("onboarding:sstack-snapshot-failed", { repo: row.repo, error: message(error) }));
   return { repo: row.repo, image: finished.imageId, state: recorded.onboarding_state };
 }
 

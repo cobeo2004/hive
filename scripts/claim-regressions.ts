@@ -25,7 +25,7 @@ const ours = async () =>
       .where(like(jobs.key, `${prefix}-%`))
   ).map((j) => j.key);
 const REPO = "ski043/factory-demo";
-const slot = (id: string, over: Partial<{ repos: string[]; maxInFlight: number }> = {}) => ({ id, repos: [REPO], maxInFlight: 1, ...over });
+const slot = (id: string, over: Partial<{ repos: string[]; maxInFlight: number; maxLocal: number }> = {}) => ({ id, repos: [REPO], maxInFlight: 1, ...over });
 const ownerOf = async (key: string) => (await db.select().from(jobs).where(eq(jobs.key, key)))[0]!.machine_id;
 
 const sent: string[] = [];
@@ -91,6 +91,34 @@ try {
     .where(eq(jobs.key, `${full}-busy`));
   await db.insert(jobs).values(linearJob(`${full}-after`, `${full}-after`));
   assert.equal(await claimLaunch(`${full}-after`, "pending:2", slot(full, { maxInFlight: 2 })), true, "a job in pr frees its slot");
+
+  // R22.3: a machine holding maxLocal local jobs refuses a fourth local claim; Modal claims and ended jobs don't count.
+  const local = `${prefix}-local`;
+  const held = (n: number, over: Record<string, unknown>) =>
+    linearJob(`${local}-held${n}`, `${local}-held${n}`, { stage: "implementing", machine_id: local, t3_thread_id: `thread-l${n}`, ...over });
+  await db
+    .insert(jobs)
+    .values([
+      held(1, { execution: "local" }),
+      held(2, { execution: null }),
+      held(3, { execution: null }),
+      held(4, { execution: "modal" }),
+      linearJob(`${local}-next`, `${local}-next`),
+      linearJob(`${local}-modal`, `${local}-modal`),
+    ]);
+  const capped = slot(local, { maxInFlight: 100, maxLocal: 3 });
+  assert.equal(await claimLaunch(`${local}-next`, "pending:1", capped, undefined, { execution: "local", ticket: null }), false, "a 4th local job is refused");
+  assert.equal(await ownerOf(`${local}-next`), null, "and stays free for another runner or a later tick");
+  assert.equal(await claimLaunch(`${local}-modal`, "pending:1", capped, undefined, { execution: "modal", ticket: null }), true, "the cap is local only");
+  await db
+    .update(jobs)
+    .set({ stage: "merged" })
+    .where(eq(jobs.key, `${local}-held1`));
+  assert.equal(
+    await claimLaunch(`${local}-next`, "pending:2", capped, undefined, { execution: "local", ticket: null }),
+    true,
+    "a local claim succeeds once one ends",
+  );
 
   const elsewhere = `${prefix}-elsewhere`;
   await db.insert(jobs).values(linearJob(elsewhere, elsewhere, { repo: "ski043/other-repo" }));

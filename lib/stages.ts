@@ -16,13 +16,14 @@ export function causeOf(eventId: string): Cause {
   return (RUNNER_CAUSES as readonly string[]).includes(prefix) ? (prefix as RunnerCause) : "report";
 }
 
-const REPORTED = ["triage", "investigating", "implementing", "verifying", "pr", "waiting", "failed"] as const;
+const REPORTED = ["triage", "investigating", "planning", "implementing", "verifying", "pr", "waiting", "failed"] as const;
 const FROM_WORKING = { report: REPORTED, watchdog: ["failed"], budget: ["failed"], stop: ["failed"], merged: ["merged"], inferred: ["pr", "waiting"] } as const;
 
 export const STAGE_TRANSITIONS: { readonly [From in Stage]: { readonly [C in Cause]?: readonly Stage[] } } = {
   queued: FROM_WORKING,
   triage: FROM_WORKING,
   investigating: FROM_WORKING,
+  planning: FROM_WORKING,
   implementing: FROM_WORKING,
   verifying: FROM_WORKING,
   pr: { report: REPORTED, conflict: ["implementing", "failed"], changes: ["implementing"], stop: ["failed"], merged: ["merged"] },

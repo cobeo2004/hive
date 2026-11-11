@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { JobRow } from "../db/schema";
+import { isAdmin, type SessionUser } from "./auth/owner";
 import { MERGE_VIAS, mergeDecisionSchema, type MergeDecision } from "./merge-decision";
 import { parseStop, stopLine, stopNeedsOwner, stopView } from "./stop";
 
@@ -69,6 +70,7 @@ export function inboxKind(job: InboxJob, decision = parseDecision(job.merge_deci
     case "queued":
     case "triage":
     case "investigating":
+    case "planning":
     case "implementing":
     case "verifying":
       return null;
@@ -89,6 +91,19 @@ export function inboxItems<J extends InboxJob>(jobs: readonly J[]): InboxItem<J>
     if (kind) items.push({ kind, job, decision, at: settled ? new Date(settled) : (job.stage_at ?? job.updated_at) });
   }
   return items.sort((a, b) => RANK[a.kind] - RANK[b.kind] || b.at.getTime() - a.at.getTime() || a.job.key.localeCompare(b.job.key));
+}
+
+export type OwnerView = "mine" | "everyone";
+export const parseOwnerView = (raw: unknown): OwnerView | undefined => (raw === "mine" || raw === "everyone" ? raw : undefined);
+
+export type Viewer = { id: string; admin: boolean };
+export const viewerOf = (u: SessionUser | null | undefined): Viewer | null => (u?.id ? { id: u.id, admin: isAdmin(u) } : null);
+
+/** Mine is the viewer's jobs, plus the ownerless ones for an admin; Everyone is all of them. Filters only; never gates an action. */
+export function ownedBy<J extends Pick<JobRow, "owner_id">>(jobs: readonly J[], view: OwnerView, me: Viewer | null): readonly J[] {
+  if (view === "everyone") return jobs;
+  if (!me) return [];
+  return jobs.filter((j) => j.owner_id === me.id || (me.admin && j.owner_id === null));
 }
 
 /** The one line a row gives for why the job is in the inbox. */

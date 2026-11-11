@@ -8,6 +8,7 @@ import { SourceGoneError, type Job, type JobDraft, type JobId, type JobSource, t
 import { canTransition, runnerEventId } from "../lib/stages";
 import { subagentTranscripts, sumUsage, transcriptPathFor } from "../lib/transcript";
 import { checkoutRepo, cleanupRepo, cleanupSubagentWorktrees } from "../lib/worktrees";
+import { sweepMedia } from "./cleanup";
 import { github } from "../lib/github/pulls";
 import { claimConflict, conflictMessage, unclaimedRunsWithPr } from "../lib/conflicts";
 import { attemptBranch, isJobKey, isMcpSession } from "../lib/factory";
@@ -20,6 +21,7 @@ import { readHarnesses } from "../lib/t3-state";
 import { readSettings, resolveExecution, resolveHarness, type HarnessChoice } from "../lib/settings";
 import type { Execution } from "../lib/execution";
 import type { TicketRecord } from "../lib/ticket-overrides";
+import { resolveOwner } from "../lib/job-owner";
 import { readRegistry, registerRepos, routeRepo, type Registry } from "../lib/repositories";
 import { ensureAwake, HostGoneError, hosts, isHibernated, WakeDeferredError, type JobHost } from "../lib/host";
 import { modalHost } from "../lib/modal-host";
@@ -48,7 +50,7 @@ hosts.sandbox = modalHost;
 const mine = async () => eq(jobs.machine_id, (await thisMachine()).id);
 
 /** Stages where a thread is working; waiting, pr, merged and failed free the slot. */
-export const IN_FLIGHT: Stage[] = ["queued", "triage", "investigating", "implementing", "verifying"];
+export const IN_FLIGHT: Stage[] = ["queued", "triage", "investigating", "planning", "implementing", "verifying"];
 const STOPPABLE = STAGES.filter((stage) => canTransition(stage, "failed", "stop"));
 
 /**
@@ -555,6 +557,8 @@ async function claimDrafts(
           repo: target,
           writeback: draft.writeback,
           source_state: draft.sourceState,
+          // Only the first insert sets it: a reclaim's update leaves the owner alone (R8a).
+          owner_id: draft.owner ? await resolveOwner(tx, draft.owner) : null,
           // Unused, but NOT NULL without a default until migration 0034 has run.
           budget_usd: 5,
           claimed_at: now,
@@ -709,10 +713,13 @@ export async function cleanup(dryRun = false) {
       }
     }
   }
+  // ponytail: runs with the hourly cleanup; the sweep is idempotent, so a daily timer adds nothing.
+  const mediaSwept = await sweepMedia({ dryRun }).catch((error: unknown) => (errors.push({ repo: "*", step: "media", error: String(error) }), 0));
   return {
     removed: reports.flatMap((r) => r.removed),
     held: reports.flatMap((r) => r.held),
     archive: reports.flatMap((r) => r.archive),
+    mediaSwept,
     errors,
   };
 }
@@ -812,7 +819,7 @@ export async function finishStop(job: Job) {
   return "stopped";
 }
 
-export type LaunchSlot = { id: string; repos: readonly string[]; maxInFlight: number };
+export type LaunchSlot = { id: string; repos: readonly string[]; maxInFlight: number; maxLocal?: number };
 
 /** The harness new threads start on: the panel's saved settings, else this runner's config. */
 export async function effectiveHarness() {
@@ -828,6 +835,7 @@ export async function launchSettings() {
 /**
  * Marks a queued job as being launched by this machine, as one compare-and-set: false when another
  * launch or machine holds the job, the machine has no checkout of its repo, or the machine is full.
+ * A local claim is also refused when the machine already holds `maxLocal` local jobs.
  * The capacity count is read in the same statement, which holds because one machine runs one
  * runner and its launches run one at a time. The harness, where it runs and the ticket's overrides
  * are recorded with the marker, so a launch that launch recovery binds later still says what it ran on.
@@ -860,6 +868,9 @@ export async function claimLaunch(
         isNull(jobs.machine_id),
         inArray(jobs.repo, [...machine.repos]),
         sql`(select count(*) from jobs held where held.machine_id = ${machine.id} and (held.stage in (${working}) or ${heldStoppingSql})) < ${machine.maxInFlight}`,
+        where?.execution === "local" && machine.maxLocal !== undefined
+          ? sql`(select count(*) from jobs held where held.machine_id = ${machine.id} and held.execution is distinct from 'modal' and (held.stage in (${working}) or ${heldStoppingSql})) < ${machine.maxLocal}`
+          : undefined,
       ),
     )
     .returning({ key: jobs.key });

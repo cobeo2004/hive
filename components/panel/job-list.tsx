@@ -13,6 +13,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { toastManager } from "@/components/ui/toast";
 import type { AgentRow, MachineRow } from "@/db/schema";
 import { isFinished } from "@/lib/archive";
+import type { OwnerView } from "@/lib/inbox";
 import { STAGES, type Stage } from "@/lib/events";
 import { stopLine } from "@/lib/stop";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,7 @@ import { harnessLine, showsDecision, whereLine, type BoardCard } from "./cards";
 import { EvidenceLine } from "./evidence";
 import { formatUsd, spendOf } from "./format";
 import { jobsHref } from "./job-view";
+import { useOwnerParam } from "./use-owner-param";
 import { decisionLine } from "./merge-decision";
 import { useRowKeys } from "./row-keys";
 import { STAGE_META } from "./stages";
@@ -27,7 +29,8 @@ import { ShortTime } from "./time";
 
 const spring = { type: "spring", stiffness: 500, damping: 40 } as const;
 
-const openHref = (card: BoardCard, archived: boolean) => (card.latest ? jobsHref("list", card.latest.session_id, archived) : null);
+const openHref = (card: BoardCard, archived: boolean, owner: OwnerView | undefined) =>
+  card.latest ? jobsHref("list", card.latest.session_id, archived, owner) : null;
 
 /** A finished, claimed job whose stop, if any, is confirmed; archiveRefusal has the server's rule. */
 const pickable = (card: BoardCard) => card.jobId !== null && isFinished(card.stage) && (!card.stop || card.stop.view.kind === "confirmed");
@@ -119,6 +122,7 @@ export function JobList({
   /** The archive: its rows are restored instead of archived. */
   archived?: boolean;
 }) {
+  const owner = useOwnerParam();
   const listRef = useRef<HTMLDivElement>(null);
   const [closed, setClosed] = useState<readonly Stage[]>([]);
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
@@ -130,9 +134,9 @@ export function JobList({
     setCursor,
     hrefOf: (id) => {
       const card = cards.find((c) => c.id === id);
-      return card ? openHref(card, archived) : null;
+      return card ? openHref(card, archived, owner) : null;
     },
-    closeHref: selected ? jobsHref("list", undefined, archived) : null,
+    closeHref: selected ? jobsHref("list", undefined, archived, owner) : null,
   });
   // A job archived elsewhere, or moved on, drops out of the selection with its row.
   const chosen = useMemo(() => cards.filter((c) => pickable(c) && picked.has(c.id)), [cards, picked]);
@@ -241,7 +245,7 @@ export function JobList({
                           </PickCell>
                           <Row
                             card={card}
-                            href={openHref(card, archived)}
+                            href={openHref(card, archived, owner)}
                             machineName={card.machineId && (machines.get(card.machineId)?.name ?? card.machineId)}
                             agentsBySession={agentsBySession}
                             open={isOpen(card)}

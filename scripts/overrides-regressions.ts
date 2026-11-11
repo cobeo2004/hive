@@ -12,6 +12,7 @@ const { desiredLabelGroups, ticketOverrides } = await import("../lib/ticket-over
 const { announceFallbacks, fallbackComment, overrideRuntime, planLaunch, splitByExecution, syncOverrideLabels } = await import("../runner/overrides");
 const { claimLaunch, releaseLaunch } = await import("../runner/ops");
 const { createJob } = await import("../lib/new-job");
+const { saveSettings } = await import("../lib/settings");
 const { boardCards, harnessLine, runsOn, whereLine } = await import("../components/panel/cards");
 
 const OWNER = "owner@example.com";
@@ -39,6 +40,9 @@ const asked = (labels: ReturnType<typeof L>[]) =>
     labelGroups: labels.flatMap((l) => (l.group ? [{ name: l.name, group: l.group }] : [])),
   });
 
+const CURSOR_IGNORED =
+  "The Harness label \"Cursor\" is ignored for the lead because Cursor can't lead: it doesn't report stages to Hive. It runs on the default lead.";
+
 // ticketOverrides: groups and children by name, case-insensitive; labels outside the groups are not overrides.
 const table: { name: string; labels: ReturnType<typeof L>[]; want: ReturnType<typeof ticketOverrides> }[] = [
   { name: "no labels", labels: [], want: { problems: [] } },
@@ -49,7 +53,12 @@ const table: { name: string; labels: ReturnType<typeof L>[]; want: ReturnType<ty
     labels: [L("cLAUDE code", "harness"), L("cLOUD", "RUNS ON")],
     want: { provider: "claudeAgent", execution: "modal", problems: [] },
   },
-  { name: "both groups", labels: [L("Cursor", "Harness"), L("Local", "Runs on")], want: { provider: "cursor", execution: "local", problems: [] } },
+  { name: "both groups", labels: [L("Codex", "Harness"), L("Local", "Runs on")], want: { provider: "codex", execution: "local", problems: [] } },
+  {
+    name: "a harness that cannot lead",
+    labels: [L("Cursor", "Harness"), L("Local", "Runs on")],
+    want: { execution: "local", problems: [CURSOR_IGNORED] },
+  },
   { name: "a child of another group", labels: [L("Codex", "Team")], want: { problems: [] } },
   {
     name: "an unknown harness",
@@ -207,18 +216,66 @@ assert.deepEqual(
   "Local over Modal Settings",
 );
 assert.deepEqual(
-  plan([L("Cursor", "Harness"), L("Cloud", "Runs on")]),
+  plan([L("Claude Code", "Harness"), L("Cloud", "Runs on")], { claude: false }),
   {
     kind: "launch",
     execution: "modal",
-    harness: { provider: "cursor", model: "composer-2" },
+    harness: { provider: "claudeAgent", model: "claude-sonnet-5-5" },
     ticket: {
-      provider: "cursor",
+      provider: "claudeAgent",
       execution: "modal",
-      notes: ["In a cloud sandbox, cursor / composer-2 cannot run in a sandbox (sandboxes have no cursor harness); launching on codex / gpt-6-astra."],
+      notes: [
+        "In a cloud sandbox, claudeAgent / claude-sonnet-5-5 cannot run in a sandbox (this runner has no CLAUDE_CODE_OAUTH_TOKEN); launching on codex / gpt-6-astra.",
+      ],
     },
   },
-  "a harness the sandbox lacks is noted, since the sandbox maps it to Codex",
+  "a harness the sandbox cannot run is noted, since the sandbox maps it to Codex",
+);
+// R21.2: a Harness label naming a harness that does not report stages is ignored for the lead; Codex still leads.
+const cursorPlan = plan([L("Cursor", "Harness")]);
+assert.deepEqual(
+  cursorPlan,
+  { kind: "launch", execution: "local", harness: { provider: "claudeAgent", model: "claude-sonnet-5-5" }, ticket: { notes: [CURSOR_IGNORED] } },
+  "Harness: Cursor runs on the default lead and says why",
+);
+assert.deepEqual(
+  plan([L("Codex", "Harness")]),
+  { kind: "launch", execution: "local", harness: { provider: "codex", model: "gpt-6-astra" }, ticket: { provider: "codex", notes: [] } },
+  "Harness: Codex still overrides the lead",
+);
+
+// R21.1: Settings refuses a lead that does not report stages, with the reason.
+const admin = { email: OWNER, role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
+const saved: unknown[] = [];
+const settingsDeps = (reported: typeof harnesses | null) => ({
+  user: async () => admin,
+  harnesses: async () => reported,
+  save: async (choice: unknown) => void saved.push(choice),
+});
+assert.deepEqual(
+  await saveSettings(settingsDeps(harnesses), { provider: "cursor", model: "composer-2" }),
+  { ok: false, status: 400, message: "Cursor can't lead: it doesn't report stages to Hive" },
+  "Settings refuses Cursor as the lead",
+);
+assert.deepEqual(
+  await saveSettings(settingsDeps(null), { provider: "cursor", model: "composer-2" }),
+  { ok: false, status: 400, message: "Cursor can't lead: it doesn't report stages to Hive" },
+  "even before any machine reports its harnesses",
+);
+assert.deepEqual(
+  await saveSettings(settingsDeps(null), { provider: "cursor-work", model: "composer-2" }),
+  { ok: false, status: 400, message: "No machine reports its harnesses yet, so only Claude Code or Codex can lead, not cursor-work." },
+  "and an instance id no machine has reported cannot lead until one does",
+);
+assert.deepEqual(saved, [], "and nothing is saved");
+for (const provider of ["claudeAgent", "codex"]) {
+  const model = harnesses.find((h) => h.id === provider)!.models[0]!.slug;
+  assert.deepEqual(await saveSettings(settingsDeps(harnesses), { provider, model }), { ok: true }, `${provider} may lead`);
+}
+assert.deepEqual(
+  await saveSettings(settingsDeps([...harnesses, harness("codex-work", "Codex Work", "codex", ["gpt-6"])]), { provider: "codex-work", model: "gpt-6" }),
+  { ok: true },
+  "a Codex instance under another id may lead",
 );
 assert.equal(
   plan([L("hive")], { modal: "no image", local: false }, { ...settings, execution: "modal" }).kind,
@@ -461,6 +518,14 @@ try {
   await db.update(jobs).set({ attempt: 2 }).where(eq(jobs.id, jid));
   await announceFallbacks(await row(), ticket);
   assert.equal(comments.size, 2, "a retry is a new attempt and may say it again");
+
+  // R21.2: an ignored Harness: Cursor label is written back as one Linear comment saying why.
+  await db.update(jobs).set({ attempt: 3 }).where(eq(jobs.id, jid));
+  const ignored = cursorPlan.kind === "launch" ? cursorPlan.ticket : null;
+  await announceFallbacks(await row(), ignored);
+  await announceFallbacks(await row(), ignored);
+  assert.equal(comments.size, 3, "one comment for the ignored label");
+  assert.match([...comments.values()][2]!, /Harness label "Cursor" is ignored for the lead because Cursor can't lead: it doesn't report stages to Hive/);
 
   // The launch records where it runs and the ticket's overrides; a release clears them.
   const slot = { id: TEST_MACHINE_ID, repos: ["ski043/factory-demo"], maxInFlight: 1000 };

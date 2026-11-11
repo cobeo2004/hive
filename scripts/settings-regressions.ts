@@ -194,16 +194,16 @@ for (const [input, why] of [
 assert.deepEqual(choices, [], "and nothing is saved");
 assert.deepEqual(await saveSettings(deps(owner), { provider: " codex ", model: "codex-one" }), { ok: true }, "the owner saves a reported pair");
 assert.deepEqual(
-  await saveSettings(deps(owner, null), { provider: "anything", model: "goes" }),
+  await saveSettings(deps(owner, null), { provider: "codex", model: "goes" }),
   { ok: true },
-  "before any machine reports harnesses, any pair is taken",
+  "before any machine reports harnesses, any model on a lead harness is taken",
 );
 assert.deepEqual(await saveSettings(deps(owner), { provider: "codex", model: "codex-one", execution: "modal" }), { ok: true }, "the owner moves jobs to Modal");
 assert.deepEqual(
   choices,
   [
     { provider: "codex", model: "codex-one", execution: "local", by: OWNER },
-    { provider: "anything", model: "goes", execution: "local", by: OWNER },
+    { provider: "codex", model: "goes", execution: "local", by: OWNER },
     { provider: "codex", model: "codex-one", execution: "modal", by: OWNER },
   ],
   "trimmed, local unless chosen, and recorded under the owner's email",

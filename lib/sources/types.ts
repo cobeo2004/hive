@@ -1,5 +1,6 @@
 import type { JobRow } from "../../db/schema";
 import type { Stage } from "../events";
+import type { OwnerHints } from "../job-owner";
 import type { SourceOverrides } from "../ticket-overrides";
 import type { IntentDraft, Verdict } from "../webhooks";
 import type { JobId, JobSource, SourceStateDraftOf, SourceStateOf, WritebackOf } from "./shapes";
@@ -23,6 +24,8 @@ export type JobDraft<S extends JobSource = JobSource> = {
   writeback: WritebackOf<S>;
   /** Merged over the stored state on a reclaim, so state the adapter accumulated survives. */
   sourceState: SourceStateDraftOf<S>;
+  /** Who is on the item, for picking the job's owner when the claim first inserts it (R8a). */
+  owner?: OwnerHints;
 };
 
 /** The source no longer has the job's item, or this key can't see it; retrying changes nothing. */
@@ -43,8 +46,8 @@ export interface SourceWebhook {
   deliveryHeader: string;
   eventHeader: string;
   verify(raw: string, headers: Headers, secret: string, now?: number): Verdict;
-  /** What a delivery means; `env` is the ingest function's, where the source reads its own scope (Linear: team key and label). */
-  intent(body: unknown, env: Readonly<Record<string, string | undefined>>): IntentDraft | null;
+  /** What a delivery means; `env` is the ingest function's, holding the source's defaults (Linear: team key and label, until Settings saves its own). */
+  intent(body: unknown, env: Readonly<Record<string, string | undefined>>): IntentDraft | null | Promise<IntentDraft | null>;
 }
 
 export interface SourceAdapter<S extends JobSource> {

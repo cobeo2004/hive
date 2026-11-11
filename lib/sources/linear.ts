@@ -2,12 +2,13 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type * as schema from "../../db/schema";
 import { jobs } from "../../db/schema";
 import { loadConfig, type FactoryLimits } from "../config";
+import type { LinearConfig } from "../linear-settings";
 import type { Stage } from "../events";
 import { attemptBranch } from "../factory";
 import { commentId, LinearError, linearClient, type LinearClient, type LinearOptions } from "../linear";
@@ -24,6 +25,8 @@ type Job = AnyJob<"linear">;
 const LINEAR_MAX_SKEW_MS = 60_000;
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+const FAILED_LABEL = "factory-failed";
 
 /** The stop detail for a deleted issue; there is nothing left in Linear to double-check. */
 const DELETED = "the issue was deleted in Linear";
@@ -45,6 +48,9 @@ const linearIssueSchema = z.object({
   labels: z.array(z.object({ id: z.string(), name: z.string() })).default([]),
   labelIds: z.array(z.string()).default([]),
   state: z.object({ type: z.string(), name: z.string() }).optional(),
+  // Linear may send the assignee as an object, an id, or both; the id alone is enough to wake a claim.
+  assignee: z.object({ id: z.string() }).nullish(),
+  assigneeId: z.string().nullish(),
 });
 
 const linearPayloadSchema = z.object({
@@ -54,11 +60,23 @@ const linearPayloadSchema = z.object({
   updatedFrom: z.record(z.string(), z.unknown()).optional(),
 });
 
+type Pickable = { labels: readonly { name: string }[]; assignee?: { id: string; email?: string | null } | null };
+
+/** R7b. optedIn null = the caller can't see emails (webhook): any assignee is a possible pick; ready() decides. */
+export function pickedUp(issue: Pickable, settings: Pick<LinearConfig, "label" | "hiveUserId">, optedIn: ReadonlySet<string> | null) {
+  if (issue.labels.some((l) => same(l.name, settings.label))) return true;
+  const a = issue.assignee;
+  if (!a) return false;
+  if (issue.labels.some((l) => same(l.name, FAILED_LABEL))) return false; // a failed issue retries only when the pickup label is put back
+  if (settings.hiveUserId && a.id === settings.hiveUserId) return true; // Q8′: null hiveUserId => off
+  return optedIn === null || (!!a.email && optedIn.has(a.email.toLowerCase()));
+}
+
 /**
  * What a Linear delivery means for the factory. A label or state change can arrive as one
  * delivery, so the current labels and state decide, with updatedFrom telling a removal apart.
  */
-function linearIntent(body: unknown, opts: { teamKey: string; label: string }): IntentDraft | null {
+function linearIntent(body: unknown, opts: Pick<LinearConfig, "teamKeys" | "label" | "hiveUserId">): IntentDraft | null {
   const payload = linearPayloadSchema.parse(body);
   if (payload.type === "Comment" && payload.action === "create") {
     const issueId = z.string().optional().parse(payload.data.issueId);
@@ -66,8 +84,8 @@ function linearIntent(body: unknown, opts: { teamKey: string; label: string }): 
   }
   if (payload.type !== "Issue") return null;
   const issue = linearIssueSchema.parse(payload.data);
-  if (issue.team && issue.team.key !== opts.teamKey) return null;
-  if (!issue.identifier.startsWith(`${opts.teamKey}-`)) return null;
+  const teamKey = issue.team?.key ?? issue.identifier.split("-")[0];
+  if (!opts.teamKeys.includes(teamKey!) || !issue.identifier.startsWith(`${teamKey}-`)) return null;
   const base = { jobId: jobId("linear", issue.id) };
   const factoryLabel = issue.labels.find((l) => l.name.toLowerCase() === opts.label.toLowerCase());
 
@@ -81,7 +99,9 @@ function linearIntent(body: unknown, opts: { teamKey: string; label: string }): 
     // labels, so a swap looks the same as a removal; the runner checks whether it was running.
     return { kind: "stop", ...base, detail: `the ${opts.label} label was removed in Linear` };
   }
-  if (factoryLabel && issue.state?.type === "unstarted") return { kind: "claim", ...base };
+  // A claim is only a wake-up; ready() applies the opt-ins and decides.
+  const assignee = issue.assignee ?? (issue.assigneeId ? { id: issue.assigneeId } : null);
+  if (issue.state?.type === "unstarted" && pickedUp({ labels: issue.labels, assignee }, opts, null)) return { kind: "claim", ...base };
   return null;
 }
 
@@ -90,7 +110,11 @@ const webhook: SourceWebhook = {
   deliveryHeader: "Linear-Delivery",
   eventHeader: "Linear-Event",
   verify: (raw, headers, secret, now) => verifyLinear(raw, headers.get("linear-signature"), secret, now),
-  intent: (body, env) => linearIntent(body, { teamKey: env.FACTORY_TEAM_KEY ?? "FAC", label: env.FACTORY_LABEL ?? "hive" }),
+  // The saved Settings → Linear row decides the teams and label; db loads lazily so this module stays importable without one.
+  intent: async (body, env) => {
+    const [{ db }, { linearSettings }] = await Promise.all([import("../../db/client"), import("../linear-settings")]);
+    return linearIntent(body, await linearSettings(db, env));
+  },
 };
 
 /** Linear state types that end an issue; a waiting run on one of them never resumes. */
@@ -133,11 +157,11 @@ export function planResume(issue: WaitingJob, linear: { state: { name: string; t
 type IssueNode = Awaited<ReturnType<LinearClient["issuesByIds"]>>[number];
 
 /** Why Linear says a claimed issue should stop, or undefined while it is still the factory's. */
-function stopReason(node: IssueNode | undefined, label: string) {
+function stopReason(node: IssueNode | undefined, label: string, byLabel: boolean) {
   if (!node) return DELETED;
   if (node.trashed || node.archivedAt) return "the issue was archived or deleted in Linear";
   if (["canceled", "completed"].includes(node.state.type)) return `issue moved to ${node.state.name} in Linear`;
-  if (!node.labels.nodes.some((l) => l.name.toLowerCase() === label.toLowerCase())) {
+  if (byLabel && !node.labels.nodes.some((l) => same(l.name, label))) {
     return `the ${label} label was removed in Linear`;
   }
   return undefined;
@@ -178,7 +202,6 @@ type WriteBack = {
   labels?: { add?: string[]; remove?: string[] };
   comment?: (issue: Job) => string;
 };
-const FAILED_LABEL = "factory-failed";
 
 const writeBackTable = (factoryLabel: string): Partial<Record<Stage, WriteBack>> => ({
   pr: {
@@ -230,16 +253,29 @@ const ANNOUNCED = "In Progress";
 export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>): SourceAdapter<"linear"> {
   let loaded: LinearDeps | undefined;
   const deps = async () => (loaded ??= await load());
-  let team: Team | undefined;
-  const teamOf = async ({ client, limits }: LinearDeps) => (team ??= await client.team(limits.teamKey));
+  // Saved Settings → Linear (R7a), read per use so an edit applies at once; the runner's config limits are the env fallback.
+  const settingsOf = async (d: LinearDeps) => {
+    const { linearSettings } = await import("../linear-settings");
+    return linearSettings(d.db, { FACTORY_TEAM_KEY: d.limits.teamKey, FACTORY_LABEL: d.limits.label });
+  };
+  // One cached team per key; a failed lookup is not cached. A job's team is the prefix of its key (team keys hold no dash).
+  const teams = new Map<string, Team>();
+  const teamOf = async (d: LinearDeps, teamKey: string) => {
+    const known = teams.get(teamKey);
+    if (known) return known;
+    const found = await d.client.team(teamKey);
+    teams.set(teamKey, found);
+    return found;
+  };
+  const teamKeyOf = (key: string) => key.split("-")[0]!;
 
-  async function labelChangesAgainstIssue(d: LinearDeps, issueId: string, labels: WriteBack["labels"]) {
+  async function labelChangesAgainstIssue(d: LinearDeps, teamKey: string, issueId: string, labels: WriteBack["labels"]) {
     if (!labels) return {};
     const current = await d.client.labelsOf(issueId);
     const present = new Set(current.map((l) => l.name.toLowerCase()));
     const drop = new Set((labels.remove ?? []).map((name) => name.toLowerCase()));
     const missing = (labels.add ?? []).filter((name) => !present.has(name.toLowerCase()));
-    const { id } = await teamOf(d);
+    const { id } = await teamOf(d, teamKey);
     return {
       addedLabelIds: await Promise.all(missing.map((name) => d.client.labelId(id, name))),
       removedLabelIds: current.filter((l) => drop.has(l.name.toLowerCase())).map((l) => l.id),
@@ -251,29 +287,48 @@ export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>
     webhook,
 
     async ready() {
-      const { client, limits } = await deps();
-      const nodes = await client.readyIssues(limits.teamKey, limits.label);
-      return nodes.map((n) => ({
-        externalId: n.id,
-        key: n.identifier,
-        title: n.title,
-        url: n.url,
-        description: n.description,
-        writeback: { kind: "linear" as const, issueId: n.id },
-        sourceState: {
-          state: n.state.name,
-          labels: n.labels.nodes.map((l) => l.name),
-          labelGroups: n.labels.nodes.flatMap((l) => (l.parent ? [{ name: l.name, group: l.parent.name }] : [])),
-        },
-      }));
+      const d = await deps();
+      const [settings, { assignedOptInEmails }] = await Promise.all([settingsOf(d), import("../opt-ins")]);
+      const emails = await assignedOptInEmails(d.db);
+      const nodes = await d.client.readyIssues({ teamKeys: settings.teamKeys, label: settings.label, hiveUserId: settings.hiveUserId, emails: [...emails] });
+      const picked = nodes.filter((n) => pickedUp({ labels: n.labels.nodes, assignee: n.assignee }, settings, emails));
+      // A failed job (stopped by label removal, say) retries only when the pickup label is put back, never by its assignee alone.
+      const byAssignee = picked.filter((n) => !n.labels.nodes.some((l) => same(l.name, settings.label))).map((n) => jobId("linear", n.id));
+      const failed = byAssignee.length
+        ? new Set(
+            (
+              await d.db
+                .select({ id: jobs.id })
+                .from(jobs)
+                .where(and(inArray(jobs.id, byAssignee), eq(jobs.stage, "failed")))
+            ).map((r) => r.id),
+          )
+        : new Set<string>();
+      return picked
+        .filter((n) => !failed.has(jobId("linear", n.id)))
+        .map((n) => ({
+          externalId: n.id,
+          key: n.identifier,
+          title: n.title,
+          url: n.url,
+          description: n.description,
+          writeback: { kind: "linear" as const, issueId: n.id },
+          sourceState: {
+            state: n.state.name,
+            labels: n.labels.nodes.map((l) => l.name),
+            labelGroups: n.labels.nodes.flatMap((l) => (l.parent ? [{ name: l.name, group: l.parent.name }] : [])),
+          },
+          owner: { assigneeId: n.assignee?.id, assigneeEmail: n.assignee?.email, creatorId: n.creator?.id, creatorEmail: n.creator?.email },
+        }));
     },
 
     async announceClaim(job) {
       if (job.source_state.state === ANNOUNCED) return;
       const d = await deps();
+      const teamKey = teamKeyOf(job.key);
       await d.client.update(job.writeback.issueId, {
-        stateId: stateId(await teamOf(d), d.limits.teamKey, ANNOUNCED),
-        ...(job.attempt > 1 ? await labelChangesAgainstIssue(d, job.writeback.issueId, { remove: [FAILED_LABEL] }) : {}),
+        stateId: stateId(await teamOf(d, teamKey), teamKey, ANNOUNCED),
+        ...(job.attempt > 1 ? await labelChangesAgainstIssue(d, teamKey, job.writeback.issueId, { remove: [FAILED_LABEL] }) : {}),
       });
       await postComment(
         d,
@@ -286,14 +341,16 @@ export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>
 
     async writeBack(job, transition) {
       try {
+        // ponytail: the stage decides before any db or Linear call; the label only matters once there is an entry.
+        if (!writeBackTable("")[transition.stage]) return false;
         const d = await deps();
-        const action = writeBackTable(d.limits.label)[transition.stage];
-        if (!action) return false;
+        const action = writeBackTable((await settingsOf(d)).label)[transition.stage]!;
+        const teamKey = teamKeyOf(job.key);
         if (action.state || action.labels) {
-          const team = await teamOf(d);
+          const team = await teamOf(d, teamKey);
           await d.client.update(job.writeback.issueId, {
-            ...(action.state ? { stateId: stateId(team, d.limits.teamKey, action.state) } : {}),
-            ...(await labelChangesAgainstIssue(d, job.writeback.issueId, action.labels)),
+            ...(action.state ? { stateId: stateId(team, teamKey, action.state) } : {}),
+            ...(await labelChangesAgainstIssue(d, teamKey, job.writeback.issueId, action.labels)),
           });
         }
         if (action.comment) {
@@ -313,13 +370,16 @@ export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>
     },
 
     async stopWanted(open) {
-      const { client, limits } = await deps();
-      const nodes = await client.issuesByIds(open.map((j) => j.external_id));
+      const d = await deps();
+      const { label } = await settingsOf(d);
+      const nodes = await d.client.issuesByIds(open.map((j) => j.external_id));
       const wanted = [];
       for (const job of open) {
+        // Only a job picked by the label stops when the label goes; an assignee pick has none to lose.
         const reason = stopReason(
           nodes.find((n) => n.id === job.external_id),
-          limits.label,
+          label,
+          job.source_state.labels.some((l) => same(l, label)),
         );
         if (reason) wanted.push({ job, reason });
       }
@@ -328,10 +388,20 @@ export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>
 
     async confirmStop(externalId, detail) {
       if (detail === DELETED) return { stop: true, reopen: false };
-      const { client, limits } = await deps();
-      const { state } = await client.issueWithComments(externalId);
-      const stillLabeled = (await client.labelsOf(externalId)).some((l) => l.name.toLowerCase() === limits.label.toLowerCase());
-      if (stillLabeled && !["canceled", "completed"].includes(state.type)) return { stop: false };
+      const d = await deps();
+      const { label } = await settingsOf(d);
+      const { state } = await d.client.issueWithComments(externalId);
+      const stillLabeled = (await d.client.labelsOf(externalId)).some((l) => same(l.name, label));
+      const closed = ["canceled", "completed"].includes(state.type);
+      if (stillLabeled && !closed) return { stop: false };
+      if (!closed) {
+        // A label edit on an assignee-picked job reads as a removal; only a job picked by the label stops for it.
+        const [row] = await d.db
+          .select({ labels: sql<string[]>`coalesce(${jobs.source_state}->'labels', '[]'::jsonb)` })
+          .from(jobs)
+          .where(eq(jobs.id, jobId("linear", externalId)));
+        if (row && !row.labels.some((l) => same(l, label))) return { stop: false };
+      }
       return { stop: true, reopen: state.type === "started" };
     },
 
@@ -346,14 +416,16 @@ export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>
 
     async reopen(job) {
       const d = await deps();
-      await d.client.setState(job.writeback.issueId, stateId(await teamOf(d), d.limits.teamKey, "Todo"));
+      const teamKey = teamKeyOf(job.key);
+      await d.client.setState(job.writeback.issueId, stateId(await teamOf(d, teamKey), teamKey, "Todo"));
     },
 
     async requeue(job) {
       const d = await deps();
+      const teamKey = teamKeyOf(job.key);
       await d.client.update(job.writeback.issueId, {
-        stateId: stateId(await teamOf(d), d.limits.teamKey, "Todo"),
-        ...(await labelChangesAgainstIssue(d, job.writeback.issueId, { add: [d.limits.label] })),
+        stateId: stateId(await teamOf(d, teamKey), teamKey, "Todo"),
+        ...(await labelChangesAgainstIssue(d, teamKey, job.writeback.issueId, { add: [(await settingsOf(d)).label] })),
       });
     },
 
@@ -363,7 +435,7 @@ export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>
 
     async syncLabelGroups(groups) {
       const d = await deps();
-      const { created, problems } = await syncLabelGroups(d.client, (await teamOf(d)).id, groups);
+      const { created, problems } = await syncLabelGroups(d.client, (await teamOf(d, d.limits.teamKey)).id, groups);
       return { team: d.limits.teamKey, created, problems };
     },
 

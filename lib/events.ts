@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { assessmentInputSchema } from "./assessment";
 import { evidenceShape } from "./evidence";
-import { screenshotShape } from "./screenshots";
+import { mediaShape, withinLimit } from "./media";
 
 export const usageSchema = z.object({
   input: z.number().nonnegative(),
@@ -12,7 +12,7 @@ export const usageSchema = z.object({
 });
 export type Usage = z.infer<typeof usageSchema>;
 
-export const STAGES = ["queued", "triage", "investigating", "implementing", "verifying", "pr", "waiting", "merged", "failed"] as const;
+export const STAGES = ["queued", "triage", "investigating", "planning", "implementing", "verifying", "pr", "waiting", "merged", "failed"] as const;
 export const stageSchema = z.enum(STAGES);
 export type Stage = z.infer<typeof stageSchema>;
 
@@ -113,12 +113,14 @@ export const eventSchema = z.discriminatedUnion("kind", [
     kind: z.literal("evidence"),
     ...evidenceShape,
   }),
-  z.object({
-    ...base,
-    // One image a pr report's assessment attached; see lib/screenshots.ts.
-    kind: z.literal("screenshot"),
-    ...screenshotShape,
-  }),
+  z
+    .object({
+      ...base,
+      // One image or video a pr report's assessment attached; see lib/media.ts.
+      kind: z.literal("screenshot"),
+      ...mediaShape,
+    })
+    .refine(withinLimit, { message: "file is over the limit for its type", path: ["data"] }),
 ]);
 export type FactoryEvent = z.infer<typeof eventSchema>;
 export type EventKind = FactoryEvent["kind"];

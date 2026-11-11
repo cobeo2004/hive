@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
+import type { OwnerView } from "@/lib/inbox";
 import type { JobView } from "./job-view";
 import { useShell } from "./panel-shell";
 import type { FeedStatus } from "./live-refresh";
@@ -16,31 +17,32 @@ const STATUS: Record<FeedStatus, { dot: string; label: string }> = {
   off: { dot: "bg-faint", label: "Live updates off in previews" },
 };
 
-const JOB_VIEWS = [
-  { view: "board", label: "Board" },
-  { view: "list", label: "List" },
-] as const satisfies readonly { view: JobView; label: string }[];
+const JOB_VIEWS: readonly { value: JobView; label: string }[] = [
+  { value: "board", label: "Board" },
+  { value: "list", label: "List" },
+];
 
-type ViewSwitchProps = { current: JobView; onChange: (view: JobView) => void };
+/** A segmented switch: its label names the group for screen readers and keeps each group's marker apart. */
+export type SwitchProps<T extends string> = { label: string; options: readonly { value: T; label: string }[]; current: T; onChange: (value: T) => void };
 
-function ViewSwitch({ current, onChange }: ViewSwitchProps) {
+function ViewSwitch<T extends string>({ label: group, options, current, onChange }: SwitchProps<T>) {
   return (
-    <div role="radiogroup" aria-label="Layout" className="flex shrink-0 items-center rounded-md border p-0.5">
-      {JOB_VIEWS.map(({ view, label }) => (
+    <div role="radiogroup" aria-label={group} className="flex shrink-0 items-center rounded-md border p-0.5">
+      {options.map(({ value, label }) => (
         <button
-          key={view}
+          key={value}
           type="button"
-          onClick={() => view !== current && onChange(view)}
+          onClick={() => value !== current && onChange(value)}
           role="radio"
-          aria-checked={view === current}
+          aria-checked={value === current}
           className={cn(
             "relative h-6 rounded-[5px] px-2 text-xs leading-6 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            view === current ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+            value === current ? "text-foreground" : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {view === current && (
+          {value === current && (
             <motion.span
-              layoutId="panel-view-marker"
+              layoutId={`panel-view-marker-${group}`}
               transition={{ type: "spring", stiffness: 500, damping: 40 }}
               className="absolute inset-0 rounded-[5px] bg-accent"
             />
@@ -52,8 +54,18 @@ function ViewSwitch({ current, onChange }: ViewSwitchProps) {
   );
 }
 
-/** The page's hairline header: the title, the board and list switch on the jobs page, and the page's actions. */
-export function PanelHeader({ title, jobView, actions }: { title: string; jobView?: ViewSwitchProps; actions?: ReactNode }) {
+/** The page's hairline header: the title, the owner switch, the board and list switch on the jobs page, and the page's actions. */
+export function PanelHeader({
+  title,
+  ownerView,
+  jobView,
+  actions,
+}: {
+  title: string;
+  ownerView?: SwitchProps<OwnerView>;
+  jobView?: { current: JobView; onChange: (view: JobView) => void };
+  actions?: ReactNode;
+}) {
   const { openNav } = useShell();
   return (
     <header className="flex h-11 shrink-0 items-center gap-2 border-b px-2 md:px-3">
@@ -61,7 +73,8 @@ export function PanelHeader({ title, jobView, actions }: { title: string; jobVie
         <MenuIcon />
       </Button>
       <h1 className="min-w-0 flex-1 truncate ps-1 font-medium">{title}</h1>
-      {jobView && <ViewSwitch {...jobView} />}
+      {ownerView && <ViewSwitch {...ownerView} />}
+      {jobView && <ViewSwitch label="Layout" options={JOB_VIEWS} {...jobView} />}
       {actions}
     </header>
   );

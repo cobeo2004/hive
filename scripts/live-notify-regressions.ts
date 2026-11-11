@@ -4,7 +4,7 @@ import { Client } from "pg";
 
 // Every table the panel and runner follow notifies `hive_changes` with its own name once per statement that
 // changed rows, and stays quiet for a statement that changed none.
-const TABLES = ["jobs", "runs", "agents", "events", "intents", "machines", "job_evidence", "audit_log"];
+const TABLES = ["jobs", "runs", "agents", "events", "intents", "machines", "job_evidence", "audit_log", "device_frames"];
 
 const listener = new Client({ connectionString: process.env.DATABASE_URL_UNPOOLED });
 const writer = new Client({ connectionString: process.env.DATABASE_URL_UNPOOLED });
@@ -27,6 +27,7 @@ try {
      where t.tgname in ('hive_notify_insert', 'hive_notify_update', 'hive_notify_delete') group by c.relname`,
   );
   for (const table of TABLES) assert.equal(rows.find((r) => r.table === table)?.n, "3", `${table} has the three hive_notify triggers`);
+  for (const table of ["device_viewers", "job_media"]) assert.ok(!rows.some((r) => r.table === table), `${table} has no hive_notify trigger`);
 
   // A statement that matches no rows notifies nothing.
   for (const table of TABLES) {

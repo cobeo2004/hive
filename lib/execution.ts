@@ -7,6 +7,10 @@ export type Execution = z.infer<typeof executionSchema>;
 
 export const DEFAULT_EXECUTION: Execution = "local";
 
+/** A repo runs mobile tests when its snapshot's .sstack/project.toml has a `[test.mobile]` table line (R22.4; no TOML parser). */
+export const isMobileSnapshot = (files: Record<string, string> | null | undefined) =>
+  /^[ \t]*\[test\.mobile\][ \t]*(#.*)?$/m.test(files?.[".sstack/project.toml"] ?? "");
+
 /**
  * Where a claimed job's sandbox is: running while sandbox_id is set, hibernated while only its
  * snapshot is left, null for a job that never ran in one or gave it back.

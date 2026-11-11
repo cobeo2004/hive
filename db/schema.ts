@@ -10,6 +10,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -80,9 +81,11 @@ export const runs = pgTable(
     started_at: ts("started_at").notNull(),
     last_event_at: ts("last_event_at").notNull(),
     model: text("model"),
+    /** The agent account this attempt ran on (R36); null before M3 or once the account is deleted. */
+    account_id: text("account_id").references(() => agentAccounts.id, { onDelete: "set null" }),
     ...tokens(),
   },
-  (t) => [index("runs_last_event_at_idx").on(t.last_event_at)],
+  (t) => [index("runs_last_event_at_idx").on(t.last_event_at), index("runs_account_idx").on(t.account_id)],
 );
 
 export const agents = pgTable(
@@ -95,6 +98,10 @@ export const agents = pgTable(
     subagent_type: text("subagent_type"),
     description: text("description"),
     model: text("model"),
+    /** The sstack role a lineage child ran as (R19); set on `sstack:<run_dir>` agents only (Q31). */
+    role: text("role"),
+    /** The harness that ran a lineage child, e.g. claude or codex (R19/Q31). */
+    harness: text("harness"),
     status: agentStatus("status").notNull().default("running"),
     started_at: ts("started_at").notNull(),
     ended_at: ts("ended_at"),
@@ -168,7 +175,7 @@ export const jobs = pgTable(
     codex_slot: text("codex_slot"),
     /** The agent's assessment from its latest pr report on this attempt; rows from before the six checks were dropped keep that shape, so read it with parseAssessment. */
     merge_assessment: jsonb("merge_assessment").$type<AssessmentInput>(),
-    /** The pr stage event merge_assessment came from; its screenshots are stored under it (job_screenshots). */
+    /** The pr stage event merge_assessment came from; its screenshots are stored under it (job_media). */
     assessment_event_id: text("assessment_event_id"),
     /** The runner's latest merge decision while the job sits in pr; see lib/merge-decision.ts. */
     merge_decision: jsonb("merge_decision").$type<MergeDecision>(),
@@ -181,11 +188,14 @@ export const jobs = pgTable(
     /** When the owner archived the finished job off the panel; a stage newer than this shows it again. See lib/archive.ts. */
     archived_at: ts("archived_at"),
     archived_by: text("archived_by"),
+    /** The job's owner (R35): the assignee if they are a Hive user, else the creator if they are, else null. Null for jobs from before M2. */
+    owner_id: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     claimed_at: ts("claimed_at").notNull(),
     updated_at: ts("updated_at").notNull(),
   },
   (t) => [
     index("jobs_claimed_at_idx").on(t.claimed_at),
+    index("jobs_owner_idx").on(t.owner_id),
     uniqueIndex("jobs_codex_slot_idx").on(t.codex_slot).where(sql`${t.codex_slot} is not null`),
     check("jobs_id_check", sql`${t.id} = ${t.source}::text || ':' || ${t.external_id}`),
   ],
@@ -235,21 +245,42 @@ export const jobEvidence = pgTable(
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
 
 /**
- * One screenshot a pr report's assessment attached (lib/screenshots.ts), keyed by that stage event
- * and the file it names, so the panel finds the current assessment's images from jobs.stage_event_id.
+ * One media item (image or video) a pr report's assessment attached (lib/screenshots.ts), keyed by that
+ * stage event and the file it names, so the panel finds the current assessment's media from jobs.stage_event_id.
  */
-export const jobScreenshots = pgTable(
-  "job_screenshots",
+export const jobMedia = pgTable(
+  "job_media",
   {
     stage_event_id: text("stage_event_id").notNull(),
     file: text("file").notNull(),
     job_key: text("job_key").notNull(),
+    kind: text("kind").$type<"image" | "video">().notNull().default("image"),
     content_type: text("content_type").$type<ScreenshotType>().notNull(),
     bytes: bytea("bytes").notNull(),
     event_id: text("event_id").notNull(),
     recorded_at: ts("recorded_at").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.stage_event_id, t.file] }), index("job_screenshots_job_idx").on(t.job_key)],
+  (t) => [primaryKey({ columns: [t.stage_event_id, t.file] }), index("job_media_job_idx").on(t.job_key)],
+);
+
+/** The latest frame of a running job's device (R26), stored only while someone is watching. */
+export const deviceFrames = pgTable("device_frames", {
+  job_key: text("job_key").primaryKey(),
+  png: bytea("png").notNull(),
+  taken_at: ts("taken_at").notNull(),
+});
+
+/** Who is watching a job's device: a heartbeat the runner polls (R26), so no live-notify trigger. */
+export const deviceViewers = pgTable(
+  "device_viewers",
+  {
+    job_key: text("job_key").notNull(),
+    user_id: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    seen_at: ts("seen_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.job_key, t.user_id] })],
 );
 
 /** Every webhook delivery, keyed by its id, so a redelivery is recognised and changes nothing. */
@@ -579,4 +610,117 @@ export const accessLinks = pgTable("access_links", {
   expires_at: ts("expires_at").notNull(),
   used_at: ts("used_at"),
   created_by: text("created_by").references(() => user.id, { onDelete: "cascade" }),
+});
+
+/** Which Linear triggers a user opted in to (R35); one row per user who opted in. The label trigger stays global. */
+export const linearOptIns = pgTable("linear_opt_ins", {
+  /** The user who opted in (R35). */
+  user_id: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  /** Pick up issues assigned to this user (R35). */
+  assigned: boolean("assigned").notNull().default(false),
+  /** Stop this user's jobs at the plan gate for approval (R35). */
+  plan_approval: boolean("plan_approval").notNull().default(false),
+  /** When the user last changed their opt-ins (R35). */
+  updated_at: ts("updated_at").notNull(),
+});
+
+/** Linear teams, pickup label and Hive's Linear user, edited in Settings (R35); the one row has id "factory". */
+export const linearSettings = pgTable("linear_settings", {
+  /** Always "factory" (R35). */
+  id: text("id").primaryKey(),
+  /** The team keys Hive watches, the pickup label and Hive's Linear user id (R35). */
+  config: jsonb("config").$type<{ teamKeys: string[]; label: string; hiveUserId: string | null }>().notNull(),
+  /** When an admin last saved the settings (R35). */
+  updated_at: ts("updated_at").notNull(),
+  /** The admin's email (R35). */
+  updated_by: text("updated_by").notNull(),
+});
+
+export const agentProvider = pgEnum("agent_provider", ["claude", "codex"]);
+export const agentAccountKind = pgEnum("agent_account_kind", ["subscription", "api_key"]);
+
+/**
+ * A Claude or Codex account agents run on (R36): an engineer's own, or a pool account when owner_id
+ * is null. The token is stored only sealed; disconnecting sets disconnected_at and clears sealed to
+ * empty bytes.
+ */
+export const agentAccounts = pgTable(
+  "agent_accounts",
+  {
+    id: text("id").primaryKey(),
+    /** The engineer who owns it; null for a pool account (R36). */
+    owner_id: text("owner_id").references(() => user.id, { onDelete: "cascade" }),
+    provider: agentProvider("provider").notNull(),
+    kind: agentAccountKind("kind").notNull(),
+    label: text("label").notNull(),
+    /** The sealed token; the panel cannot open it (R36). */
+    sealed: bytea("sealed").notNull(),
+    created_by: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    created_at: ts("created_at").notNull().defaultNow(),
+    disconnected_at: ts("disconnected_at"),
+  },
+  (t) => [index("agent_accounts_owner_idx").on(t.owner_id)],
+);
+
+export const usageWindow = pgEnum("usage_window", ["5h", "7d"]);
+
+/** The last usage reading of an account for one rate-limit window (R36). */
+export const accountUsage = pgTable(
+  "account_usage",
+  {
+    account_id: text("account_id")
+      .notNull()
+      .references(() => agentAccounts.id, { onDelete: "cascade" }),
+    window: usageWindow("window").notNull(),
+    used_pct: real("used_pct").notNull(),
+    resets_at: ts("resets_at"),
+    read_at: ts("read_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.account_id, t.window] }), check("account_usage_used_pct_range", sql`${t.used_pct} >= 0 and ${t.used_pct} <= 100`)],
+);
+
+export const accountLoginStatus = pgEnum("account_login_status", ["pending", "waiting_code", "done", "failed"]);
+
+/**
+ * A login in progress, relaying the login URL and device code to the user (R36). It never holds a
+ * token, and the login flow deletes the row when the login ends.
+ */
+export const accountLogins = pgTable("account_logins", {
+  id: text("id").primaryKey(),
+  user_id: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  provider: agentProvider("provider").notNull(),
+  status: accountLoginStatus("status").notNull().default("pending"),
+  url: text("url"),
+  code: text("code"),
+  expires_at: ts("expires_at").notNull(),
+  created_at: ts("created_at").notNull().defaultNow(),
+});
+
+/**
+ * Hive's snapshot of a repo's sstack files, so the panel never reads GitHub or git (Q34, R20/R22/R39).
+ * The runner refreshes it after onboarding and after each merge to main.
+ */
+export const repoSstackConfig = pgTable("repo_sstack_config", {
+  /** GitHub `owner/name`. */
+  repo: text("repo").primaryKey(),
+  /** Each file's text keyed by its path: `.sstack/config.toml`, `.sstack/project.toml`, a role's `.toml` and a step's `step.toml` (Q47, Q57). */
+  files: jsonb("files").$type<Record<string, string>>().notNull(),
+  /** The main commit the snapshot was read at. */
+  sha: text("sha").notNull(),
+  read_at: ts("read_at").notNull(),
+});
+
+/** Hive's `~/.sstack` defaults in one `"factory"` row, which runners sync from (Q37). */
+export const sstackDefaults = pgTable("sstack_defaults", {
+  id: text("id").primaryKey(),
+  files: jsonb("files").$type<Record<string, string>>().notNull(),
+  /** The sstack commit these defaults came from; null for hand-edited defaults. */
+  sha: text("sha"),
+  updated_at: ts("updated_at"),
+  /** The editor's email. */
+  updated_by: text("updated_by"),
 });

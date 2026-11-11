@@ -8,7 +8,7 @@ import { stageReportSchema, type FactoryEvent, type Usage } from "../lib/events"
 import { parseBranch, REPORT_STAGE_TOOL } from "../lib/factory";
 import { localHost } from "../lib/host";
 import { readIngestTarget, reportEvents } from "../lib/outbox";
-import { screenshotEvents, unreadable } from "../lib/screenshot-files";
+import { mediaEvents, runsRoot, unreadable } from "../lib/media-files";
 import { rememberSessionBranch, sessionBranch } from "../lib/session-branch";
 import { mainTranscript, readTranscript, subagentTranscripts, sumUsage } from "../lib/transcript";
 
@@ -173,15 +173,17 @@ async function toEvent(
     case "PostToolUse": {
       if (input.tool_name === REPORT_STAGE_TOOL) {
         const report = stageReportSchema.safeParse(input.tool_input);
-        // The MCP tool refused a report whose screenshots it couldn't read, so it reports nothing either.
-        if (!report.success || unreadable(report.data.assessment?.screenshots ?? []).length > 0) return undefined;
-        const git = await gitContext(str(input.cwd) ?? process.cwd());
+        const cwd = str(input.cwd) ?? process.cwd();
+        const root = runsRoot(cwd);
+        // The MCP tool refused a report whose media it couldn't read, so it reports nothing either.
+        if (!report.success || unreadable(report.data.assessment?.media ?? [], root).length > 0) return undefined;
+        const git = await gitContext(cwd);
         const jobKey = parseBranch(git.branch)?.key;
         const stage: FactoryEvent = { ...base, kind: "stage", ...report.data, jobKey, branch: git.branch };
-        const refs = report.data.assessment?.screenshots ?? [];
-        // The images go first, so the panel never shows an assessment whose screenshots haven't arrived.
+        const refs = report.data.assessment?.media ?? [];
+        // The media go first, so the panel never shows an assessment whose files haven't arrived.
         return jobKey && refs.length > 0
-          ? [...screenshotEvents(refs, { jobKey, stageEventId: base.eventId, sessionId: base.sessionId, at: base.at }), stage]
+          ? [...mediaEvents(refs, { jobKey, stageEventId: base.eventId, sessionId: base.sessionId, at: base.at }, root), stage]
           : stage;
       }
       const agentId = str(input.tool_response?.agentId);
