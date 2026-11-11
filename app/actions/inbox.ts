@@ -18,8 +18,8 @@ import type { JobId } from "@/lib/sources/shapes";
 
 const deps = inboxDeps(currentUser);
 
-export async function approveMerge(jobId: JobId, requestId: string, headSha: string | null) {
-  return approve(deps, jobId, requestId, headSha);
+export async function approveMerge(jobId: JobId, requestId: string, headSha: string | null, plan?: boolean) {
+  return approve(deps, jobId, requestId, headSha, plan);
 }
 
 export async function approveFromRunDetail(jobId: JobId, requestId: string, headSha: string) {

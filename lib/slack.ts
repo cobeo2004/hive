@@ -13,7 +13,7 @@ import { isStopPending, parseStop, stopNeedsOwner } from "./stop";
 // Each event has a stable id, the key of its slack_messages row: one message per event, posted
 // once and edited from then on, so the message a level 2 button sits on always finds its item.
 
-export const NOTIFY_KINDS = ["question", "revert_failed", "stop_unconfirmed", "handover", "failed", "merged", "reverted"] as const;
+export const NOTIFY_KINDS = ["question", "plan_approval", "revert_failed", "stop_unconfirmed", "handover", "failed", "merged", "reverted"] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 
 export type SlackMessageState = "posting" | "open" | "resolved";
@@ -32,6 +32,7 @@ export const TOGGLE_LABELS: Record<NotifyToggle, string> = {
 
 export const TOGGLE_OF: Record<NotifyKind, NotifyToggle> = {
   question: "questions",
+  plan_approval: "questions",
   handover: "reviews",
   failed: "failures",
   revert_failed: "reverts",
@@ -43,6 +44,7 @@ export const TOGGLE_OF: Record<NotifyKind, NotifyToggle> = {
 /** Sent during quiet hours too: main is red, or an agent may still be running and spending. */
 export const URGENT: Record<NotifyKind, boolean> = {
   question: false,
+  plan_approval: false,
   handover: false,
   failed: false,
   revert_failed: true,
@@ -53,6 +55,7 @@ export const URGENT: Record<NotifyKind, boolean> = {
 
 const EMOJI: Record<NotifyKind, string> = {
   question: "❓",
+  plan_approval: "📝",
   handover: "👀",
   failed: "❌",
   revert_failed: "🚨",
@@ -186,6 +189,7 @@ export function resolution(kind: NotifyKind, job: NotifyJob | undefined): string
   const closed = job.stage === "failed" && isDismissed(job);
   switch (kind) {
     case "question":
+    case "plan_approval":
       if (job.stage === "failed") return closed ? "Closed" : "❌ Failed";
       return job.answered_at && job.stage_at && job.answered_at >= job.stage_at ? "✅ Answered" : "Moved on";
     case "handover":
@@ -276,9 +280,11 @@ const SECRET_NAME = /(TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY|DATABASE_URL)/i;
 export const secretValues = (env: Record<string, string | undefined>) =>
   Object.entries(env).flatMap(([name, value]) => (value && SECRET_NAME.test(name) ? [value] : []));
 
-function actionButton(action: InboxAction, job: NotifyJob): ActionButton {
+function actionButton(action: InboxAction, kind: NotifyKind, job: NotifyJob): ActionButton {
   const button: ActionButton = { type: "button", text: { type: "plain_text", text: ACTION_LABELS[action] }, action_id: SLACK_ACTION_IDS[action] };
   if (action !== "approve") return button;
+  // A plan has no PR to merge: approving it only resumes the agent, so no merge confirm.
+  if (kind === "plan_approval") return { ...button, text: { type: "plain_text", text: "Approve plan" }, style: "primary" };
   return {
     ...button,
     style: "primary",
@@ -343,7 +349,7 @@ export function renderMessage(
       { type: "header", text: { type: "plain_text", text: clip(`${EMOJI[kind]} ${job.key} · ${title}`, HEADER_MAX), emoji: true } },
       { type: "section", text: { type: "mrkdwn", text: line } },
       { type: "context", elements: [{ type: "mrkdwn", text: escape(meta.join(" · ")) }] },
-      { type: "actions", block_id: `${ITEM_BLOCK_PREFIX}${event.id}`.slice(0, 255), elements: [...actions.map((a) => actionButton(a, job)), ...links] },
+      { type: "actions", block_id: `${ITEM_BLOCK_PREFIX}${event.id}`.slice(0, 255), elements: [...actions.map((a) => actionButton(a, kind, job)), ...links] },
     ],
   };
 }

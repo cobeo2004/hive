@@ -14,19 +14,20 @@ const SECRET = "inbox-webhook-secret";
 process.env.GITHUB_APP_WEBHOOK_SECRET = SECRET;
 
 const { db } = await import("../db/client");
-const { auditLog, events, intents, jobs, repoSettings, webhookDeliveries } = await import("../db/schema");
+const { auditLog, events, intents, jobs, repoSettings, runs, webhookDeliveries } = await import("../db/schema");
 const { linearJob } = await import("./fixtures");
 const { jobId } = await import("../lib/sources/shapes");
 const { SOURCES } = await import("../lib/sources");
 const { TEST_MACHINE_ID } = await import("../lib/config");
-const { eventSchema } = await import("../lib/events");
+const { eventSchema, stageEventFields, stageReportSchema } = await import("../lib/events");
+const { PLAN_APPROVED, PLAN_HEADER, PLAN_MAX, PLAN_QUESTION_MAX, PLAN_TRUNCATED, planQuestion } = await import("../lib/plan-approval");
+const { resumeMessage } = await import("../lib/resume");
 const { ingest } = await import("../lib/ingest");
 const { hosts, localHost } = await import("../lib/host");
 const { github, pullsClient } = await import("../lib/github/pulls");
 const { writeRepoAutonomy } = await import("../lib/settings");
-const { allows, approveDetailSchema, changesMessage, feedbackDetailSchema, followUpHint, followUpIssue, inboxItems, inboxKind, isDismissed } = await import(
-  "../lib/inbox"
-);
+const { allows, approveDetailSchema, changesMessage, feedbackDetailSchema, followUpHint, followUpIssue, INBOX_ACTIONS, inboxItems, inboxKind, isDismissed } =
+  await import("../lib/inbox");
 const { approvalBlockers, reviewSummary } = await import("../lib/merge-decision");
 const { githubIntent } = await import("../lib/webhooks");
 const inbox = await import("../lib/inbox-actions");
@@ -763,6 +764,108 @@ try {
   assert.deepEqual(replies, [{ key: ASKED, requestId: id3, body: "The sidebar one." }]);
   assert.equal((await intentRows(ASKED))[0]!.kind, "answer", "the runner's answer intent resumes it");
 
+  // --- plan approval: the plan travels as the job's question; Approve and Request changes both answer it
+  const planReport = stageReportSchema.parse({
+    stage: "waiting",
+    summary: "Plan ready.",
+    kind: "plan_approval",
+    plan: "# plan\nStep 1",
+    answerKey: "code: bun test",
+  });
+  assert.equal(stageReportSchema.safeParse({ stage: "waiting", summary: "s", kind: "plan_approval" }).success, false, "a plan gate needs its plan");
+  assert.equal(
+    stageReportSchema.safeParse({ stage: "implementing", summary: "s", kind: "plan_approval", plan: "# plan" }).success,
+    false,
+    "and the waiting stage",
+  );
+  assert.equal(
+    stageReportSchema.safeParse({ stage: "waiting", summary: "s", question: "## Plan for your approval process\n?" }).success,
+    false,
+    "an ordinary waiting report cannot carry the plan header",
+  );
+  assert.equal(stageReportSchema.safeParse({ stage: "waiting", summary: "s", question: "Which list?" }).success, true, "a normal question still parses");
+  const PLAN = await job("PLAN", { stage: "implementing" });
+  const planEvent = (over: object = {}) => ({
+    eventId: `plan-${stamp}`,
+    sessionId: `session-${PLAN}`,
+    at: Date.now() + 60_000,
+    kind: "stage",
+    ...stageEventFields(planReport),
+    jobKey: PLAN,
+    ...over,
+  });
+  await ingest(db, [eventSchema.parse(planEvent())]);
+  const planRow = await row(PLAN);
+  assert.equal(inboxKind(planRow), "plan_approval", "a reported plan is an inbox item of its own kind");
+  assert.ok(planRow.question!.includes("Step 1") && planRow.question!.includes("code: bun test"), "the question carries the plan and its answer key");
+  assert.deepEqual(INBOX_ACTIONS.plan_approval, ["approve", "request_changes"]);
+
+  const longPlan = planQuestion("x".repeat(25_000));
+  assert.ok(longPlan.endsWith(PLAN_TRUNCATED), "a long plan is cut with a marker");
+  assert.equal(longPlan.slice(PLAN_HEADER.length + 2, -PLAN_TRUNCATED.length).length, PLAN_MAX, "at the cap");
+  assert.equal(eventSchema.safeParse(planEvent({ question: longPlan })).success, true, "and the event still carries it");
+  assert.equal(eventSchema.safeParse(planEvent({ question: "x".repeat(PLAN_QUESTION_MAX + 1) })).success, false, "but nothing longer");
+
+  const emojiPlan = planQuestion("a".repeat(PLAN_MAX - 1) + "😀");
+  assert.ok(emojiPlan.endsWith(PLAN_TRUNCATED), "a plan cut at an emoji is marked");
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(emojiPlan), "the cut never leaves half a surrogate pair");
+  const EMOJI = await job("EMOJI", { stage: "implementing" });
+  await ingest(db, [
+    eventSchema.parse({ ...planEvent({ question: emojiPlan, jobKey: EMOJI, sessionId: `session-${EMOJI}` }), eventId: `plan-emoji-${stamp}` }),
+  ]);
+  assert.equal((await row(EMOJI)).question, emojiPlan, "and the plan round-trips through Postgres");
+
+  const planId = planRow.id;
+  const approveId = crypto.randomUUID();
+  assert.deepEqual(await inbox.approveMerge(deps(), planId, approveId, null), { ok: true, intentId: `panel:answer:${approveId}` });
+  assert.deepEqual(replies.at(-1), { key: PLAN, requestId: approveId, body: PLAN_APPROVED }, "Approve answers the plan with the approval");
+  const [planAnswer] = await intentRows(PLAN);
+  assert.equal(planAnswer!.kind, "answer");
+  assert.equal(JSON.parse(planAnswer!.detail!).actor, OWNER, "the intent names who approved");
+
+  const stalePlanClick = crypto.randomUUID();
+  const stale = await inbox.approveMerge(deps(), planId, stalePlanClick, "h1", false);
+  assert.equal(stale.ok === false && /changed since/.test(stale.message), true, "a click that showed a merge is refused on a plan");
+  const PRJOB = await job("STALEPLAN", { stage: "pr", pr_url: "https://github.com/o/r/pull/77" });
+  const stalePlan = await inbox.approveMerge(deps(), (await row(PRJOB)).id, crypto.randomUUID(), null, true);
+  assert.equal(
+    stalePlan.ok === false && /changed since/.test(stalePlan.message),
+    true,
+    "a stale Approve plan click is refused once the job is in review, and records no merge",
+  );
+  assert.equal((await intentRows(PRJOB)).length, 0, "nothing was recorded for it");
+
+  const PLAN2 = await job("PLAN2", { stage: "waiting", question: planQuestion("# plan") });
+  const changesId = crypto.randomUUID();
+  assert.deepEqual(await inbox.requestChanges(deps(), (await row(PLAN2)).id, changesId, "Split step 2."), { ok: true, intentId: `panel:answer:${changesId}` });
+  assert.deepEqual(replies.at(-1), { key: PLAN2, requestId: changesId, body: "Split step 2." }, "the note is the answer");
+  assert.deepEqual(
+    (await intentRows(PLAN2)).map((i) => i.kind),
+    ["answer"],
+    "no request_changes intent: there is no PR to change",
+  );
+  const repliesBeforeApprovalAsChanges = replies.length;
+  assert.deepEqual(
+    await inbox.requestChanges(deps(), (await row(PLAN2)).id, crypto.randomUUID(), "Plan approved."),
+    { ok: false, message: "Write what should change." },
+    "the approval text cannot be sent as requested changes",
+  );
+  assert.equal(replies.length, repliesBeforeApprovalAsChanges, "a refused request changes posts no reply");
+  // requestChanges and resumeMessage share one definition of an approval: accepted iff the thread goes back to Phase 1
+  for (const [note, accepted] of [
+    ["Plan approved.", false],
+    ["Plan approved.\n\nPlan approved.", false],
+    ["  Plan approved.  \r\n\r\nPlan approved.", false],
+    ["Plan approved.\n\nSplit step 2.", true],
+  ] as const) {
+    const before = replies.length;
+    const out = await inbox.requestChanges(deps(), (await row(PLAN2)).id, crypto.randomUUID(), note);
+    assert.equal(out.ok, accepted, `requestChanges ${accepted ? "accepts" : "refuses"} ${JSON.stringify(note)}`);
+    assert.equal(replies.length, before + (accepted ? 1 : 0), `a ${accepted ? "accepted" : "refused"} note ${accepted ? "posts" : "posts no"} reply`);
+    if (accepted) assert.equal(replies.at(-1)!.body, note.trim(), "the reply posted is the note");
+    assert.equal(/Phase 1 \(plan\)/.test(resumeMessage("ABC-1", planQuestion("p"), note, "factory")), accepted, "resume agrees on what is an approval");
+  }
+
   // --- close and dismiss
   const CLOSE = await job("CLOSE", {}, { number: 8 });
   const closeId = (await row(CLOSE)).id;
@@ -868,6 +971,7 @@ try {
   await db.delete(intents).where(like(intents.id, `github:review:inbox-regress-%-${stamp}`));
   await db.delete(webhookDeliveries).where(like(webhookDeliveries.delivery_id, `github:inbox-regress-${stamp}-%`));
   if (keys.length > 0) await db.delete(events).where(inArray(events.job_key, keys));
+  await db.delete(runs).where(like(runs.session_id, `session-INB%-${stamp}`));
   await db.delete(jobs).where(like(jobs.id, `${jobId("linear", "inbox-regress-")}%`));
   await db.delete(repoSettings).where(eq(repoSettings.repo, REPO));
   await server.close();
