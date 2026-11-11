@@ -253,7 +253,9 @@ export function SettingsForm({
   saved,
   notifications,
   linear,
+  children,
 }: {
+  children?: ReactNode;
   machines: Feed<MachineRow>;
   members: Member[];
   saved: SettingsRow | null;
@@ -307,6 +309,7 @@ export function SettingsForm({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-6xl flex-col divide-y p-4 md:p-8">
           <LinearSettingsSection saved={linear.saved} userName={linear.userName} />
+          {children}
           <SettingsSection
             id="new-jobs"
             title="New jobs"
