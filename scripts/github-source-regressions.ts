@@ -1,6 +1,6 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { eq, inArray, like } from "drizzle-orm";
 
 const { db } = await import("../db/client");
@@ -278,9 +278,10 @@ try {
   assert.deepEqual(wake("issue_comment", "created", { comment: { user: { type: "User" } } }), { kind: "answer", jobId: id(8) });
   assert.equal(wake("issue_comment", "created", { comment: { user: { type: "Bot" } } }), null);
   assert.equal(wake("issue_comment", "created", { comment: { user: { type: "User" } } }, { pull_request: {} }), null, "a PR's comments are not answers");
-  process.env.GITHUB_APP_WEBHOOK_SECRET = "s3cret";
+  const secret = randomBytes(16).toString("hex");
+  process.env.GITHUB_APP_WEBHOOK_SECRET = secret;
   const { POST } = await import("../app/api/webhooks/[source]/route");
-  const post = (raw: string, delivery: string, signature = `sha256=${createHmac("sha256", "s3cret").update(raw).digest("hex")}`) =>
+  const post = (raw: string, delivery: string, signature = `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`) =>
     POST(
       new Request("http://panel/api/webhooks/github", {
         method: "POST",
