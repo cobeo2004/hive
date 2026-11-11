@@ -6,29 +6,33 @@ import QRCode from "react-qr-code";
 import { useState, type ReactNode } from "react";
 import { startTotp, verifyTotp } from "@/app/actions/access";
 import { finishSetup } from "@/app/actions/members";
+import { saveJobSources } from "@/app/actions/settings";
 import { saveLinearOptIns, saveName } from "@/app/actions/setup";
 import { CopyButton } from "@/components/copy-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { SourceChoiceField } from "@/components/source-choice-field";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import type { OptIns, SETUP_STEPS } from "@/lib/opt-ins";
+import type { OptIns } from "@/lib/opt-ins";
+import { setupSteps, type SourceChoice } from "@/lib/source-choice";
 import { cn } from "@/lib/utils";
 
 export type SetupUser = { name: string; email: string; role: "admin" | "engineer"; twoFactorEnabled: boolean; slackMatched: boolean };
 type LinearCard = { matched: boolean; note: string };
-const STEP_KEYS = ["account", "linear", "done"] as const;
-type Step = (typeof STEP_KEYS)[number];
 
 /**
- * /setup (R5, R33, R28): Account saves the name and enrols TOTP, Linear saves the pickup opt-ins,
- * Done stamps setup_done_at and opens Jobs.
+ * /setup (R5, R33, R28, R13, R14): Account saves the name and enrols TOTP, Sources (admin only) saves where jobs
+ * come from, Linear saves the pickup opt-ins and is left out when GitHub Issues is the only source, Done stamps
+ * setup_done_at and opens Jobs.
  */
-export function SetupSteps({ user, steps, linear, optIns: savedOptIns }: { user: SetupUser; steps: typeof SETUP_STEPS; linear: LinearCard; optIns: OptIns }) {
-  const [step, setStep] = useState<Step>("account");
+export function SetupSteps({ user, sources, linear, optIns: savedOptIns }: { user: SetupUser; sources: SourceChoice; linear: LinearCard; optIns: OptIns }) {
+  const [choice, setChoice] = useState(sources);
+  const steps: readonly string[] = setupSteps(user.role, choice);
+  const [step, setStep] = useState("Account");
   const [name, setName] = useState(user.name);
   const [enrolled, setEnrolled] = useState(user.twoFactorEnabled);
   // Already enrolled means there are no new backup codes to save.
@@ -36,7 +40,8 @@ export function SetupSteps({ user, steps, linear, optIns: savedOptIns }: { user:
   const [optIns, setOptIns] = useState(savedOptIns);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const at = STEP_KEYS.indexOf(step);
+  const at = steps.indexOf(step);
+  const go = (by: 1 | -1) => setStep(steps[at + by] ?? step);
 
   return (
     <Card className="w-full max-w-3xl">
@@ -54,26 +59,54 @@ export function SetupSteps({ user, steps, linear, optIns: savedOptIns }: { user:
       </header>
 
       <div className="flex min-h-[26rem] flex-col gap-[18px] px-6 pt-7 pb-2">
-        {step === "account" ? (
+        {step === "Account" ? (
           <Account enrolled={enrolled} name={name} onEnrolled={() => setEnrolled(true)} saved={saved} setSaved={setSaved} setName={setName} user={user} />
-        ) : step === "linear" ? (
+        ) : step === "Sources" ? (
+          <Sources choice={choice} pending={pending} setChoice={setChoice} />
+        ) : step === "Linear" ? (
           <Linear linear={linear} optIns={optIns} pending={pending} setOptIns={setOptIns} />
         ) : (
-          <Done name={name} user={user} />
+          <Done choice={choice} name={name} user={user} />
         )}
       </div>
 
       <footer className="flex flex-wrap items-center gap-2 border-t px-6 py-4">
-        {step === "account" ? (
+        {step === "Account" ? (
           <>
             <span className="flex-1" />
-            <Button disabled={!enrolled || !saved} onClick={() => setStep("linear")}>
+            <Button disabled={!enrolled || !saved} onClick={() => go(1)}>
               Continue
             </Button>
           </>
-        ) : step === "linear" ? (
+        ) : step === "Sources" ? (
           <>
-            <Button disabled={pending} onClick={() => setStep("account")} variant="ghost">
+            <Button disabled={pending} onClick={() => go(-1)} variant="ghost">
+              Back
+            </Button>
+            <span className="flex-1" />
+            <Failure message={error} />
+            <Button
+              disabled={pending}
+              onClick={async () => {
+                setPending(true);
+                setError(null);
+                try {
+                  const result = await saveJobSources(choice);
+                  if (!result.ok) return setError(result.message);
+                  go(1);
+                } catch {
+                  setError("Couldn't save your choice. Try again.");
+                } finally {
+                  setPending(false);
+                }
+              }}
+            >
+              {pending ? "Saving" : "Continue"}
+            </Button>
+          </>
+        ) : step === "Linear" ? (
+          <>
+            <Button disabled={pending} onClick={() => go(-1)} variant="ghost">
               Back
             </Button>
             <span className="flex-1" />
@@ -86,7 +119,7 @@ export function SetupSteps({ user, steps, linear, optIns: savedOptIns }: { user:
                 try {
                   const result = await saveLinearOptIns(optIns);
                   if (!result.ok) return setError(result.message);
-                  setStep("done");
+                  go(1);
                 } catch {
                   setError("Couldn't save your choices. Try again.");
                 } finally {
@@ -414,6 +447,17 @@ function BackupCodes({ codes, saved, setSaved }: { codes: string[]; saved: boole
   );
 }
 
+/** The Sources step (R13): where jobs come from. Only an admin sees it; engineers inherit the choice. */
+function Sources({ choice, pending, setChoice }: { choice: SourceChoice; pending: boolean; setChoice: (choice: SourceChoice) => void }) {
+  return (
+    <>
+      <h1 className="text-2xl font-semibold tracking-[-0.015em]">Where do jobs come from?</h1>
+      <p className="text-sm text-muted-foreground">Pick the trackers Hive reads. You can change this later in Settings.</p>
+      <SourceChoiceField disabled={pending} onChange={setChoice} value={choice} />
+    </>
+  );
+}
+
 const hiveLabel = <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">hive</code>;
 
 /** The Linear step (R28): an email-matched Linear card and the user's two pickup opt-ins; the label trigger is global. */
@@ -482,13 +526,14 @@ function OptIn({
   );
 }
 
-function Done({ user, name }: { user: SetupUser; name: string }) {
+function Done({ user, name, choice }: { user: SetupUser; name: string; choice: SourceChoice }) {
   return (
     <>
       <h1 className="text-2xl font-semibold tracking-[-0.015em]">You&apos;re set up</h1>
       <p className="text-sm text-muted-foreground">
-        Assign a Linear issue to Hive or label it <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">hive</code>, and it shows up
-        under Jobs within a minute.
+        {choice === "github" ? "Label a GitHub issue" : "Assign a Linear issue to Hive or label it"}{" "}
+        <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">hive</code>
+        {choice === "github" ? " in a registered repository" : ""}, and it shows up under Jobs within a minute.
       </p>
       <div className="flex flex-col rounded-xl border">
         <Row aside={<Badge variant="success">Ready</Badge>} mark="2F" note="Password and an authenticator code" title="Two-factor authentication" />

@@ -37,7 +37,18 @@ assert.equal(!refused.ok && refused.status, 403, "an engineer cannot choose");
 const bad = await saveSourceChoice(deps(admin), "slack");
 assert.equal(!bad.ok && bad.status, 400, "only linear, github or both");
 assert.deepEqual(await saveSourceChoice(deps(admin), "github"), { ok: true });
-assert.deepEqual(saved, [{ choice: "github", by: "owner@example.com" }], "only the admin's valid choice is written");
+const midSetup = await saveSourceChoice(deps({ ...admin, setupDoneAt: null }), "both");
+assert.deepEqual(midSetup, { ok: true }, "an admin can choose in first-run setup, before it is finished");
+const noTotp = await saveSourceChoice(deps({ ...admin, twoFactorEnabled: false }), "both");
+assert.equal(!noTotp.ok && noTotp.status, 403, "but not without two-factor authentication");
+assert.deepEqual(
+  saved,
+  [
+    { choice: "github", by: "owner@example.com" },
+    { choice: "both", by: "owner@example.com" },
+  ],
+  "only an admin's valid choice is written",
+);
 
 // R14: Linear without its key, and the Linear poll when Linear is not chosen.
 assert.equal(parseConfig({ ingestUrl: "https://ingest.invalid/ingest", secret: "s" }).linearApiKey, undefined, "the config loads without linearApiKey");

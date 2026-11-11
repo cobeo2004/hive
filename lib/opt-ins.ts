@@ -9,9 +9,6 @@ import { forbidInTest } from "@/lib/test-mode";
 
 // /setup's Linear step (R28): the signed-in user's Linear opt-ins, and whether Linear knows their email.
 
-/** The order of /setup (R28); R27 inserts Agents before Done. */
-export const SETUP_STEPS = ["Account", "Linear", "Done"] as const;
-
 export type OptIns = { assigned: boolean; plan_approval: boolean };
 export const NO_OPT_INS: OptIns = { assigned: false, plan_approval: false };
 type Refused = { ok: false; status: 400 | 403; message: string };

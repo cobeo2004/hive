@@ -1,20 +1,16 @@
 import { eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { z } from "zod";
 import type * as schema from "../db/schema";
 import { linearSettings as table } from "../db/schema";
-import { isAdmin, type SessionUser } from "./auth/owner";
+import type { SessionUser } from "./auth/owner";
 import { envLinearDefaults, LINEAR_SETTINGS_ID } from "./linear-settings";
+import { sourceChoiceSchema, type SourceChoice } from "./source-choice";
 
 // Where jobs come from (R13, R14): Linear, GitHub Issues or both, one choice an admin makes. It lives
 // in the one row Settings → Linear already shares between the panel and the runner (config.sources).
 
 type Db = NodePgDatabase<typeof schema>;
 type Env = Readonly<Record<string, string | undefined>>;
-
-export const SOURCE_CHOICES = ["linear", "github", "both"] as const;
-export const sourceChoiceSchema = z.enum(SOURCE_CHOICES);
-export type SourceChoice = z.infer<typeof sourceChoiceSchema>;
 
 /** What an admin chose; Linear alone until one does, which is what every install ran before there was a choice. */
 export async function readSourceChoice(db: Db): Promise<SourceChoice> {
@@ -39,7 +35,8 @@ export async function saveSourceChoice(
   input: unknown,
 ): Promise<SourceSaveOutcome> {
   const user = await deps.user();
-  if (!user || !isAdmin(user)) return { ok: false, status: 403, message: "Only an admin can change where jobs come from." };
+  // An admin chooses during first-run setup, before setup_done_at is stamped, so the check is the role and TOTP, not isAdmin.
+  if (user?.role !== "admin" || user.twoFactorEnabled !== true) return { ok: false, status: 403, message: "Only an admin can change where jobs come from." };
   const parsed = sourceChoiceSchema.safeParse(input);
   if (!parsed.success) return { ok: false, status: 400, message: "Choose Linear, GitHub Issues or both." };
   try {
