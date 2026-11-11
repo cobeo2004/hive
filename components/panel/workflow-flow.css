@@ -1,0 +1,3 @@
+/* React Flow's stylesheet is unlayered, so it would beat every Tailwind utility; in the base layer, utilities and inline styles win.
+   Its own file, not globals.css: the contrast audit allows only theme rules there. */
+@import "@xyflow/react/dist/style.css" layer(base);

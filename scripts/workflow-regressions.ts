@@ -9,7 +9,7 @@ declare const Bun: { TOML: { parse(text: string): unknown } }; // no bun-types i
 const { patch } = await import("../lib/toml-patch");
 const { parseBranch } = await import("../lib/factory");
 const { mayCreate, runWorkflowPr, runWorkflowSmoke, workflowDeps } = await import("../runner/workflow-pr");
-const { readToml, steps, chain, move, diffLines, meta, tomlError } = await import("../lib/workflow-chain");
+const { readToml, steps, chain, move, diffLines, meta, tomlError, PINNED } = await import("../lib/workflow-chain");
 const { changeLines, applyEdits, upsert, stepFile, roleFile, CONFIG: CFG, stepValues, roleValues, fileGate } = await import("../lib/workflow-edits");
 const { graph } = await import("../lib/workflow-graph");
 
@@ -283,6 +283,20 @@ try {
   assert.deepEqual(
     stepNodes.filter((n) => n.data.pinned).map((n) => n.id),
     ["recon", "pr"],
+  );
+  assert.deepEqual(
+    stepNodes.filter((n) => n.draggable === false).map((n) => n.id),
+    [...PINNED],
+    "only the pinned steps are undraggable; the rest follow the canvas",
+  );
+  assert.ok(
+    stepNodes.every((n) => n.draggable !== true),
+    "a step node never forces draggable on, so read-only stays read-only",
+  );
+  assert.deepEqual(
+    ["0", "-1", "1.5", "'3'", "true"].map((v) => steps({ [STEP]: `max_loops = ${v}\n` }).review.max_loops),
+    [2, 2, 2, 2, 2],
+    "max_loops only accepts a positive integer",
   );
   assert.equal(graph({}, steps({ [STEP]: "max_loops = 3\n" })).edges.find((e) => e.id === "loop:review->implement")?.label, "on_fail · max 3");
   const custom = { ".sstack/steps/dmm/step.toml": "after = 'implement'\nrole = 'x'\n" };

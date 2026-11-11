@@ -1,7 +1,7 @@
 "use client";
 
 // The Workflow page's flow editor. The only file that imports @xyflow/react; the canvas loads it client-only (dynamic, ssr: false).
-import "@xyflow/react/dist/style.css";
+import "./workflow-flow.css";
 import {
   Background,
   BackgroundVariant,
@@ -20,19 +20,20 @@ import {
   useViewport,
 } from "@xyflow/react";
 import { Bot, Cpu, GitPullRequestArrow, Minus, Pin, Plus, SquareTerminal } from "lucide-react";
-import { type KeyboardEvent, useEffect, useMemo, useRef } from "react";
+import { type CSSProperties, type KeyboardEvent, useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import type { Spec } from "@/lib/workflow-chain";
 import { graph, type NodeData } from "@/lib/workflow-graph";
 
-type FlowNode = Node<NodeData>;
+type StepFlowNode = Node<NodeData>;
 const ICON = { role: Bot, command: SquareTerminal, inline: GitPullRequestArrow } as const;
-// RF's stylesheet is unlayered and sets the handle's look, so hiding it is inline; the handles only anchor edges.
+// the handles only anchor edges; RF styles a handle, so hiding it is inline
+// Tailwind reads every _ in an arbitrary variant as a space, so RF's double underscores are escaped in the className below
 const HIDDEN = { opacity: 0 } as const;
 const FIT = { padding: 0.15, maxZoom: 1 } as const;
 const chip = "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs";
 
-function StepNode({ data, selected }: NodeProps<FlowNode>) {
+function StepNode({ data, selected }: NodeProps<StepFlowNode>) {
   const Icon = ICON[data.kind];
   const ring = selected && "ring-2 ring-ring";
   return (
@@ -92,7 +93,7 @@ function Ports() {
   );
 }
 
-function MemberNode({ data }: NodeProps<FlowNode>) {
+function MemberNode({ data }: NodeProps<StepFlowNode>) {
   return (
     <div className="flex w-[110px] flex-col items-center gap-1">
       <div className="relative grid size-9 place-items-center rounded-full border bg-card">
@@ -137,7 +138,7 @@ type Props = {
 
 function Flow({ files, specs, canEdit, selected, onSelect, onMove, cover }: Props) {
   const built = useMemo(() => graph(files, specs), [files, specs]);
-  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>(built.nodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState<StepFlowNode>(built.nodes);
   const { getIntersectingNodes, fitView, getNode, getViewport, setViewport } = useReactFlow();
   const store = useStoreApi();
   const width = useStore((s) => s.width);
@@ -167,26 +168,31 @@ function Flow({ files, specs, canEdit, selected, onSelect, onMove, cover }: Prop
   );
 
   // members follow their step while it is free-dragged (visual only)
-  const pick = (_: unknown, node: FlowNode) => {
+  const pick = (_: unknown, node: StepFlowNode) => {
     const members = Object.fromEntries(nodes.filter((n) => n.type === "member" && n.id.startsWith(`${node.id}/`)).map((n) => [n.id, n.position]));
     grab.current = { at: node.position, members };
   };
-  const follow = (_: unknown, node: FlowNode) => {
+  const follow = (_: unknown, node: StepFlowNode) => {
     const g = grab.current;
     if (!g) return;
     const [dx, dy] = [node.position.x - g.at.x, node.position.y - g.at.y];
     setNodes((ns) => ns.map((n) => (g.members[n.id] ? { ...n, position: { x: g.members[n.id]!.x + dx, y: g.members[n.id]!.y + dy } } : n)));
   };
-  const drop = (_: unknown, node: FlowNode) => {
+  const drop = (_: unknown, node: StepFlowNode) => {
     const onto = getIntersectingNodes(node).find((n) => n.type === "step" && n.id !== node.id);
     if (!onto) return; // free drag is visual only: it stays where it was dropped
     onMove(node.id, onto.id);
     setNodes(built.nodes); // a refused move snaps back; an accepted one rebuilds the graph anyway
   };
-  const enter = (e: KeyboardEvent) => {
-    if (e.key !== "Enter") return;
+  // on a focused step: Enter or Space opens it, Escape closes the panel
+  const keys = (e: KeyboardEvent) => {
     const id = (e.target as HTMLElement).closest(".react-flow__node")?.getAttribute("data-id");
-    if (id && specs[id]) onSelect(id);
+    if (!id || !specs[id]) return;
+    if (e.key === "Escape") onSelect("");
+    else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onSelect(id);
+    }
   };
 
   return (
@@ -206,17 +212,17 @@ function Flow({ files, specs, canEdit, selected, onSelect, onMove, cover }: Prop
       onNodeDragStart={pick}
       onNodeDrag={follow}
       onNodeDragStop={drop}
-      onKeyDown={enter}
+      onKeyDown={keys}
       attributionPosition="top-left" // bottom-right is under the floating panel, bottom-left holds the zoom controls
       aria-label="Workflow steps"
-      className="[&_.react-flow__attribution_a]:text-muted-foreground [&_.react-flow__node:focus-visible_.tile]:ring-2 [&_.react-flow__node:focus-visible_.tile]:ring-ring"
+      className="[&_.react-flow\_\_attribution_a]:text-muted-foreground [&_.react-flow\_\_node:focus-visible_.tile]:ring-2 [&_.react-flow\_\_node:focus-visible_.tile]:ring-ring"
       style={
         {
           "--xy-background-color": "var(--bg)",
           "--xy-edge-label-background-color": "var(--card)",
           "--xy-edge-label-color": "var(--ink-2)",
           "--xy-attribution-background-color": "transparent",
-        } as React.CSSProperties
+        } as CSSProperties
       }
     >
       <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--border-strong)" />

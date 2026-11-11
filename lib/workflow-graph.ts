@@ -1,6 +1,6 @@
 // The Workflow page's flow as plain data: chain() steps become nodes, on_fail and roles become edges. Pure TS, no react or @xyflow import;
 // the shapes are structural so React Flow takes them as-is.
-import { chain, meta, type Spec } from "./workflow-chain";
+import { chain, meta, PINNED, type Spec } from "./workflow-chain";
 import { roleValues } from "./workflow-edits";
 
 export type NodeData = {
@@ -48,7 +48,7 @@ export function graph(files: Record<string, string>, specs: Record<string, Spec>
   for (const name of order) {
     const spec = specs[name];
     const m = meta(files, spec);
-    const pinned = name === "recon" || name === "pr";
+    const pinned = PINNED.has(name);
     const wide = m.planGate === "Inbox";
     nodes.push({
       id: name,
@@ -64,17 +64,18 @@ export function graph(files: Record<string, string>, specs: Record<string, Spec>
         badge: wide ? "Plan gate · Inbox" : undefined,
       },
       ariaLabel: `${name}, ${spec.kind} step${pinned ? ", pinned" : ""}`,
+      draggable: pinned ? false : undefined, // undefined leaves it to the canvas's nodesDraggable, so read-only users still can't drag
     });
 
     // a panel review shows one member per entry; any other role step shows its own harness · model. The step node itself says its role.
     const panel = spec.kind === "role" ? roleValues(files, spec.role).panel : [];
-    const labels = spec.kind !== "role" ? [] : panel.length ? panel.map((p) => [p.harness, p.model].filter(Boolean).join(" · ")) : [m.model];
+    const labels = spec.kind !== "role" ? [] : panel.length ? panel.map((p) => [p.harness, p.model].filter(Boolean).join(" · ") || "default") : [m.model];
     labels.forEach((label, j) => {
       const id = `${name}/m${j}`;
       nodes.push({
         id,
         type: "member",
-        position: { x: wide ? x + 50 : x, y: 120 + 80 * j },
+        position: { x: wide ? x + 55 : x, y: 120 + 80 * j },
         data: { name, kind: spec.kind, sub: "", gate: false, pinned: false, wide: false, label },
         draggable: false,
         selectable: false,
