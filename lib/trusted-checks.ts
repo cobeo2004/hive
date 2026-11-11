@@ -26,10 +26,10 @@ export function scriptsOf(packageJson: string | null): Scripts | null {
 /**
  * A command as POSIX-style argv tokens: adjacent quoted and bare pieces join (`format:""check` is
  * `format:check`), and unquoted whitespace, `&`, `;` and `|` end a token. null when it can't be read
- * statically: a backslash, backtick, `$`, newline, glob character, unquoted `()<>` or an open quote.
+ * statically: a backslash, backtick, `$`, newline, glob or brace character, unquoted `()<>` or an open quote.
  */
 export function tokenize(command: string): string[] | null {
-  if (/[\\`$\n\r*?]/.test(command)) return null;
+  if (/[\\`$\n\r*?{}]/.test(command)) return null;
   const tokens: string[] = [];
   let token = "";
   const end = () => {
@@ -61,6 +61,16 @@ export function usedScripts(commands: readonly string[], ...versions: readonly S
   const used = new Set<string>();
   const unreadable: string[] = [];
   const queue = [...commands];
+  const add = (name: string) => {
+    if (used.has(name)) return;
+    const bodies = versions.flatMap((scripts) => (Object.hasOwn(scripts, name) ? [scripts[name]!] : []));
+    if (bodies.length === 0) return;
+    used.add(name);
+    queue.push(...bodies);
+    // npm and bun run `pre<name>` and `post<name>` implicitly.
+    add(`pre${name}`);
+    add(`post${name}`);
+  };
   for (let command = queue.pop(); command !== undefined; command = queue.pop()) {
     const parsed = tokenize(command);
     if (!parsed) {
@@ -68,11 +78,9 @@ export function usedScripts(commands: readonly string[], ...versions: readonly S
       continue;
     }
     for (const name of parsed) {
-      if (used.has(name)) continue;
-      const bodies = versions.flatMap((scripts) => (Object.hasOwn(scripts, name) ? [scripts[name]!] : []));
-      if (bodies.length === 0) continue;
-      used.add(name);
-      queue.push(...bodies);
+      // A quoted subcommand (`sh -c "bun run x"`) is one token: run it through again.
+      if (/[\s&;|]/.test(name)) queue.push(name);
+      add(name);
     }
   }
   return { used: [...used].sort(), unreadable };
@@ -104,6 +112,9 @@ export function trustedEdits({
     reasons.push(
       `The pull request edits CI workflows (${workflows.slice(0, 3).join(", ")}${workflows.length > 3 ? ` and ${workflows.length - 3} more` : ""}).`,
     );
+  for (const file of files)
+    if (file !== PACKAGE_JSON && file.split("/").pop() === PACKAGE_JSON)
+      reasons.push(`The pull request edits a nested package.json (${file}), whose scripts the factory can't compare.`);
   if (files.includes(PACKAGE_JSON)) {
     if (!base || !head) reasons.push("The pull request edits package.json, and its scripts couldn't be compared with the base branch's.");
     else {

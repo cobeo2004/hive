@@ -332,6 +332,42 @@ assert.deepEqual(
   "an unreadable command only matters when package.json is edited",
 );
 assert.match(flip(["echo test"], "test")[0]!, /scripts\.test\./, "over-matching only hands over more");
+for (const command of ['sh -c "bun run verify-ci"', 'concurrently "bun run ci:lint" "bun run ci:unit"']) {
+  const reasons = flip([command], command.includes("concurrently") ? "ci:unit" : "verify-ci");
+  assert.equal(reasons.length, 1, `a quoted subcommand is followed: ${command}`);
+  assert.match(reasons[0]!, /scripts\.(verify-ci|ci:unit)\./);
+}
+{
+  const ciBase = { ci: 'concurrently "bun run ci:lint" "bun run ci:unit"', "ci:lint": "eslint .", "ci:unit": "vitest" };
+  const reasons = trustedEdits({
+    files: ["package.json"],
+    required: null,
+    verify: ["bun run ci"],
+    base: ciBase,
+    head: { ...ciBase, "ci:lint": "true" },
+  });
+  assert.equal(reasons.length, 1, "a script that fans out through quotes");
+  assert.match(reasons[0]!, /scripts\.ci:lint\./);
+}
+for (const command of ["bun run format:{check,}", "bun run format:{check,check}"]) {
+  const reasons = flip([command]);
+  assert.equal(reasons.length, 1, `brace expansion can't be read: ${command}`);
+  assert.match(reasons[0]!, /can't be read to tell which scripts it runs/);
+}
+{
+  const life = (base: Record<string, string>, head: Record<string, string>) =>
+    trustedEdits({ files: ["package.json"], required: null, verify: ["bun run verify-ci"], base, head });
+  const added = life({ "verify-ci": "vitest" }, { "verify-ci": "vitest", "preverify-ci": "exit 0" });
+  assert.equal(added.length, 1, "a head-only pre script runs implicitly");
+  assert.match(added[0]!, /scripts\.preverify-ci\./);
+  const post = life({ "verify-ci": "vitest", "postverify-ci": "vitest" }, { "verify-ci": "vitest", "postverify-ci": "true" });
+  assert.equal(post.length, 1, "a changed post script runs implicitly");
+  assert.match(post[0]!, /scripts\.postverify-ci\./);
+}
+{
+  const reasons = trustedEdits({ files: ["packages/app/package.json"], required: null, verify: [], base: {}, head: {} });
+  assert.deepEqual(reasons, ["The pull request edits a nested package.json (packages/app/package.json), whose scripts the factory can't compare."]);
+}
 const scripts = (over: Record<string, string> = {}) => ({ test: "vitest", lint: "eslint .", dev: "next dev", ...over });
 const recipeChecks = [{ name: "test" as const, command: "bun run test" }];
 const edits = (
