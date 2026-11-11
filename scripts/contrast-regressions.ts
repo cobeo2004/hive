@@ -125,6 +125,7 @@ function audit(rules: Rule[]) {
       if (!names.includes(layer)) assert.fail(`layer ${layer} is not in Tailwind's layer order`);
       for (const r of rule.value.rules) {
         if (layer !== "utilities") {
+          if (r.type !== "style" && r.type !== "supports") assert.fail(`${r.type} inside ${layer}; only style and supports rules may be layered`);
           const bad = customs(layer === "theme" && r.type === "style" && same(r.value.selectors, THEME) ? r.value.rules : r);
           if (bad.length) assert.fail(`${bad} declared in ${layer}; only scope rules and the theme layer's :root, :host may declare custom properties`);
           continue;
@@ -198,7 +199,7 @@ const CASES: [label: string, css: string, expect: string][] = [
     "@layer components { .text-violet { color: #171717 !important; } } | :root { filter: invert(1); } | @keyframes k { to { --violet: #171717; } } | " +
     "body { --muted-foreground: #bbbbbb; } | @layer utilities { body { --muted-foreground: #bbbbbb; } } | .text-warning-foreground { color: #ffffff; } | " +
     '@layer utilities { .text-warning-foreground { color: #ffffff !important; } } | [class~="text-warning-foreground"] { color: #ffffff; } | ' +
-    ".bg-background { background: #a15c00; } | @layer utilities { .text-violet:hover { color: #000000; } }"
+    ".bg-background { background: #a15c00; } | @layer utilities { .text-violet:hover { color: #000000; } } | @layer base { @keyframes washout { to { color: #fff; background-color: #fff } } .text-foreground { animation: washout 1ms forwards } } | @layer base { @property --violet { syntax: '<color>'; inherits: false; initial-value: #171717 } }"
   )
     .split(" | ")
     .map((css): [string, string, string] => [css, add(css), "throws"]),
