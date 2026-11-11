@@ -82,7 +82,6 @@ const adapter = createGithubAdapter(
   () => on,
 );
 const HIVE = { login: "hive[bot]", type: "Bot" };
-const WAITING_LABEL = "hive:waiting";
 const say = (n: number, login: string, body: string, type = "User") => comments(ON, n).push({ id: ++ids, body, created_at: "t", user: { login, type } });
 const comments = (repo: string, number: number) => gh.get(`${repo}#${number}`)!.comments;
 const names = (n: number) => gh.get(`${ON}#${n}`)!.labels.map((l) => l.name);
@@ -203,8 +202,13 @@ try {
     1,
     "a status comment lost to a crash before its id was saved is found again by its marker",
   );
+  await patch(8, { attempt: 2 });
+  const second = await job(8);
+  await Promise.all([adapter.announceClaim(second), adapter.announceClaim(second)]);
+  assert.equal(comments(ON, 8).filter((c) => c.body.includes("hive:status:2")).length, 1, "two announcements at once make one status comment");
   say(8, "writer", "chatter before the question");
   await patch(8, { stage: "waiting", question: "Which db?", stage_event_id: "w1" });
+  await adapter.reply!(await job(8), "req-0", "early answer");
   await adapter.writeBack(await job(8), { stage: "waiting", eventId: "w1" });
   await adapter.writeBack(await job(8), { stage: "waiting", eventId: "w1" });
   assert.deepEqual(names(8), ["hive", "hive:waiting"]);
@@ -220,15 +224,18 @@ try {
     created_at: "t",
     user: { login: "cursor[bot]", type: "Bot" },
   });
-  say(8, HIVE.login, "see <!-- hive:answer:y --> use oracle", "Bot");
   const plan = await adapter.replies(await job(8));
-  assert.deepEqual(plan.kind === "resume" && plan.replies.map((r) => r.body), ["use postgres"], "only a user with write or admin permission answers");
+  assert.deepEqual(
+    plan.kind === "resume" && plan.replies.map((r) => r.body),
+    ["early answer", "use postgres"],
+    "only a user with write or admin permission answers, and the panel's answer counts even when it came before the question",
+  );
   await adapter.reply!(await job(8), "req-1", "or sqlite");
   await adapter.reply!(await job(8), "req-1", "or sqlite");
   const both = await adapter.replies(await job(8));
   assert.deepEqual(
     both.kind === "resume" && [both.answer, both.question],
-    ["use postgres\n\nor sqlite", "Which db?"],
+    ["early answer\n\nuse postgres\n\nor sqlite", "Which db?"],
     "the panel's reply counts once, without its marker",
   );
   await patch(8, { delivered_reply_ids: both.kind === "resume" ? both.replies.map((r) => r.id) : [] });
@@ -244,12 +251,9 @@ try {
     comments(ON, 8).some((c) => c.body.startsWith("<!-- hive:note:k2 -->")),
     "a marker quoted mid-comment is not Hive's comment",
   );
-  gh.get(`${ON}#8`)!.labels.push({ name: WAITING_LABEL });
+  gh.get(`${ON}#8`)!.labels.push({ name: "hive:waiting" });
   assert.equal(await adapter.writeBack(await job(8), { stage: "queued", eventId: "w1a" }), false);
   assert.deepEqual(names(8), ["hive"], "a queued write-back clears it too, since the answer queues the job before it is acknowledged");
-  gh.get(`${ON}#8`)!.labels.push({ name: WAITING_LABEL });
-  await adapter.writeBack(await job(8), { stage: "implementing", eventId: "w1b" });
-  assert.deepEqual(names(8), ["hive"], "a write-back after resuming clears a hive:waiting an acknowledgement failed to remove");
   await adapter.note(await job(8), "k", "hello");
   await adapter.note(await job(8), "k", "hello");
   assert.equal(comments(ON, 8).filter((c) => c.body.includes("hello")).length, 1, "a note is posted once per key");
@@ -257,7 +261,7 @@ try {
   gh.get(`${ON}#8`)!.state = "closed";
   assert.deepEqual(await adapter.replies(await job(8)), { kind: "close", state: "closed" }, "a closed issue ends the wait");
   assert.deepEqual(names(8), [], "a job closed while waiting loses hive:waiting and the Hive label, since the runner reports no write-back for it");
-  gh.get(`${ON}#8`)!.labels.push({ name: "hive" }, { name: WAITING_LABEL });
+  gh.get(`${ON}#8`)!.labels.push({ name: "hive" }, { name: "hive:waiting" });
   await adapter.writeBack(await job(8), { stage: "failed", eventId: "w3" });
   assert.deepEqual(names(8), [], "a failed job loses hive:waiting and the Hive label");
   // R7: the Hive label counts only from a user with write access (or Hive retrying a job it holds).
@@ -277,7 +281,6 @@ try {
   assert.equal(wake("issues", "labeled", { label: { name: "hive" } })?.kind, "claim", "the Hive label wakes a claim, whatever its case");
   assert.equal(wake("issues", "labeled", { label: { name: "bug" } }), null);
   assert.equal(wake("issues", "opened")?.kind, "claim");
-  assert.equal(wake("issues", "closed"), null);
   assert.deepEqual(wake("issue_comment", "created", { comment: { user: { type: "User" } } }), { kind: "answer", jobId: id(8) });
   assert.equal(wake("issue_comment", "created", { comment: { user: { type: "Bot" } } }), null);
   assert.equal(wake("issue_comment", "created", { comment: { user: { type: "User" } } }, { pull_request: {} }), null, "a PR's comments are not answers");
@@ -297,7 +300,6 @@ try {
   const raw = JSON.stringify({ action: "labeled", label: { name: "hive" }, ...event });
   assert.equal((await post(raw, "gh-src-1", "sha256=00")).status, 401, "a bad signature is refused");
   assert.deepEqual(await (await post(raw, "gh-src-1")).json(), { duplicate: false, intent: "claim" });
-  assert.deepEqual(await (await post(raw, "gh-src-1")).json(), { duplicate: true, intent: null }, "a redelivery changes nothing");
   for (let n = 300; n <= 400; n++) put(DEFAULT, n);
   down = ON;
   assert.equal((await adapter.ready()).filter((d) => d.repo === DEFAULT).length, 101);

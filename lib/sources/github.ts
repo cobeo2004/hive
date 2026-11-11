@@ -31,7 +31,7 @@ const commentSchema = z.object({
   user: z.object({ login: z.string(), type: z.string() }).nullable(),
 });
 
-/** On the issue while the job waits on a person (R5). */
+/** On the issue exactly while the job waits on a person (R5). */
 const WAITING = "hive:waiting";
 /** Hive's comments carry a hidden marker, so a retry finds the one it posted and never posts it twice. */
 const mark = (kind: string, id: string) => `<!-- hive:${kind}:${id} -->`;
@@ -51,7 +51,6 @@ export type GithubDeps = {
 };
 
 let appLogin: string | undefined;
-
 async function runtimeDeps(): Promise<GithubDeps> {
   const [{ db }, { linearSettings }] = await Promise.all([import("../../db/client"), import("../linear-settings")]);
   return {
@@ -96,26 +95,24 @@ async function listAll<T extends z.ZodType>(d: GithubDeps, repo: string, path: s
 }
 
 const issuePath = (job: Pick<Job, "writeback">) => `/repos/${job.writeback.repo}/issues/${job.writeback.number}`;
+const queue = new Map<string, Promise<unknown>>();
+/** Runs `work` after any earlier work under the same key in this process, so a check-then-post cannot run twice at once. */
+function serial<T>(key: string, work: () => Promise<T>): Promise<T> {
+  const run = (queue.get(key) ?? Promise.resolve()).catch(() => {}).then(work);
+  queue.set(key, run);
+  return run.finally(() => {
+    if (queue.get(key) === run) queue.delete(key);
+  });
+}
 
-const posting = new Map<string, Promise<unknown>>();
-
-/** Posts `text` under a hidden marker unless Hive's own comment with that marker is already there; two calls for one marker in this process run one after the other. */
+/** Posts `text` under a hidden marker unless Hive's own comment with that marker is already there. */
 async function postOnce(d: GithubDeps, job: Job, marker: string, text: string) {
   const path = `${issuePath(job)}/comments`;
-  const key = `${path}${marker}`;
   const own = await d.login();
-  const run = (posting.get(key) ?? Promise.resolve())
-    .catch(() => {})
-    .then(async () => {
-      if ((await listAll(d, job.writeback.repo, path, commentSchema)).some((c) => marked(c, own, marker))) return;
-      await d.request(job.writeback.repo, "POST", path, { body: `${marker}\n${text}` });
-    });
-  posting.set(key, run);
-  try {
-    await run;
-  } finally {
-    if (posting.get(key) === run) posting.delete(key);
-  }
+  await serial(`${path}${marker}`, async () => {
+    if ((await listAll(d, job.writeback.repo, path, commentSchema)).some((c) => marked(c, own, marker))) return;
+    await d.request(job.writeback.repo, "POST", path, { body: `${marker}\n${text}` });
+  });
 }
 
 const dropLabel = (d: GithubDeps, job: Job, name: string) =>
@@ -123,8 +120,8 @@ const dropLabel = (d: GithubDeps, job: Job, name: string) =>
 
 /** R7: only a user with write or admin permission on the repo can answer. */
 async function isWriter(d: GithubDeps, repo: string, login: string) {
-  const got = await soft(d.request(repo, "GET", `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`));
-  return ["admin", "write"].includes(z.object({ permission: z.string() }).safeParse(got).data?.permission ?? "");
+  const got = soft(d.request(repo, "GET", `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`));
+  return ["admin", "write"].includes(z.object({ permission: z.string() }).safeParse(await got).data?.permission ?? "");
 }
 
 const eventSchema = z.object({
@@ -144,7 +141,9 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
   let loaded: GithubDeps | undefined;
   const deps = async () => (loaded ??= await load());
   /** R5: the attempt's one status comment, edited in place; made once if the attempt has none yet. */
-  async function setStatus(d: GithubDeps, job: Job, text: string) {
+  const setStatus = (d: GithubDeps, job: Job, text: string) =>
+    serial(`${issuePath(job)}${mark("status", String(job.attempt))}`, () => writeStatus(d, job, text));
+  async function writeStatus(d: GithubDeps, job: Job, text: string) {
     const { repo } = job.writeback;
     const marker = mark("status", String(job.attempt));
     const own = await d.login();
@@ -213,8 +212,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
     },
     async writeBack(job, { stage, eventId }) {
       const d = await deps();
-      // A job queued by an answer whose acknowledgement failed still carries the label.
-      if (stage === "queued") return dropLabel(d, job, WAITING).then(() => false);
+      if (stage === "queued") return dropLabel(d, job, WAITING).then(() => false); // an answer queues the job before it is acknowledged
       const { repo } = job.writeback;
       const label = await d.label();
       try {
@@ -233,7 +231,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
         if (stage === "waiting") {
           await postOnce(d, job, mark("question", eventId), `**Hive needs an answer**\n\n${job.question ?? job.stage_summary}`);
           await d.request(repo, "POST", `${issuePath(job)}/labels`, { labels: [WAITING] });
-        } else await dropLabel(d, job, WAITING); // any other stage clears it, so an acknowledgement that failed is made good by the next write-back
+        } else await dropLabel(d, job, WAITING);
         // Back to unstarted without the label, so the poll does not claim it again in a loop; the label retries it.
         if (stage === "failed") await dropLabel(d, job, label);
         return true;
@@ -255,12 +253,14 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       const asked = all.find((c) => job.stage_event_id && marked(c, own, mark("question", job.stage_event_id)));
       if (!asked) return { kind: "wait" };
       const skip = new Set([...job.source_state.factoryCommentIds, ...job.delivered_reply_ids]);
-      const after = all.filter((c) => c.id > asked.id && !skip.has(String(c.id)) && c.user);
+      const ownAnswer = (c: z.infer<typeof commentSchema>) => c.user?.login === own && ANSWER.test(c.body ?? "");
+      // The panel can answer a waiting job before its question is on the issue, so its answer may come first.
+      const after = all.filter((c) => (c.id > asked.id || ownAnswer(c)) && !skip.has(String(c.id)) && c.user);
       const people = [...new Set(after.filter((c) => !bot(c)).map((c) => c.user!.login))];
       const writers = new Map(await Promise.all(people.map(async (login) => [login, await isWriter(d, repo, login)] as const)));
       // The panel posts as the App, which also posted the question: an answer is a comment from the App's login opening with the marker; any other bot is ignored.
       const replies: Reply[] = after
-        .filter((c) => (bot(c) ? c.user!.login === own && ANSWER.test(c.body ?? "") : writers.get(c.user!.login)))
+        .filter((c) => (bot(c) ? ownAnswer(c) : writers.get(c.user!.login)))
         .map((c) => ({ id: String(c.id), body: (c.body ?? "").replace(ANSWER, "").trim(), createdAt: c.created_at }));
       if (replies.length === 0) return { kind: "wait" };
       return { kind: "resume", question: job.question ?? asked.body ?? "", replies, answer: replies.map((r) => r.body).join("\n\n") };

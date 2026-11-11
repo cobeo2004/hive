@@ -123,11 +123,9 @@ const githubIssueSchema = z.object({
 
 /** An issue opened or given the Hive label wakes a claim; a person's new comment wakes the resume of a waiting job. ready() and replies() decide. */
 export function githubIssueIntent(event: string, body: unknown, label: string): IntentDraft | null {
-  if (event !== "issues" && event !== "issue_comment") return null;
   const parsed = githubIssueSchema.safeParse(body);
-  if (!parsed.success) return null;
+  if (!parsed.success || parsed.data.issue.pull_request || (event !== "issues" && event !== "issue_comment")) return null;
   const { action, repository, issue, label: named, comment } = parsed.data;
-  if (issue.pull_request) return null;
   if (event === "issues")
     return action === "opened" || action === "reopened" || (action === "labeled" && named?.name.toLowerCase() === label.toLowerCase())
       ? { kind: "claim" }
