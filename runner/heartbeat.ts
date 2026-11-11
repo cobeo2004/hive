@@ -12,6 +12,7 @@ import { sandboxReadiness } from "../lib/sandbox";
 import { connectStatus, readHarnesses, readProjects, readT3Runtime } from "../lib/t3-state";
 import { baseImageBuild } from "./base-image";
 import { message, withTimeout } from "./queue";
+import { defaultsStatus } from "./sstack-defaults";
 
 const run = promisify(execFile);
 const RUNNER_DIR = join(import.meta.dirname, "..");
@@ -73,17 +74,19 @@ export function systemCollectors(capacity: () => Promise<Heartbeat["capacity"]>)
     memory: async () => parseVmStat(await text("vm_stat", []), totalmem()),
     disk: async () => parseDf(await text("df", ["-k", "/System/Volumes/Data"])),
     capacity,
+    sstackDefaults: async () => defaultsStatus() ?? UNKNOWN,
   };
 }
 
 export async function collectHeartbeat(collectors: HeartbeatCollectors): Promise<Heartbeat> {
-  const [cpu, memory, disk, capacity] = await Promise.all([
+  const [cpu, memory, disk, capacity, sstackDefaults] = await Promise.all([
     settle(collectors.cpu),
     settle(collectors.memory),
     settle(collectors.disk),
     settle(collectors.capacity),
+    collectors.sstackDefaults && settle(collectors.sstackDefaults),
   ]);
-  return { cpu, memory, disk, capacity };
+  return { cpu, memory, disk, capacity, ...(sstackDefaults !== undefined && { sstackDefaults }) };
 }
 
 export function parseOrigin(url: string) {
