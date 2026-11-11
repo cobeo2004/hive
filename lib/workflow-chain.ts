@@ -1,5 +1,4 @@
-// sstack's step chain (lib/sstack_workflow.py `_kids` + `order`) over a repo snapshot's files.
-// Pure TS, no node/Bun imports, so the canvas can run it in the browser.
+// sstack's step chain (lib/sstack_workflow.py `_kids` + `order`) over a snapshot's files; pure TS, no node/Bun imports, so the browser can run it.
 import { parse } from "smol-toml";
 
 type Val = string | boolean | number;

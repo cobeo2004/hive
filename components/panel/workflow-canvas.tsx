@@ -1,7 +1,6 @@
 "use client";
 
 import { GripVertical } from "lucide-react";
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { chain, diffLines, meta, move, steps, tomlError } from "@/lib/workflow-chain";
@@ -46,9 +45,6 @@ export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; 
               <span aria-current="page" className="rounded-[5px] bg-accent px-2 leading-6">
                 This repo · .sstack/
               </span>
-              <Link href="/repositories/_default/workflow" className="px-2 leading-6 text-muted-foreground hover:text-foreground">
-                Hive default · ~/.sstack
-              </Link>
             </nav>
             <Button variant="outline" size="sm" disabled={!INTENTS_READY} title={NOTE}>
               Smoke test

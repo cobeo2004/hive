@@ -14,11 +14,15 @@ import { REPO_NAME } from "@/lib/repo-name";
 
 async function Panel({ params }: { params: Promise<{ repo: string }> }) {
   await connection();
-  // Engineers see the canvas read-only; only a signed-out visitor is refused.
   const user = await currentUser();
   if (!user) return <ForbiddenCard reason="admin" />;
-  // The segment is `owner%2Fname`, since a repo's slash can't sit in a path segment.
-  const repo = decodeURIComponent((await params).repo);
+  // The segment is `owner%2Fname`; a malformed `%` escape stays "" and REPO_NAME below is notFound().
+  let repo = "";
+  try {
+    repo = decodeURIComponent((await params).repo);
+  } catch {
+    // keep "" so the REPO_NAME check below returns notFound()
+  }
   if (!REPO_NAME.test(repo)) notFound();
   const [row] = await db.select({ files: repoSstackConfig.files }).from(repoSstackConfig).where(eq(repoSstackConfig.repo, repo)).limit(1);
   if (!row)
