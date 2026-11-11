@@ -1,6 +1,6 @@
 # Regression scripts
 
-Applies to `scripts/*-regressions.ts`, `scripts/fixtures/**` and `scripts/test-*.ts`. Hive has no test framework: each regression is a Bun script that asserts with `node:assert/strict` against a throwaway database. Behaviour and the harness are described in [operations.md § Testing](../operations.md#testing); this page is the rules for writing and running them.
+Applies to `scripts/*-regressions.ts`, `scripts/fixtures/**` and `scripts/test-*.ts`. Hive has no test framework: each regression is a Bun script that asserts with `node:assert/strict`, usually against a throwaway database (a few pure-function scripts, such as `owner-regressions.ts` and `jobs-lime-regressions.ts`, touch none). Behaviour and the harness are described in [operations.md § Testing](../operations.md#testing); this page is the rules for writing and running them.
 
 ## Run
 
@@ -16,7 +16,7 @@ TEST_DATABASE_URL=postgres://localhost:5432/postgres bun run test:regressions [n
 
 ## Guard
 
-- The first line of every script is `import "./test-guard";`. It refuses to run unless the harness started it, and refuses the database `.env.local` points at, including aliases (`127.0.0.1` for `localhost`, an explicit `:5432`).
+- The first line of every database-backed script is `import "./test-guard";` (pure-function scripts that touch no database and no service may omit it). It refuses to run unless the harness started it, and refuses the database `.env.local` points at, including aliases (`127.0.0.1` for `localhost`, an explicit `:5432`).
 - During a run `lib/test-mode.ts` (`forbidInTest`) makes the real Linear client, the GitHub App, `t3 thread start|show|send` and the ingest URL throw. Never route around it; use a fake. Code you add that reaches an outside service must call `forbidInTest` too, or a test will hit the real service.
 - `bun scripts/_scratch.ts` is refused by the guard (L102). Mutation checks go through the harness, below.
 
@@ -52,4 +52,4 @@ When a literal changes (a prefix, a product name), search its escaped (`factory\
 
 ## Why
 
-Every script writes to a database, and the factory's real database holds live jobs. The guard, the throwaway database and the forbidden-in-test list exist so a green run never costs anyone real work, and a mutation check is the only proof a new assertion can fail.
+Most scripts write to a database, and the factory's real database holds live jobs. The guard, the throwaway database and the forbidden-in-test list exist so a green run never costs anyone real work, and a mutation check is the only proof a new assertion can fail.
