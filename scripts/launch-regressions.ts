@@ -729,6 +729,24 @@ try {
   );
   assert.ok(!relaunched.includes(jobId("linear", branchPr)), "an unreported open branch PR blocks the retry");
   assert.ok(!relaunched.includes(jobId("linear", lookupFails)), "a lookup that throws skips the job instead of retrying it");
+  // The PR was exposed after the watchdog's lookup: the relaunch pass settles the failed job itself (open -> pr, merged -> merged) and never retries it.
+  for (const state of ["open", "merged"] as const) {
+    const late = `${id}-relaunch-late-${state}`;
+    await seed(late, { stage: "failed", stage_summary: RATE_LIMITED, attempt: 1 });
+    github.pullRequestForBranch = async () => ({ url: openPr, state });
+    const retriedLate: string[] = [];
+    for (let pass = 0; pass < 2; pass++) await relaunchRateLimited((async (jid: string) => (retriedLate.push(jid), {})) as never);
+    const settled = (await db.select().from(jobs).where(eq(jobs.key, late)))[0]!;
+    const want = state === "open" ? "pr" : "merged";
+    assert.deepEqual(
+      [settled.stage, settled.pr_url],
+      [want, openPr],
+      `a failed job whose ${state} PR shows up at relaunch is settled at ${want} with the url stored`,
+    );
+    if (state === "open") assert.match(settled.stage_summary ?? "", /rate limit/, "the rate-limit note is the summary");
+    assert.ok(!retriedLate.includes(jobId("linear", late)), `${state}: never retried`);
+    assert.equal(posted.filter((e) => e.jobKey === late && e.stage === want).length, 1, `${state}: one ${want} event across two passes`);
+  }
   const lead = { provider: "claudeAgent", model: "claude-opus-5-5" };
   assert.deepEqual(sandboxHarness(lead, "claudeAgent", true, limits.codexModel), { choice: lead }, "1.5: a pool Claude account keeps the Claude harness");
   console.log("launch regressions passed");
