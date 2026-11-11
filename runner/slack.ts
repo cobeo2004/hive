@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { and, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { jobs, machines, slackMessages, user, type JobRow } from "../db/schema";
-import { loadConfig } from "../lib/config";
+import { loadConfig, requireLinearKey } from "../lib/config";
 import { attemptBranch } from "../lib/factory";
 import { reportedSlack } from "../lib/machine";
 // The notifier is the one place outside the adapter that comments on an issue (R34), so it takes the client's two calls.
@@ -238,7 +238,7 @@ export async function notifySlack(slack: SlackSetup | null = slackFromEnv(), now
             if (!issue.success) continue;
             issueId = issue.data.issueId;
             const email = event.job.owner_id ? emailOf.get(event.job.owner_id) : undefined;
-            linear ??= linearClient(loadConfig().linearApiKey);
+            linear ??= linearClient(requireLinearKey(loadConfig()));
             mention = email ? (await linear.userByEmail(email))?.url : undefined;
           }
         } catch (error) {

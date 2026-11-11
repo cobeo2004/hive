@@ -69,7 +69,7 @@ try {
     const out = await localizeLinearImages(text, { apiKey: "k", dir: join(dir, "failures"), fetch: host.fetch });
     assert.match(
       out,
-      /!\[0\]\(https:\/\/uploads\.linear\.app\/org\/gone\) \(the factory could not download this image: Linear answered 404\)/,
+      /!\[0\]\(https:\/\/uploads\.linear\.app\/org\/gone\) \(the factory could not download this image: the server answered 404\)/,
       "a missing upload keeps its link with the reason",
     );
     assert.match(out, /could not download this image: not a PNG, JPEG, WebP or GIF image/, "so does a file that is not an image");

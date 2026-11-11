@@ -2,7 +2,8 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { intents, jobs, webhookDeliveries } from "@/db/schema";
 import { readRegistry } from "@/lib/repositories";
-import { githubIssuesOn, isJobSource, sourceFor } from "@/lib/sources";
+import { sourcesOn } from "@/lib/job-sources";
+import { isJobSource, sourceFor } from "@/lib/sources";
 import { jobId } from "@/lib/sources/shapes";
 import type { JobSource } from "@/lib/sources/types";
 import { linearSettings } from "@/lib/linear-settings";
@@ -59,7 +60,7 @@ async function sourceWebhook(source: JobSource, request: Request) {
 
 /** An issue delivery wakes the runner only if it can act: the switch is on, the repo is enabled, and a comment answers a waiting job. */
 async function githubIssueDraft(event: string, body: unknown) {
-  if (!githubIssuesOn()) return null;
+  if (!(await sourcesOn(db)).github) return null;
   const draft = githubIssueIntent(event, body, (await linearSettings(db)).label);
   if (!draft) return null;
   const repo = (body as { repository: { full_name: string } }).repository.full_name.toLowerCase();

@@ -1,6 +1,6 @@
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { z } from "zod";
-import { CONFIG_PATH, loadConfig } from "../lib/config";
+import { CONFIG_PATH, loadConfig, requireLinearKey } from "../lib/config";
 import { linearWebhookInput } from "../lib/linear-settings";
 import { publicUrl } from "../lib/slack";
 
@@ -10,7 +10,7 @@ const config = loadConfig();
 async function linear<T>(query: string, variables: object, schema: z.ZodType<T>) {
   const res = await fetch("https://api.linear.app/graphql", {
     method: "POST",
-    headers: { authorization: config.linearApiKey, "content-type": "application/json" },
+    headers: { authorization: requireLinearKey(config), "content-type": "application/json" },
     body: JSON.stringify({ query, variables }),
   });
   const json = (await res.json()) as { data?: unknown; errors?: unknown };

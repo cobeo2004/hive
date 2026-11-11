@@ -7,7 +7,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type * as schema from "../../db/schema";
 import { jobs } from "../../db/schema";
-import { loadConfig, type FactoryLimits } from "../config";
+import { loadConfig, requireLinearKey, type FactoryLimits } from "../config";
 import type { LinearConfig } from "../linear-settings";
 import type { Stage } from "../events";
 import { attemptBranch } from "../factory";
@@ -185,7 +185,7 @@ export type LinearDeps = {
 async function runtimeDeps(): Promise<LinearDeps> {
   const config = loadConfig();
   const { db } = await import("../../db/client");
-  return { client: linearClient(config.linearApiKey), db, limits: config.factory };
+  return { client: linearClient(requireLinearKey(config)), db, limits: config.factory };
 }
 
 type Team = Awaited<ReturnType<LinearClient["team"]>>;
@@ -250,7 +250,8 @@ async function recordState({ db }: LinearDeps, job: Job, state: string, extra: {
 
 const ANNOUNCED = "In Progress";
 
-export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>): SourceAdapter<"linear"> {
+/** `on` says whether Linear takes new work (R14): with GitHub Issues alone, it does not, and nothing here needs its key. */
+export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>, on: () => boolean | Promise<boolean> = () => true): SourceAdapter<"linear"> {
   let loaded: LinearDeps | undefined;
   const deps = async () => (loaded ??= await load());
   // Saved Settings → Linear (R7a), read per use so an edit applies at once; the runner's config limits are the env fallback.
@@ -287,6 +288,7 @@ export function createLinearAdapter(load: () => LinearDeps | Promise<LinearDeps>
     webhook,
 
     async ready() {
+      if (!(await on())) return [];
       const d = await deps();
       const [settings, { assignedOptInEmails }] = await Promise.all([settingsOf(d), import("../opt-ins")]);
       const emails = await assignedOptInEmails(d.db);
@@ -622,7 +624,7 @@ export async function localizeLinearImages(
     try {
       const res = await fetchImpl(url, { headers: { authorization: apiKey }, signal: AbortSignal.timeout(20_000) });
       const ext = IMAGE_TYPES[(res.headers.get("content-type") ?? "").split(";")[0]!.trim()];
-      if (!res.ok) throw new Error(`Linear answered ${res.status}`);
+      if (!res.ok) throw new Error(`the server answered ${res.status}`);
       if (!ext) throw new Error("not a PNG, JPEG, WebP or GIF image");
       const bytes = new Uint8Array(await res.arrayBuffer());
       if (bytes.byteLength > MAX_IMAGE_BYTES) throw new Error("larger than 10 MB");
@@ -657,7 +659,7 @@ const uploadFetch: typeof fetch = (input, init) => {
 };
 
 const localizeImages = (job: { key: string }, text: string) =>
-  localizeLinearImages(text, { apiKey: loadConfig().linearApiKey, dir: join(/* turbopackIgnore: true */ ATTACHMENTS_DIR, job.key), fetch: uploadFetch });
+  localizeLinearImages(text, { apiKey: requireLinearKey(loadConfig()), dir: join(/* turbopackIgnore: true */ ATTACHMENTS_DIR, job.key), fetch: uploadFetch });
 
 const uploadFromEnv = (image: ImageFile) => {
   const key = process.env.LINEAR_API_KEY;
@@ -666,7 +668,10 @@ const uploadFromEnv = (image: ImageFile) => {
 };
 
 export const linear: SourceAdapter<"linear"> = {
-  ...createLinearAdapter(runtimeDeps),
+  ...createLinearAdapter(runtimeDeps, async () => {
+    const [{ db }, { sourcesOn }] = await Promise.all([import("../../db/client"), import("../job-sources")]);
+    return (await sourcesOn(db)).linear;
+  }),
   file: fileFromEnv,
   uploadImage: uploadFromEnv,
   reply: replyFromEnv,

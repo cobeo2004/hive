@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type * as schema from "../db/schema";
@@ -45,7 +45,8 @@ export async function saveLinearSettings(db: Db, config: LinearConfig, by: strin
   await db
     .insert(table)
     .values({ id: LINEAR_SETTINGS_ID, ...values })
-    .onConflictDoUpdate({ target: table.id, set: values });
+    // Merged, so the keys this form does not own (config.sources) survive its save.
+    .onConflictDoUpdate({ target: table.id, set: { ...values, config: sql`${table.config} || ${JSON.stringify(config)}::jsonb` } });
 }
 
 export type LinearSaveOutcome = { ok: true } | { ok: false; status: 400 | 403 | 502; message: string };
