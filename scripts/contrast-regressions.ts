@@ -2,6 +2,7 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+// ponytail: @tailwindcss/node and lightningcss are hoisted transitive installs (from @tailwindcss/postcss); package.json is held by the ticket, declare them when it opens up.
 import { compile } from "@tailwindcss/node";
 import { type Rule, type Selector, type TokenOrValue, transform } from "lightningcss";
 
@@ -18,15 +19,7 @@ type Rgba = [number, number, number, number];
 
 const ast = (css: string) => {
   let rules: Rule[] = [];
-  transform({
-    filename: "x.css",
-    code: Buffer.from(css),
-    visitor: {
-      StyleSheet(sheet) {
-        rules = sheet.rules;
-      },
-    },
-  });
+  transform({ filename: "x.css", code: Buffer.from(css), visitor: { StyleSheet: (sheet) => void (rules = sheet.rules) } });
   return rules;
 };
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -36,57 +29,63 @@ const body = (rule: Extract<Rule, { type: "style" }>) => ({
   important: rule.value.declarations?.importantDeclarations ?? [],
   nested: rule.value.rules ?? [],
 });
-const isTheme = (rule: Rule) => rule.type === "layer-block" && rule.value.name?.join(".") === "theme";
+const layerName = (rule: Rule) => (rule.type === "layer-block" ? rule.value.name?.join(".") : undefined);
 
 const ROOT: Selector = [{ type: "pseudo-class", kind: "root" }];
 const cls = (...names: string[]): Selector => names.map((name) => ({ type: "class", name }));
 
-// The custom properties a stylesheet declares for the `light` scope and, over it, the `dark` scope: only
-// plain `light {}` / `dark {}` rules at the top level, in source order, last wins. Anything the cascade
-// would make a guess about throws instead: a conditional or layered rule, a nested or compound selector that
-// declares properties, `!important`. Tailwind's own `theme` layer (`:root, :host`) is the shared base.
-function themesOf(rules: Rule[], light: Selector, dark: Selector) {
+// The custom properties a stylesheet declares for the `light` scope and, over it, the `dark` scope. `:root` and `.dark`
+// tie on specificity and both match <html class="dark">, so dark is every scope rule in source order, last wins. Anything
+// the cascade would guess at throws: a conditional/layered/nested/compound scope rule, `!important`, and (with `guard`,
+// a set of `--token` and `class` names) any other non-utilities rule redeclaring a guarded property or utility colour.
+function themesOf(rules: Rule[], light: Selector, dark: Selector, guard?: Set<string>) {
   const base: Vars = new Map();
-  const lightVars: Vars = new Map();
-  const darkVars: Vars = new Map();
+  const order: ["light" | "dark", string, TokenOrValue[]][] = [];
   const reject = (why: string): never => {
     throw new Error(`custom properties must be unconditional and unlayered, on a plain scope rule: ${why}`);
   };
-  const walk = (list: Rule[], top: boolean) => {
+  const walk = (list: Rule[], top: boolean, inUtilities: boolean) => {
     for (const rule of list) {
-      if (rule.type === "layer-block" && isTheme(rule)) {
-        for (const r of rule.value.rules) {
-          if (r.type === "style") for (const d of body(r).normal) if (d.property === "custom") base.set(d.value.name, d.value.value);
-        }
+      if (layerName(rule) === "theme" && rule.type === "layer-block") {
+        for (const r of rule.value.rules)
+          for (const d of r.type === "style" ? body(r).normal : []) if (d.property === "custom") base.set(d.value.name, d.value.value);
       } else if (rule.type === "style") {
         const { selectors } = rule.value;
         const { normal, important, nested } = body(rule);
-        const props = [...normal, ...important].filter((d) => d.property === "custom");
-        const target = selectors.length === 1 ? (same(selectors[0], light) ? lightVars : same(selectors[0], dark) ? darkVars : undefined) : undefined;
-        if (!target) {
-          const mentions = selectors.some((s) => [light, dark].some((scope) => scope.every((c) => s.some((x) => same(x, c)))));
-          if (props.length && mentions) reject(`${JSON.stringify(selectors)} is not a plain scope selector`);
+        const props = [...normal, ...important];
+        const scope = selectors.length === 1 ? (same(selectors[0], light) ? "light" : same(selectors[0], dark) ? "dark" : undefined) : undefined;
+        if (!scope) {
+          const mentions = selectors.some((s) => [light, dark].some((c) => c.every((x) => s.some((y) => same(y, x)))));
+          const classes = selectors.flat().flatMap((c) => (c.type === "class" ? [c.name] : []));
+          for (const d of props) {
+            const prop = d.property === "unparsed" ? d.value.propertyId.property : d.property;
+            if (d.property === "custom" && mentions) reject(`${JSON.stringify(selectors)} is not a plain scope selector`);
+            const hit = (d.property === "custom" ? [d.value.name] : prop === "color" || prop === "background-color" ? classes : []).find((n) => guard?.has(n));
+            if (hit && !inUtilities) throw new Error(`${JSON.stringify(selectors)} overrides ${hit} outside the utilities layer`);
+          }
+          walk(nested, false, inUtilities);
           continue;
         }
         if (nested.length) reject("a nested rule inside a scope rule");
-        if (!top && props.length) reject("a scope rule inside an at-rule");
+        if (!top && props.some((d) => d.property === "custom")) reject("a scope rule inside an at-rule");
         for (const d of important) if (d.property === "custom") reject(`${d.value.name} is !important`);
-        for (const d of normal) if (d.property === "custom") target.set(d.value.name, d.value.value);
+        for (const d of normal) if (d.property === "custom") order.push([scope, d.value.name, d.value.value]);
       } else if ("value" in rule && rule.value && typeof rule.value === "object" && "rules" in rule.value) {
-        walk(rule.value.rules as Rule[], false);
+        walk(rule.value.rules as Rule[], false, inUtilities || layerName(rule) === "utilities");
       }
     }
   };
-  walk(rules, true);
-  assert.ok(lightVars.size, "no light scope rule");
-  return { light: new Map([...base, ...lightVars]), dark: new Map([...base, ...lightVars, ...darkVars]) };
+  walk(rules, true, false);
+  assert.ok(order.length, "no scope rule");
+  const theme = (dark: boolean) => new Map([...base, ...order.flatMap(([scope, name, value]) => (dark || scope === "light" ? [[name, value] as const] : []))]);
+  return { light: theme(false), dark: theme(true) };
 }
 
 // What Tailwind's utilities declare, by `<class>/<property>`: the colour/font tokens still holding `var(--x)`.
 function utilities(rules: Rule[]) {
   const out = new Map<string, TokenOrValue[]>();
   for (const layer of rules) {
-    if (layer.type !== "layer-block" || layer.value.name?.join(".") !== "utilities") continue;
+    if (layer.type !== "layer-block" || layerName(layer) !== "utilities") continue;
     for (const rule of layer.value.rules) {
       const sel = rule.type === "style" ? rule.value.selectors[0]?.[0] : undefined;
       if (rule.type !== "style" || sel?.type !== "class") continue;
@@ -133,14 +132,9 @@ const TEXT = (
   "info success warning destructive violet destructive-foreground info-foreground success-foreground warning-foreground"
 ).split(" ");
 const SURFACES = ["background", "surface-1", "surface-2", "card", "popover", "secondary", "muted", "accent"];
-const ON: [string, string][] = [
-  ["primary-foreground", "primary"],
-  ["on-lime", "lime"],
-  ["primary-text", "primary-soft"],
-  ["success", "success-soft"],
-  ["warning", "warning-soft"],
-  ["danger", "danger-soft"],
-];
+const ON = "primary-foreground/primary on-lime/lime primary-text/primary-soft success/success-soft warning/warning-soft danger/danger-soft"
+  .split(" ")
+  .map((pair) => pair.split("/") as [string, string]);
 // The check covers the token pairs globals.css defines; component-level pairs (opacity modifiers,
 // literal colours) are checked by the R25 screen plans.
 const PAIRS = [...TEXT.flatMap((text) => SURFACES.map((bg) => ({ text, bg }))), ...ON.map(([text, bg]) => ({ text, bg }))];
@@ -150,11 +144,13 @@ const texts = new Set([...TEXT, ...ON.map(([text]) => text)]);
 const surfaces = new Set([...SURFACES, ...ON.map(([, bg]) => bg)]);
 const MAPPED = [...[...texts].map((t) => `text-${t}`), ...[...surfaces].map((s) => `bg-${s}`)].filter((u) => !RAW.has(u.replace(/^(text|bg)-/, "")));
 
+const GUARD = new Set([...[...texts, ...surfaces, "bg"].map((t) => `--${t}`), ...MAPPED]);
+
 // Compile the real stylesheet; `rules` is the AST of what Tailwind would ship for the utilities this check reads.
 async function compiled(css: string) {
   const compiler = await compile(css, { base: root, onDependency() {} });
   const rules = ast(compiler.build([...MAPPED, "font-sans", "font-mono"]));
-  return { ...themesOf(rules, ROOT, cls("dark")), utils: utilities(rules) };
+  return { ...themesOf(rules, ROOT, cls("dark"), GUARD), utils: utilities(rules) };
 }
 
 export async function contrastFailures(css: string) {
@@ -164,11 +160,8 @@ export async function contrastFailures(css: string) {
   const painted = (kind: "text" | "bg", name: string, vars: Vars) => {
     if (RAW.has(name)) return named(vars, name);
     const tokens = utils.get(`${kind}-${name}/${kind === "text" ? "color" : "background-color"}`);
-    if (!tokens) {
-      missing.add(`${kind}-${name}: Tailwind emits no utility, so --color-${name} is missing or reset`);
-      return undefined;
-    }
-    return rgba(tokens, vars);
+    if (!tokens) missing.add(`${kind}-${name}: Tailwind emits no utility, so --color-${name} is missing or reset`);
+    return tokens && rgba(tokens, vars);
   };
   for (const [theme, vars] of [["light", light] as const, ["dark", dark] as const]) {
     const page = named(vars, "bg");
@@ -188,35 +181,34 @@ const failures = await contrastFailures(globals);
 assert.deepEqual(failures, [], `contrast below WCAG AA:\n${failures.join("\n")}`);
 
 // The check bites: each way of washing out a token fails by name, and each cascade guess throws or is modelled.
-const lightOnly = (from: string, to: string) => {
-  const at = globals.indexOf(from);
-  assert.ok(at >= 0 && at < globals.indexOf(".dark {"), `${from} is not in the light theme`);
-  return globals.replace(from, to);
-};
-const fails = async (css: string, prefix: string, because: string) =>
+const ours = await compiled(globals);
+const fails = async (css: string, prefix: string) => {
+  const found = await contrastFailures(css);
   assert.ok(
-    (await contrastFailures(css)).some((f) => f.startsWith(prefix)),
-    because,
+    found.some((f) => f.startsWith(prefix)),
+    `${prefix} is missing from ${found}`,
   );
+  return found;
+};
+const swap = (from: string, to: string) => (assert.ok(globals.includes(from), from), globals.replace(from, to));
+const throws = (css: string, why: RegExp) => assert.rejects(contrastFailures(`${globals}\n${css}\n`), why);
 const MUTED = "light: --muted-foreground on --background is 1.";
-await fails(lightOnly("--muted-foreground: #6b6b74;", "--muted-foreground: #bbbbbb;"), MUTED, "a #bbbbbb muted text fails");
-await fails(lightOnly("--muted: var(--surface-2);", "--muted: #bbbbbb;"), "light: --muted-foreground on --muted is 2.", "a #bbbbbb muted surface fails");
-await fails(`${globals}\n:root { --muted-foreground: #bbbbbb }\n`, MUTED, "an appended :root block (no semicolon) wins in light");
-const later = (await contrastFailures(`${globals}\n:root { --muted-foreground: #bbbbbb; }\n`)).filter((f) => f.startsWith("dark: --muted-foreground "));
-assert.deepEqual(later, [], "a :root appended after .dark does not flip dark");
-await fails(`${globals}\n.dark { --muted-foreground: #333333; }\n`, "dark: --muted-foreground on --background is 1.", "a later .dark block wins in dark");
-await assert.rejects(contrastFailures(`${globals}\n@media print { :root { --muted-foreground: #bbbbbb; } }\n`), /unconditional and unlayered/);
-await assert.rejects(contrastFailures(`${globals}\n:root { & .x { --muted-foreground: #bbbbbb; } }\n`), /plain scope selector/);
-await assert.rejects(contrastFailures(`${globals}\n:root { --secondary-foreground: #bbbbbb !important; }\n`), /!important/);
-await fails(`${globals}\n@theme inline { --color-muted-foreground: initial; }\n`, "text-muted-foreground: ", "a reset Tailwind colour fails by name");
-// Tailwind itself refuses `@apply border-border` once every colour is reset
-await assert.rejects(contrastFailures(`${globals}\n@theme inline { --color-*: initial; }\n`), /unknown utility class `border-border`/);
-await fails(
-  globals.replace("--color-muted-foreground: var(--muted-foreground);", "--color-muted-foreground: #bbbbbb;"),
-  "light: --muted-foreground on --background is 1.",
-  "a literal Tailwind colour fails with the pair",
-);
-await fails(globals.replace("--color-warning: var(--warning);", ""), "text-warning: ", "a deleted Tailwind mapping fails by name");
+await fails(swap("--muted-foreground: #6b6b74;", "--muted-foreground: #bbbbbb;"), MUTED);
+await fails(swap("--muted: var(--surface-2);", "--muted: #bbbbbb;"), "light: --muted-foreground on --muted is 2.");
+await fails(swap("--color-muted-foreground: var(--muted-foreground);", "--color-muted-foreground: #bbbbbb;"), MUTED);
+await fails(`${globals}\n@theme inline { --color-muted-foreground: initial; }\n`, "text-muted-foreground: ");
+// both scopes match <html class="dark">, so a later :root wins there; neither touches light, and .dark keeps what a later :root leaves alone
+for (const scope of [":root", ".dark"]) {
+  const found = await fails(`${globals}\n${scope} { --muted-foreground: #333333; }\n`, "dark: --muted-foreground on --background is 1.");
+  assert.ok(!found.some((f) => f.startsWith("light:")), `${scope} only changes dark`);
+}
+const kept = await compiled(`${globals}\n:root { --radius: 1px; }\n`);
+assert.deepEqual(kept.dark.get("--background"), ours.dark.get("--background"), "a later :root keeps the .dark values it does not redeclare");
+await throws("@media print { :root { --muted-foreground: #bbbbbb; } }", /unconditional and unlayered/);
+await throws(":root { & .x { --muted-foreground: #bbbbbb; } }", /plain scope selector/);
+await throws(":root { --secondary-foreground: #bbbbbb !important; }", /!important/);
+await throws("body { --muted-foreground: #bbbbbb; }", /--muted-foreground outside the utilities layer/);
+await throws(".text-warning-foreground { color: #ffffff; }", /text-warning-foreground outside the utilities layer/);
 
 // The tokens are hive.css's values. hive.css's --muted is a text colour; here it is --muted-foreground.
 const HIVE_TOKENS: Record<string, string> = Object.fromEntries(
@@ -227,7 +219,6 @@ const HIVE_TOKENS: Record<string, string> = Object.fromEntries(
 const hiveThemes = themesOf(ast(hive), cls("hv"), cls("hv", "dark"));
 // hive.css's light --success on --success-soft is 4.49:1, below AA; globals.css lightens the surface to #e8f7ed (4.53:1).
 const DEVIATIONS: Record<string, Record<string, Rgba>> = { light: { "success-soft": [0xe8, 0xf7, 0xed, 1] }, dark: {} };
-const ours = await compiled(globals);
 for (const theme of ["light", "dark"] as const) {
   for (const [token, name] of Object.entries(HIVE_TOKENS)) {
     const want = DEVIATIONS[theme]![token] ?? named(hiveThemes[theme], token);
