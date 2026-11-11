@@ -139,6 +139,8 @@ try {
     await patch(7, { synced_event_id: "e2" });
   });
   await adapter.requeue(await job(7));
+  await patch(7, { stage: "implementing", stage_event_id: null, synced_event_id: null });
+  await fromPoll(() => patch(7, { stage: "failed" }));
   assert.deepEqual((await claim()).claimed, ["GH-owner-on-7"], "the label added again is a retry");
   // Past the first page of issues is still read, and one repo's outage hides nothing from the rest.
   for (let n = 300; n <= 400; n++) put(DEFAULT, n);

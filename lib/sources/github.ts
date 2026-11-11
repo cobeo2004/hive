@@ -103,12 +103,9 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       const d = await deps();
       const label = await d.label();
       const { readRegistry } = await import("../repositories");
-      // What each job's events were before the poll reads GitHub: a retry is allowed only if they are unchanged and written back (see reclaimIf).
-      const rows = await d.db
-        .select({ id: jobs.external_id, ev: jobs.stage_event_id, synced: jobs.synced_event_id })
-        .from(jobs)
-        .where(eq(jobs.source, "github"));
-      const seen = new Map(rows.map((j) => [j.id, j]));
+      // Each job as it was before the poll reads GitHub: a retry is allowed only if its stage and events are unchanged and the failure was written back (see reclaimIf).
+      const rows = await d.db.select().from(jobs).where(eq(jobs.source, "github"));
+      const seen = new Map(rows.map((j) => [j.external_id, j]));
       const drafts: JobDraft<"github">[] = [];
       for (const { repo } of (await readRegistry(d.db)).filter((r) => r.enabled)) {
         try {
@@ -123,7 +120,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
               writeback: { kind: "github", repo, number: issue.number },
               sourceState: { labels: issue.labels.map((l) => l.name) },
               repo, // R2: the claim refuses it rather than route it elsewhere
-              reclaimIf: sql`${jobs.stage_event_id} is not distinct from ${was?.ev ?? null}::text and ${jobs.synced_event_id} is not distinct from ${was?.synced ?? null}::text and ${jobs.synced_event_id} is not distinct from ${jobs.stage_event_id}`,
+              reclaimIf: sql`${jobs.stage}::text is not distinct from ${was?.stage ?? null} and ${jobs.stage_event_id} is not distinct from ${was?.stage_event_id ?? null}::text and ${jobs.synced_event_id} is not distinct from ${was?.synced_event_id ?? null}::text and ${jobs.synced_event_id} is not distinct from ${jobs.stage_event_id}`,
             });
           }
         } catch (error) {
