@@ -65,26 +65,27 @@ function Row({
       : null;
   const where =
     card.runsOn && (card.runsOn.kind === "modal" && card.runsOn.sandbox ? `Cloud sandbox · ${card.runsOn.sandbox}` : whereLine(card.runsOn, machineName));
-  const className = cn("flex h-9 min-w-0 flex-1 items-center gap-3 ps-1 pe-4 text-left outline-none @3xl:pe-5", !href && "cursor-default");
+  // Each column's tier is where the running sum of visible columns first fits; the title keeps min 12rem.
+  const className = cn("flex h-9 min-w-0 flex-1 items-center gap-3 overflow-hidden ps-1 pe-4 text-left outline-none @3xl:pe-5", !href && "cursor-default");
   const content = (
     <>
       <span className={cn("size-2 shrink-0 rounded-full", STAGE_META[card.stage].dot)} title={STAGE_META[card.stage].label} />
       <span className="sr-only">{STAGE_META[card.stage].label}</span>
-      <span className="hidden w-24 shrink-0 truncate font-mono text-xs text-muted-foreground @lg:block">{card.jobKey ?? card.id.slice(0, 8)}</span>
-      <span className="flex min-w-0 flex-1 items-center gap-2">
+      <span className="hidden w-24 shrink-0 truncate font-mono text-xs text-muted-foreground @sm:block">{card.jobKey ?? card.id.slice(0, 8)}</span>
+      <span className="flex min-w-48 flex-1 items-center gap-2">
         <span className="truncate">{card.title}</span>
         {card.latest?.status === "active" && <Spinner className="size-3 shrink-0 text-muted-foreground" />}
         {isPrReady(card) && <span className="shrink-0 rounded-full bg-(--lime) px-2 text-[11px] font-medium text-(--on-lime)">PR ready</span>}
       </span>
-      <span className="hidden shrink-0 @2xl:block">
+      <span className="hidden w-24 shrink-0 @2xl:block">
         <ModelChip model={card.latest?.model ?? null} />
       </span>
-      {repoLabels && <span className="hidden w-28 shrink-0 truncate text-xs text-muted-foreground @2xl:block">{card.repo && repoLabels.get(card.repo)}</span>}
-      <span className={cn("hidden w-32 shrink-0 truncate text-xs @sm:block @xl:w-56", decision?.tone)}>{decision?.text}</span>
-      <span className="hidden w-44 shrink-0 @3xl:block">{card.evidence && <EvidenceLine line={card.evidence} />}</span>
-      <span className="hidden w-44 shrink-0 truncate text-xs text-muted-foreground @4xl:block">{where}</span>
-      <span className="hidden w-28 shrink-0 truncate text-xs text-muted-foreground @5xl:block">{card.harness && harnessLine(card.harness)}</span>
-      <span className="hidden w-14 shrink-0 text-right font-mono text-xs text-muted-foreground tabular-nums @3xl:block">{formatUsd(cost)}</span>
+      {repoLabels && <span className="hidden w-28 shrink-0 truncate text-xs text-muted-foreground @3xl:block">{card.repo && repoLabels.get(card.repo)}</span>}
+      <span className={cn("hidden w-32 shrink-0 truncate text-xs @4xl:block", decision?.tone)}>{decision?.text}</span>
+      <span className="hidden w-44 shrink-0 @[67rem]:block">{card.evidence && <EvidenceLine line={card.evidence} />}</span>
+      <span className="hidden w-44 shrink-0 truncate text-xs text-muted-foreground @[79rem]:block">{where}</span>
+      <span className="hidden w-28 shrink-0 truncate text-xs text-muted-foreground @[87rem]:block">{card.harness && harnessLine(card.harness)}</span>
+      <span className="hidden w-14 shrink-0 text-right font-mono text-xs text-muted-foreground tabular-nums @lg:block">{formatUsd(cost)}</span>
       <span className="hidden w-12 shrink-0 text-right text-xs text-muted-foreground tabular-nums @md:block">
         <ShortTime date={card.updatedAt} />
       </span>
