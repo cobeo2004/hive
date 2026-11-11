@@ -111,6 +111,7 @@ const customs = (rule: unknown) => JSON.stringify(rule).match(/"property":"custo
 const importants = (rules: unknown, found: string[] = []) => (
   JSON.stringify(rules, (_, v) => (v?.declarations?.importantDeclarations?.length && found.push(JSON.stringify([v.selectors, v.declarations])), v)), found
 );
+const rulesOf = (rules: unknown, type: string, found: string[] = []) => (JSON.stringify(rules, (_, v) => (v?.type === type && found.push(type), v)), found);
 const PREFLIGHT = new Set(importants(bare)); // Tailwind's own, e.g. [hidden]
 // An allowlist, not a hunt for overrides: the compiled stylesheet may hold only what the check can model, so an override of any
 // shape (unlayered, !important, attribute/state selector, shorthand, a custom property elsewhere) throws. Also reads class -> painted value.
@@ -119,6 +120,7 @@ function audit(rules: Rule[]) {
   assert.ok(same(rules[0], bare[0]), "layer order is not Tailwind's (or an @import/@property precedes it)");
   const bad = importants(rules).filter((i) => !PREFLIGHT.has(i));
   if (bad.length) assert.fail(`!important beats the utilities this check models: ${bad}`);
+  for (const type of ["keyframes", "property"]) if (rulesOf(rules, type).length) assert.fail(`${type} can override or re-register checked tokens`);
   for (const rule of rules) {
     const layer = layerName(rule) ?? "";
     if (rule.type === "layer-block") {
@@ -126,6 +128,7 @@ function audit(rules: Rule[]) {
       for (const r of rule.value.rules) {
         if (layer !== "utilities") {
           if (r.type !== "style" && r.type !== "supports") assert.fail(`${r.type} inside ${layer}; only style and supports rules may be layered`);
+          if (r.type === "supports") for (const s of r.value.rules) if (s.type !== "style") assert.fail(`${s.type} inside @supports in ${layer}`);
           const bad = customs(layer === "theme" && r.type === "style" && same(r.value.selectors, THEME) ? r.value.rules : r);
           if (bad.length) assert.fail(`${bad} declared in ${layer}; only scope rules and the theme layer's :root, :host may declare custom properties`);
           continue;
@@ -194,12 +197,10 @@ const CASES: [label: string, css: string, expect: string][] = [
   [".dark only", add(".dark { --muted-foreground: #333333; }"), "dark: --muted-foreground on --background is 1."],
   // each of these must throw (the allowlist excludes it)
   ...(
-    "@media print { :root { --muted-foreground: #bbbbbb; } } | :root { & .x { --muted-foreground: #bbbbbb; } } | :root { --x: 1 !important; } | " +
-    "@layer theme { :root, :host { --muted-foreground: #bbbbbb !important; } } | @layer base { * { color: #bbbbbb !important; } } | " +
-    "@layer components { .text-violet { color: #171717 !important; } } | :root { filter: invert(1); } | @keyframes k { to { --violet: #171717; } } | " +
-    "body { --muted-foreground: #bbbbbb; } | @layer utilities { body { --muted-foreground: #bbbbbb; } } | .text-warning-foreground { color: #ffffff; } | " +
-    '@layer utilities { .text-warning-foreground { color: #ffffff !important; } } | [class~="text-warning-foreground"] { color: #ffffff; } | ' +
-    ".bg-background { background: #a15c00; } | @layer utilities { .text-violet:hover { color: #000000; } } | @layer base { @keyframes washout { to { color: #fff; background-color: #fff } } .text-foreground { animation: washout 1ms forwards } } | @layer base { @property --violet { syntax: '<color>'; inherits: false; initial-value: #171717 } }"
+    "@media print { :root { --muted-foreground: #bbbbbb; } } | :root { & .x { --muted-foreground: #bbbbbb; } } | :root { --x: 1 !important; } | @layer theme { :root, :host { --muted-foreground: #bbbbbb !important; } } | @layer base { * { color: #bbbbbb !important; } } | @layer components { .text-violet { color: #171717 !important; } }" +
+    ":root { filter: invert(1); } | @keyframes k { to { --violet: #171717; } } | body { --muted-foreground: #bbbbbb; } | @layer utilities { body { --muted-foreground: #bbbbbb; } } | .text-warning-foreground { color: #ffffff; }" +
+    '@layer utilities { .text-warning-foreground { color: #ffffff !important; } } | [class~="text-warning-foreground"] { color: #ffffff; } | .bg-background { background: #a15c00; } | @layer utilities { .text-violet:hover { color: #000000; } } | @layer base { @keyframes washout { to { color: #fff; background-color: #fff } } .text-foreground { animation: washout 1ms forwards } }' +
+    "@layer base { @property --violet { syntax: '<color>'; inherits: false; initial-value: #171717 } } | @layer base { @supports (display: grid) { @keyframes washout { to { color: #fff; background-color: #fff } } } .text-foreground { animation: washout 1ms forwards } } | @layer base { @supports (display: grid) { @property --violet { syntax: '<color>'; inherits: false; initial-value: #171717 } } } | @layer components { @supports (color: red) { @supports (display: grid) { @keyframes k { to { color: #fff } } } } } | @supports (display: grid) { @layer base { @keyframes k { to { color: #fff } } } }"
   )
     .split(" | ")
     .map((css): [string, string, string] => [css, add(css), "throws"]),
@@ -210,7 +211,7 @@ for (const [label, css, expect] of CASES) {
   assert.ok(ok, `${label}: expected ${expect}, got ${found instanceof Error ? found.message : found}`);
   if (label === ".dark only") assert.ok(!(found as string[]).some((f) => f.startsWith("light:")), "light stays clean");
 }
-
+assert.deepEqual(await contrastFailures(add("@layer base { @supports (color: red) { .x { color: red } } }")), []);
 // The tokens are hive.css's values (its --muted is a text colour; here it is --muted-foreground).
 const HIVE =
   "bg surface-1 surface-2 card border border-strong ink ink-2 muted primary primary-text primary-soft on-primary lime on-lime success success-soft warning warning-soft danger danger-soft focus";
