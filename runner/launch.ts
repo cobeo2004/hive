@@ -11,7 +11,7 @@ import { builtVersions, imageProblem, REPO_DIR } from "../lib/sandbox";
 import { baseImageBuild } from "./base-image";
 import { modalSecretName, parseDetail, repoImage } from "../lib/onboarding";
 import { RECIPE_PATH, UNMERGED_RECIPE_PATH, type Recipe } from "../lib/recipe";
-import { startUnattended } from "./unattended";
+import { startUnattended, type GateLog } from "./unattended";
 import { listThreads, showThread, startThread as t3Start } from "../lib/t3-client";
 import { PENDING } from "./binding";
 import { thisMachine } from "./heartbeat";
@@ -73,8 +73,8 @@ export async function startThread(host: JobHost, repo: string, branch: string, t
 }
 
 /** T3 prepares the worktree after start returns; wait for it and confirm it sits on fresh origin/main. */
-async function worktreeHead(threadId: string, host: JobHost) {
-  for (let i = 0; i < 30; i++) {
+async function worktreeHead(threadId: string, host: JobHost, tries = 30) {
+  for (let i = 0; i < tries; i++) {
     const { thread } = z.object({ thread: z.object({ worktreePath: z.string().nullable() }) }).parse(await showThread(host, threadId, { timeoutMs: 60_000 }));
     if (thread.worktreePath) {
       try {
@@ -89,18 +89,28 @@ async function worktreeHead(threadId: string, host: JobHost) {
 }
 
 /**
- * Starts one lead thread with the plan gate its owner and repo call for. The only place that works the
- * gate out and writes it, for both start sites: sstack reads it from the checkout's local layer, which
- * T3's worktree inherits, so there is nothing to put in the environment.
+ * Starts one lead thread with the plan gate its owner and repo call for: the one place that works the gate
+ * out and writes it, for both start sites. sstack reads it from the checkout's local layer.
  */
-export async function startLead(host: JobHost, checkout: string, entry: LaunchEntry, message: string, harness: HarnessChoice, registry: Registry) {
+export async function startLead(
+  host: JobHost,
+  checkout: string,
+  entry: LaunchEntry,
+  message: string,
+  harness: HarnessChoice,
+  registry: Registry,
+  onError?: GateLog,
+) {
   const { SSTACK_PLAN_GATE } = await launchEnv(entry.owner, entry.repo, resolvePolicy(registry, entry.repo).autonomy);
   return startUnattended(
     host,
     checkout,
     SSTACK_PLAN_GATE,
     () => startThread(host, checkout, entry.branch, entry.threadTitle, message, harness),
-    (threadId) => worktreeHead(threadId, host).then((tree) => tree?.path),
+    // Ten tries, not thirty: a worktree T3 never names keeps the seed, which still holds this job's gate.
+    (threadId) => worktreeHead(threadId, host, 10).then((tree) => tree?.path),
+    maybeStarted,
+    onError,
   );
 }
 
@@ -378,7 +388,7 @@ async function launchLocal(
     release: releaseLaunch,
     now: Date.now,
   });
-  // Diagnostic only and up to 30 s per thread, so it runs off the runner's queue.
+  // Diagnostic only: startLead already waited, so this repeats the lookup on its own 30 tries, unawaited.
   for (const result of launched) {
     if (typeof result.threadId !== "string") continue;
     const entry = pending.find((e) => e.key === result.key)!;
@@ -618,7 +628,7 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
         host,
         REPO_DIR,
       );
-      const threadId = await startLead(host, REPO_DIR, entry, message, ran, registry);
+      const threadId = await startLead(host, REPO_DIR, entry, message, ran, registry, (event, detail) => runtime.log(event, detail));
       // The thread is running: a failure to note its account must not undo the launch.
       await recordRunAccount(entry.key, threadId, (needsCodexSlot(ran.provider) ? lease.codex : lease.claude)?.id ?? null).catch((error: unknown) =>
         accountError("sandbox:run-account-failed", entry.key, error),
