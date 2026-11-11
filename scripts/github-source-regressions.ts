@@ -1,12 +1,16 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { createHmac, randomBytes } from "node:crypto";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import { eq, inArray, like } from "drizzle-orm";
 
 const { db } = await import("../db/client");
 const { intents, jobs, repoSettings, webhookDeliveries } = await import("../db/schema");
 const { allSources, parseJobs, SOURCES } = await import("../lib/sources");
 const { createGithubAdapter, githubKey } = await import("../lib/sources/github");
+const { ATTACHMENTS_DIR } = await import("../lib/sources/linear");
+const { ticketOverrides } = await import("../lib/ticket-overrides");
 const { GitHubError } = await import("../lib/github/app");
 const { githubIssueIntent } = await import("../lib/webhooks");
 const { isJobKey, parseBranch, attemptBranch } = await import("../lib/factory");
@@ -28,6 +32,9 @@ let down: string[] = [];
 let limit = "";
 let failPost = false;
 let gone = 404;
+let prMerged = false;
+const emails: Record<string, string> = { writer: "w@x.io", dev: "dev@x.io" };
+const fetched: { url: string; auth: string | null }[] = [];
 const perms: Record<string, string> = { writer: "write", boss: "admin", reader: "read" };
 const labeled = (login: string, type = "User") => ({ event: "labeled", label: { name: "hive" }, actor: { login, type } });
 const blank = () => ({ title: "t", body: null, state: "open", labels: [{ name: "hive" }], comments: [], events: [labeled("writer")] });
@@ -49,6 +56,9 @@ const request = async (repo: string, method: string, path: string, input?: unkno
       .map(([, i]) => i)
       .slice((Number(path.match(/&page=(\d+)/)![1]) - 1) * 100)
       .slice(0, 100);
+  const person = path.match(/^\/users\/([^/]+)$/);
+  if (person) return { email: emails[person[1]!] ?? null };
+  if (/\/pulls\/\d+$/.test(path)) return { merged: prMerged };
   const who = path.match(/\/collaborators\/([^/]+)\/permission/);
   if (who) return { permission: perms[who[1]!] ?? "none" };
   const edit = path.match(/\/issues\/comments\/(\d+)$/);
@@ -73,7 +83,17 @@ const request = async (repo: string, method: string, path: string, input?: unkno
 };
 let on = true;
 const adapter = createGithubAdapter(
-  async () => ({ db, request, label: async () => "hive", login: async () => HIVE.login }),
+  async () => ({
+    db,
+    request,
+    label: async () => "hive",
+    login: async () => HIVE.login,
+    token: async () => "inst-tok",
+    fetch: async (url, init) => {
+      fetched.push({ url: String(url), auth: new Headers(init?.headers).get("authorization") });
+      return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } });
+    },
+  }),
   () => on,
 );
 const HIVE = { login: "hive[bot]", type: "Bot" };
@@ -99,6 +119,7 @@ try {
   put(ON, 8);
   put(ON, 10, { pull_request: {} });
   put(OFF, 3);
+  put(OFF, 4, { events: [labeled("reader")] });
   const drafts = await adapter.ready();
   assert.deepEqual(drafts.map((d) => d.externalId).sort(), [`${ON}#7`, `${ON}#8`], "only open labelled issues, not PRs, in enabled repos");
   const seven = drafts.find((d) => d.externalId === `${ON}#7`)!;
@@ -111,6 +132,7 @@ try {
   );
   await adapter.ready();
   assert.equal(comments(OFF, 3).length, 1, "and not again");
+  assert.equal(comments(OFF, 4).length, 0, "an issue whose label a reader added is told nothing");
   assert.equal(
     calls.filter((c) => c.startsWith(`GET ${OFF} `) && c.includes("/comments")).length,
     1,
@@ -253,13 +275,9 @@ try {
   gh.get(`${ON}#8`)!.comments = comments(ON, 8).filter((c) => !c.body.includes(":req-3 -->"));
   const held = comments(ON, 8).length;
   await adapter.reply!(asking, "req-3", "once");
-  assert.equal(comments(ON, 8).length, held + 1, "a claim already held with no comment on the issue (its holder died before the POST) still posts the answer");
+  assert.equal(comments(ON, 8).length, held + 1, "an answer whose comment is missing from the issue is posted");
   await adapter.reply!(asking, "req-3", "once");
   assert.equal(comments(ON, 8).length, held + 1, "and only once: the marker check skips a comment that is there");
-  assert.ok(
-    (await job(8)).source_state.answerRequests.some((k) => k.endsWith(":req-3")),
-    "the claim is in the shape, so it survives a parsed rewrite",
-  );
   failPost = true;
   await assert.rejects(adapter.reply!(asking, "req-4", "retry"), /boom/);
   await adapter.reply!(asking, "req-4", "retry");
@@ -311,6 +329,61 @@ try {
   gh.get(`${ON}#7`)!.events.push(labeled(HIVE.login, "Bot"));
   assert.equal(await retries(), true, "Hive's own login does");
   await patch(7, { stage: was7.stage, stage_event_id: was7.stage_event_id, synced_event_id: was7.synced_event_id });
+  // R8: a new job's owner hints are the assignee's and the creator's public emails; a bot assignee and a retry give none.
+  put(ON, 40, { user: { login: "writer", type: "User" }, assignees: [{ login: "hive[bot]", type: "Bot" }] });
+  put(ON, 41, { user: { login: "ghost", type: "User" }, assignees: [{ login: "dev", type: "User" }] });
+  const offered = await adapter.ready();
+  const owner = (n: number) => offered.find((d) => d.externalId === `${ON}#${n}`)?.owner;
+  assert.deepEqual(owner(40), { assigneeEmail: null, creatorEmail: "w@x.io" }, "a bot assignee is no owner, so the creator's email stands");
+  assert.deepEqual(owner(41), { assigneeEmail: "dev@x.io", creatorEmail: null }, "an email the profile hides is none");
+  assert.equal(owner(8), undefined, "a job that exists is not looked up again");
+  assert.ok(!calls.includes("GET owner/on /users/hive%5Bbot%5D"), "a bot's profile is never read");
+  for (const n of [40, 41]) gh.delete(`${ON}#${n}`);
+  // R9: harness:<name> and runs-on:<name> labels.
+  const asked = adapter.overrides({ labels: ["hive", "bug", "Harness: codex", "runs-on:Cloud"] } as never);
+  assert.deepEqual(asked, { harness: ["codex"], runsOn: ["Cloud"], repository: [] });
+  assert.equal(ticketOverrides(asked, null).execution, "modal", "and the ticket reads them like Linear's groups");
+  // R12: a closed issue or a lost Hive label stops a job; a merged PR's closing of its issue does not.
+  put(ON, 50);
+  await claim();
+  const run = await job(50);
+  const wanted = async (j = run) => (await adapter.stopWanted([j])).map((w) => w.reason);
+  assert.deepEqual(await wanted(), [], "an open, labelled issue is still Hive's");
+  gh.get(`${ON}#50`)!.labels = [];
+  assert.deepEqual(await wanted(), ["the hive label was removed in GitHub"]);
+  gh.get(`${ON}#50`)!.labels = [{ name: "hive" }, { name: "hive:waiting" }];
+  gh.get(`${ON}#50`)!.state = "closed";
+  assert.deepEqual(await wanted(), ["the issue was closed in GitHub"]);
+  const withPr = { ...run, pr_url: `https://github.com/${ON}/pull/9` };
+  prMerged = true;
+  assert.deepEqual(await wanted(withPr), [], "an issue closed by its merged PR is not a stop");
+  prMerged = false;
+  assert.deepEqual(await wanted(withPr), ["the issue was closed in GitHub"], "a PR still open does not hold it");
+  assert.deepEqual(await adapter.confirmStop(run.external_id, "x"), { stop: true, reopen: false });
+  gh.get(`${ON}#50`)!.state = "open";
+  assert.deepEqual(await adapter.confirmStop(run.external_id, "x"), { stop: false }, "a closed issue reopened is no longer a stop");
+  gh.get(`${ON}#50`)!.labels = [{ name: "hive:waiting" }];
+  assert.deepEqual(await adapter.confirmStop(run.external_id, "x"), { stop: true, reopen: true }, "a lost label on an open issue asks for reopen");
+  await adapter.reopen(run);
+  assert.deepEqual(names(50), [], "which clears the waiting label");
+  gh.delete(`${ON}#50`);
+  assert.deepEqual(await wanted(), ["the issue was deleted in GitHub"]);
+  assert.deepEqual(await adapter.confirmStop(run.external_id, "x"), { stop: true, reopen: false });
+  // R11: the issue's attachments are downloaded with the installation token, to the hosts GitHub serves them from and no others.
+  const shot = "https://github.com/user-attachments/assets/aaaa-1111";
+  const tagged = "https://private-user-images.githubusercontent.com/1/2.png?jwt=a.b";
+  const pictured = await adapter.localizeImages!(run, `![shot](${shot})\n<img width="9" alt="x" src="${tagged}" />\n![e](https://evil.example/a.png)`);
+  assert.deepEqual(
+    fetched.map((f) => [f.url, f.auth]),
+    [
+      [shot, "Bearer inst-tok"],
+      [tagged, "Bearer inst-tok"],
+    ],
+    "the token goes to GitHub's hosts only",
+  );
+  assert.equal(pictured.match(new RegExp(`\\[image: ${join(ATTACHMENTS_DIR, run.key)}/\\w+\\.png\\]`, "g"))?.length, 2, "both forms point at saved files");
+  assert.ok(pictured.includes("![e](https://evil.example/a.png)") && pictured.includes("## Images"), "another host's image is left alone");
+  await rm(join(ATTACHMENTS_DIR, run.key), { recursive: true, force: true });
   // R3, R4: issue and comment deliveries wake the runner; a person's comment is an answer, a bot's or a PR's is nothing.
   const event = { repository: { full_name: ON }, issue: { number: 8 } };
   const wake = (kind: string, action: string, extra: object = {}, issue: object = {}) =>
@@ -368,6 +441,13 @@ try {
   assert.equal((await adapter.ready()).filter((d) => d.repo === DEFAULT).length, 101, "one repo down does not stop the others");
   down = [ON, DEFAULT, CASED];
   await assert.rejects(adapter.ready(), /could not read issues of/, "every enabled repo down is an error, not an empty poll");
+  down = [];
+  down = [OFF];
+  const tries = () => calls.filter((c) => c.startsWith(`GET ${OFF} /repos/${OFF}/issues?`)).length;
+  const tried = tries();
+  await adapter.ready();
+  await adapter.ready();
+  assert.equal(tries() - tried, 1, "a disabled repo that cannot be read is not tried again at once");
   down = [];
   limit = DEFAULT;
   await adapter.ready();

@@ -587,6 +587,9 @@ const replyFromEnv = (job: Job, requestId: string, body: string) => {
 // Images pasted into Linear live on its upload host behind the API key, which the agent does not have.
 const UPLOAD_IMAGE = /!\[([^\]]*)\]\((https:\/\/uploads\.linear\.app\/[^\s)]+)\)/g;
 const IMAGE_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+/** GitHub's issue attachments, as a markdown image or an `<img>` tag: group 2 is the URL, and only these hosts ever see the token. */
+export const GITHUB_IMAGE =
+  /(?:!\[([^\]]*)\]\(|<img\b[^>]*?\bsrc=")(https:\/\/(?:github\.com\/user-attachments\/assets\/|(?:private-user-images|user-images)\.githubusercontent\.com\/)[^\s)"]+)(?:\)|"[^>]*>)/g;
 const MAX_IMAGES = 10;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -598,8 +601,11 @@ export const ATTACHMENTS_DIR = join(/* turbopackIgnore: true */ homedir(), ".cac
  * relaunch costs nothing. An image that cannot be fetched keeps its link and a note; it never
  * blocks the launch.
  */
-export async function localizeLinearImages(text: string, { apiKey, dir, fetch: fetchImpl = fetch }: { apiKey: string; dir: string; fetch?: typeof fetch }) {
-  const urls = [...new Set([...text.matchAll(UPLOAD_IMAGE)].map((m) => m[2]!))].slice(0, MAX_IMAGES);
+export async function localizeLinearImages(
+  text: string,
+  { apiKey, dir, fetch: fetchImpl = fetch, pattern = UPLOAD_IMAGE }: { apiKey: string; dir: string; fetch?: typeof fetch; pattern?: RegExp },
+) {
+  const urls = [...new Set([...text.matchAll(pattern)].map((m) => m[2]!))].slice(0, MAX_IMAGES);
   if (urls.length === 0) return text;
   // Only the runner downloads images; the panel bundles this file but never writes here.
   await mkdir(/* turbopackIgnore: true */ dir, { recursive: true });
@@ -627,7 +633,7 @@ export async function localizeLinearImages(text: string, { apiKey, dir, fetch: f
       failed.set(url, error instanceof Error ? error.message : String(error));
     }
   }
-  const rewritten = text.replace(UPLOAD_IMAGE, (whole, alt: string, url: string) => {
+  const rewritten = text.replace(pattern, (whole, alt: string, url: string) => {
     const path = saved.get(url);
     if (path) return `[image: ${path}]`;
     const reason = failed.get(url);

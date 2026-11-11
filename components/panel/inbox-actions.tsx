@@ -297,6 +297,24 @@ function CloseButton({
 }
 
 /** The actions an inbox item offers, each recorded for the job's runner. */
+/** Keyed by the question, so each new one starts an empty box that answers it; the server refuses an answer if the job has asked another since. */
+function AnswerBox({ job, disabled, loading, run }: { job: JobRow; disabled: boolean; loading: boolean; run: ReturnType<typeof useInboxAction>["run"] }) {
+  const [asked] = useState(job.stage_event_id);
+  return (
+    <Compose
+      label="Add a note"
+      description="Posted on the issue as your reply; the agent resumes with it."
+      placeholder="Answer the question"
+      variant="default"
+      submit="Answer and resume"
+      icon={<SendIcon data-icon="inline-start" />}
+      disabled={disabled}
+      loading={loading}
+      onSend={(text, clear) => void run("answer", () => answerQuestion(job.id, crypto.randomUUID(), text, asked), "Answer sent.", clear)}
+    />
+  );
+}
+
 export function InboxActions({
   job,
   kind,
@@ -316,8 +334,6 @@ export function InboxActions({
   const disabled = busy !== null;
   const loading = (a: InboxAction) => busy?.action === a;
   const requestId = () => crypto.randomUUID();
-  // The question the owner opened this box on; the server refuses the answer if the job has asked another since.
-  const [asked] = useState(job.stage_event_id);
 
   const buttons = (
     <div className="flex flex-wrap items-center gap-2">
@@ -378,19 +394,7 @@ export function InboxActions({
   return (
     <div className="flex flex-col gap-3">
       {has("approve") && buttons}
-      {has("answer") && (
-        <Compose
-          label="Add a note"
-          description="Posted on the issue as your reply; the agent resumes with it."
-          placeholder="Answer the question"
-          variant="default"
-          submit="Answer and resume"
-          icon={<SendIcon data-icon="inline-start" />}
-          disabled={disabled}
-          loading={loading("answer")}
-          onSend={(text, clear) => void run("answer", () => answerQuestion(job.id, requestId(), text, asked), "Answer sent.", clear)}
-        />
-      )}
+      {has("answer") && <AnswerBox key={job.stage_event_id} job={job} disabled={disabled} loading={loading("answer")} run={run} />}
       {has("request_changes") && (
         <Compose
           label="Request changes"
