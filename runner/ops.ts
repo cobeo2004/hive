@@ -171,10 +171,11 @@ export async function resumeAnswered() {
       .where(and(await mine(), eq(jobs.stage, "waiting"))),
   );
   const resumed: string[] = [];
-  for (const job of waiting) {
+  // One job whose source refuses (an outage, a gone issue) must not hold back the others; its failure surfaces after the pass.
+  const failed = await eachJob(waiting, async (job) => {
     const source = sourceFor(job.source);
     const plan = await source.replies(job);
-    if (plan.kind === "wait") continue;
+    if (plan.kind === "wait") return;
 
     const now = new Date();
     if (plan.kind === "close") {
@@ -193,7 +194,7 @@ export async function resumeAnswered() {
         })
         .where(and(eq(jobs.id, job.id), eq(jobs.stage, "waiting")));
       resumed.push(`${job.key}:closed`);
-      continue;
+      return;
     }
 
     const replyIds = plan.replies.map((r) => r.id);
@@ -203,7 +204,7 @@ export async function resumeAnswered() {
     });
     if (!host) {
       resumed.push(`${job.key}:wake-deferred`);
-      continue;
+      return;
     }
     const alive = await threadAlive(job.t3_thread_id, host);
     // A fresh thread launches in a fresh sandbox, so the dead one's sandbox, snapshot and slot go
@@ -215,7 +216,7 @@ export async function resumeAnswered() {
     // A dead thread is unlinked in the same update that claims the replies, so the relaunch
     // cannot be lost to a later failure in this pass.
     const relaunch = alive ? undefined : qaBlock(plan.question, plan.answer);
-    if (!(await claimReplies(db, job.id, replyIds, plan.answer, now, relaunch))) continue;
+    if (!(await claimReplies(db, job.id, replyIds, plan.answer, now, relaunch))) return;
 
     if (alive) {
       try {
@@ -246,7 +247,8 @@ export async function resumeAnswered() {
     });
     await source.acknowledgeReplies(job, replyIds);
     resumed.push(`${job.key}:${alive ? "sent" : "relaunch"}`);
-  }
+  });
+  if (failed.length) throw new Error(`resumeAnswered: ${failed.join("; ")}`);
   return resumed;
 }
 

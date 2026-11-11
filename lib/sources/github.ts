@@ -72,7 +72,7 @@ async function runtimeDeps(): Promise<GithubDeps> {
 
 const soft = (p: Promise<unknown>) =>
   p.catch((error) => {
-    if (error instanceof GitHubError && error.status === 404) return undefined;
+    if (error instanceof GitHubError && (error.status === 404 || error.status === 410)) return undefined;
     throw error;
   });
 
@@ -130,11 +130,11 @@ const eventSchema = z.object({
   actor: z.object({ login: z.string(), type: z.string() }).nullable(),
 });
 
-/** R7: the Hive label authorises the issue's body only if its latest applier has write access, or is Hive itself retrying a job it already holds. */
+/** R7: the Hive label authorises the issue's body only if its latest applier has write access, or is Hive itself (its own bot login, never another bot) retrying a job it already holds. */
 async function labelledByWriter(d: GithubDeps, repo: string, number: number, label: string, retry: boolean) {
   const events = await listAll(d, repo, `/repos/${repo}/issues/${number}/events`, eventSchema);
   const by = events.filter((e) => e.event === "labeled" && e.label?.name.toLowerCase() === label.toLowerCase()).at(-1)?.actor;
-  return !by ? false : by.type === "Bot" ? retry : isWriter(d, repo, by.login);
+  return !by ? false : by.type === "Bot" ? retry && by.login === (await d.login()) : isWriter(d, repo, by.login);
 }
 
 export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>, on: () => boolean = githubIssuesOn): SourceAdapter<"github"> {
@@ -222,7 +222,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
           [
             `Hive: **${stage}**`,
             job.pr_url && `Pull request: ${job.pr_url}`,
-            stage === "waiting" && "Waiting for an answer: reply with a comment here, or in the Hive panel.",
+            stage === "waiting" && "Waiting for an answer: reply with a comment here (from someone with write access), or in the Hive panel.",
             stage === "failed" && `Add the \`${label}\` label again to retry.`,
           ]
             .filter(Boolean)
@@ -243,7 +243,9 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
     async replies(job) {
       const d = await deps();
       const { repo } = job.writeback;
-      if (z.object({ state: z.string() }).parse(await d.request(repo, "GET", issuePath(job))).state === "closed") {
+      // A deleted or transferred issue (404/410) ends the wait like a closed one, so it does not fail every pass.
+      const issue = await soft(d.request(repo, "GET", issuePath(job)));
+      if (!issue || z.object({ state: z.string() }).parse(issue).state === "closed") {
         // The runner marks a closed job as already reported, so no write-back follows to clear its labels.
         await Promise.all([dropLabel(d, job, WAITING), d.label().then((label) => dropLabel(d, job, label))]);
         return { kind: "close", state: "closed" };

@@ -165,8 +165,20 @@ try {
       ? { kind: "resume", question: job.question!, replies: [{ id: `reply-${DONE}`, body: "Yes", createdAt: new Date().toISOString() }], answer: "Yes" }
       : { kind: "wait" };
   SOURCES.linear.acknowledgeReplies = async () => {};
-  const resumed = await resumeAnswered();
-  assert.ok(resumed.includes(`${DONE}:sent`), JSON.stringify(resumed));
+  // H1: a GitHub job whose issue GitHub refuses (a 403, a rate limit) does not hold back the Linear job waiting beside it.
+  const GH = await insert("GH", {
+    stage: "waiting",
+    question: "Which?",
+    source: "github",
+    id: "github:ski043/factory-demo#1",
+    external_id: "ski043/factory-demo#1",
+    writeback: { kind: "github", repo: "ski043/factory-demo", number: 1 },
+  });
+  let refused = 0;
+  SOURCES.github.replies = async () => (refused++, Promise.reject(new Error("GitHub refused: 403")));
+  await assert.rejects(resumeAnswered(), /GH.*GitHub refused/, "the refusal still surfaces, after the pass");
+  assert.ok(refused > 0, "GitHub was asked");
+  await db.update(jobs).set({ stage: "failed" }).where(eq(jobs.key, GH));
   assert.equal((await row(DONE)).stage, "queued");
   assert.ok(
     sent.some((s) => s.threadId === `thread-${DONE}` && s.message.includes("Yes")),

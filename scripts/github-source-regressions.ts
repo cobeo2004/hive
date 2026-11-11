@@ -7,6 +7,7 @@ const { db } = await import("../db/client");
 const { intents, jobs, repoSettings, webhookDeliveries } = await import("../db/schema");
 const { allSources, parseJobs, SOURCES } = await import("../lib/sources");
 const { createGithubAdapter, githubKey } = await import("../lib/sources/github");
+const { GitHubError } = await import("../lib/github/app");
 const { githubIssueIntent } = await import("../lib/webhooks");
 const { isJobKey, parseBranch, attemptBranch } = await import("../lib/factory");
 const { readRegistry } = await import("../lib/repositories");
@@ -29,6 +30,7 @@ const gh = new Map<string, Issue>();
 const calls: string[] = [];
 let ids = 100;
 let down = "";
+let gone = 404;
 const perms: Record<string, string> = { writer: "write", boss: "admin", reader: "read" };
 const labeled = (login: string, type = "User") => ({ event: "labeled", label: { name: "hive" }, actor: { login, type } });
 const put = (repo: string, number: number, over: Partial<Issue> = {}) =>
@@ -64,7 +66,8 @@ const request = async (repo: string, method: string, path: string, input?: unkno
     return hit;
   }
   const [, number, rest, name] = path.match(/\/issues\/(\d+)(?:\/(comments|labels|events)(?:\/([^?]+))?)?/)!;
-  const issue = gh.get(`${repo}#${number}`)!;
+  const issue = gh.get(`${repo}#${number}`);
+  if (!issue) throw new GitHubError("Not Found", gone);
   if (rest === "events") return issue.events;
   if (rest === "comments")
     return method === "GET" ? issue.comments : issue.comments[issue.comments.push({ id: ++ids, body: body!.body!, created_at: "t", user: HIVE }) - 1];
@@ -255,6 +258,11 @@ try {
   gh.get(`${ON}#8`)!.state = "closed";
   assert.deepEqual(await adapter.replies(await job(8)), { kind: "close", state: "closed" }, "a closed issue ends the wait");
   assert.deepEqual(names(8), [], "a job closed while waiting loses hive:waiting and the Hive label, since the runner reports no write-back for it");
+  const kept = gh.get(`${ON}#8`)!;
+  gh.delete(`${ON}#8`);
+  for (gone of [404, 410])
+    assert.deepEqual(await adapter.replies(await job(8)), { kind: "close", state: "closed" }, `a deleted issue (${gone}) ends the wait too`);
+  gh.set(`${ON}#8`, kept);
   gh.get(`${ON}#8`)!.labels.push({ name: "hive" }, { name: "hive:waiting" });
   await adapter.writeBack(await job(8), { stage: "failed", eventId: "w3" });
   assert.deepEqual(names(8), [], "a failed job loses hive:waiting and the Hive label");
@@ -268,6 +276,15 @@ try {
     "only the latest applier counts, and a bot's label starts nothing",
   );
   for (const n of [30, 31, 32]) gh.delete(`${ON}#${n}`);
+  // M3: a failed job retries on Hive's own label only; another bot's is no retry.
+  const was7 = await job(7);
+  await patch(7, { stage: "failed", stage_event_id: "e9", synced_event_id: "e9" });
+  const retries = async () => (await adapter.ready()).some((d) => d.externalId === `${ON}#7`);
+  gh.get(`${ON}#7`)!.events.push(labeled("cursor[bot]", "Bot"));
+  assert.equal(await retries(), false, "another bot re-adding the label does not retry a failed job");
+  gh.get(`${ON}#7`)!.events.push(labeled(HIVE.login, "Bot"));
+  assert.equal(await retries(), true, "Hive's own login does");
+  await patch(7, { stage: was7.stage, stage_event_id: was7.stage_event_id, synced_event_id: was7.synced_event_id });
   // R3, R4: issue and comment deliveries wake the runner; a person's comment is an answer, a bot's or a PR's is nothing.
   const event = { repository: { full_name: ON }, issue: { number: 8 } };
   const wake = (kind: string, action: string, extra: object = {}, issue: object = {}) =>
