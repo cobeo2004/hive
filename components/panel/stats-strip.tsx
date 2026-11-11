@@ -37,7 +37,7 @@ export function StatsStrip({
   const pool = meters.pool.fiveHourPct;
 
   return (
-    <section className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-px overflow-hidden rounded-md border bg-border">
+    <section className="m-3 mb-0 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-px overflow-hidden rounded-md border bg-border">
       <Stat label="Active runs" value={String(active)} note="working now" tone={active ? "text-primary" : undefined} />
       <Stat label="Idle runs" value={String(idle)} note="waiting for a prompt" />
       <Stat label="Running agents" value={String(runningAgents)} note="subagents in flight" />
