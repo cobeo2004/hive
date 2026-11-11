@@ -370,6 +370,7 @@ try {
   assert.deepEqual(await wanted(), ["the issue was deleted in GitHub"]);
   assert.deepEqual(await adapter.confirmStop(run.external_id, "x"), { stop: true, reopen: false });
   // R11: the issue's attachments are downloaded with the installation token, to the hosts GitHub serves them from and no others.
+  await rm(join(ATTACHMENTS_DIR, run.key), { recursive: true, force: true }); // a download a failed run left behind would be reused
   const shot = "https://github.com/user-attachments/assets/aaaa-1111";
   const tagged = "https://private-user-images.githubusercontent.com/1/2.png?jwt=a.b";
   const pictured = await adapter.localizeImages!(
