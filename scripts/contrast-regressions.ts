@@ -2,64 +2,121 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { compile } from "@tailwindcss/node";
+import { type Rule, type Selector, type TokenOrValue, transform } from "lightningcss";
 
 // R25a: app/globals.css wears design/screens/hive.css's tokens, and every text/background pair it
-// defines reads at WCAG AA (4.5:1) in both themes.
+// defines reads at WCAG AA (4.5:1) in both themes. Nothing here parses CSS by hand: globals.css is compiled
+// by Tailwind and read through lightningcss's AST, so what is checked is the colour a utility really paints.
 const root = join(import.meta.dirname, "..");
 const globals = readFileSync(join(root, "app/globals.css"), "utf8");
 const hive = readFileSync(join(root, "design/screens/hive.css"), "utf8");
 const AA = 4.5;
 
-type Vars = Record<string, string>;
+type Vars = Map<string, TokenOrValue[]>;
 type Rgba = [number, number, number, number];
 
-// Declarations of every top-level block whose selector is exactly `selector`; later blocks win.
-function block(css: string, selector: string): Vars {
-  const vars: Vars = {};
-  let found = false;
-  const clean = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  let depth = 0;
-  let start = 0; // where the current depth-0 selector text begins
-  let bodyAt = 0;
-  for (let i = 0; i < clean.length; i++) {
-    const c = clean[i];
-    if (c === "{" && depth++ === 0) bodyAt = i + 1;
-    else if (c === ";" && depth === 0) start = i + 1;
-    else if (c === "}" && depth > 0 && --depth === 0) {
-      const sel = clean.slice(start, bodyAt - 1).trim();
-      start = i + 1;
-      if (sel !== selector) continue;
-      found = true;
-      for (const [, name, value] of clean.slice(bodyAt, i).matchAll(/--([\w-]+)\s*:\s*([^;]+?)\s*(?:;|$)/g)) {
-        if (/!important/i.test(value!)) throw new Error(`--${name} uses !important, which this check does not model`);
-        vars[name!] = value!;
+const ast = (css: string) => {
+  let rules: Rule[] = [];
+  transform({
+    filename: "x.css",
+    code: Buffer.from(css),
+    visitor: {
+      StyleSheet(sheet) {
+        rules = sheet.rules;
+      },
+    },
+  });
+  return rules;
+};
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+// lightningcss types a style rule's body as optional; it is always there
+const body = (rule: Extract<Rule, { type: "style" }>) => ({
+  normal: rule.value.declarations?.declarations ?? [],
+  important: rule.value.declarations?.importantDeclarations ?? [],
+  nested: rule.value.rules ?? [],
+});
+const isTheme = (rule: Rule) => rule.type === "layer-block" && rule.value.name?.join(".") === "theme";
+
+const ROOT: Selector = [{ type: "pseudo-class", kind: "root" }];
+const cls = (...names: string[]): Selector => names.map((name) => ({ type: "class", name }));
+
+// The custom properties a stylesheet declares for the `light` scope and, over it, the `dark` scope: only
+// plain `light {}` / `dark {}` rules at the top level, in source order, last wins. Anything the cascade
+// would make a guess about throws instead: a conditional or layered rule, a nested or compound selector that
+// declares properties, `!important`. Tailwind's own `theme` layer (`:root, :host`) is the shared base.
+function themesOf(rules: Rule[], light: Selector, dark: Selector) {
+  const base: Vars = new Map();
+  const lightVars: Vars = new Map();
+  const darkVars: Vars = new Map();
+  const reject = (why: string): never => {
+    throw new Error(`custom properties must be unconditional and unlayered, on a plain scope rule: ${why}`);
+  };
+  const walk = (list: Rule[], top: boolean) => {
+    for (const rule of list) {
+      if (rule.type === "layer-block" && isTheme(rule)) {
+        for (const r of rule.value.rules) {
+          if (r.type === "style") for (const d of body(r).normal) if (d.property === "custom") base.set(d.value.name, d.value.value);
+        }
+      } else if (rule.type === "style") {
+        const { selectors } = rule.value;
+        const { normal, important, nested } = body(rule);
+        const props = [...normal, ...important].filter((d) => d.property === "custom");
+        const target = selectors.length === 1 ? (same(selectors[0], light) ? lightVars : same(selectors[0], dark) ? darkVars : undefined) : undefined;
+        if (!target) {
+          const mentions = selectors.some((s) => [light, dark].some((scope) => scope.every((c) => s.some((x) => same(x, c)))));
+          if (props.length && mentions) reject(`${JSON.stringify(selectors)} is not a plain scope selector`);
+          continue;
+        }
+        if (nested.length) reject("a nested rule inside a scope rule");
+        if (!top && props.length) reject("a scope rule inside an at-rule");
+        for (const d of important) if (d.property === "custom") reject(`${d.value.name} is !important`);
+        for (const d of normal) if (d.property === "custom") target.set(d.value.name, d.value.value);
+      } else if ("value" in rule && rule.value && typeof rule.value === "object" && "rules" in rule.value) {
+        walk(rule.value.rules as Rule[], false);
+      }
+    }
+  };
+  walk(rules, true);
+  assert.ok(lightVars.size, "no light scope rule");
+  return { light: new Map([...base, ...lightVars]), dark: new Map([...base, ...lightVars, ...darkVars]) };
+}
+
+// What Tailwind's utilities declare, by `<class>/<property>`: the colour/font tokens still holding `var(--x)`.
+function utilities(rules: Rule[]) {
+  const out = new Map<string, TokenOrValue[]>();
+  for (const layer of rules) {
+    if (layer.type !== "layer-block" || layer.value.name?.join(".") !== "utilities") continue;
+    for (const rule of layer.value.rules) {
+      const sel = rule.type === "style" ? rule.value.selectors[0]?.[0] : undefined;
+      if (rule.type !== "style" || sel?.type !== "class") continue;
+      for (const d of body(rule).normal) {
+        if (d.property === "unparsed") out.set(`${sel.name}/${d.value.propertyId.property}`, d.value.value);
+        else if (d.property === "color" || d.property === "background-color") out.set(`${sel.name}/${d.property}`, [{ type: "color", value: d.value }]);
       }
     }
   }
-  assert.ok(found, `no ${selector} block`);
-  return vars;
+  return out;
 }
 
-function resolve(vars: Vars, name: string, seen: string[] = []): string {
-  const value = vars[name];
-  if (value === undefined) throw new Error(`--${name} is not defined`);
-  if (seen.includes(name)) throw new Error(`--${name} refers to itself`);
-  return value.replace(/var\(--([\w-]+)\)/g, (_, ref: string) => resolve(vars, ref, [...seen, name]));
-}
-
-function color(value: string): Rgba {
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value)?.[1];
-  if (hex) {
-    const full = hex.length === 3 ? [...hex].map((c) => c + c).join("") : hex;
-    return [0, 2, 4].map((i) => Number.parseInt(full.slice(i, i + 2), 16)).concat(1) as Rgba;
+function rgba(tokens: TokenOrValue[], vars: Vars, seen: string[] = []): Rgba {
+  const [token, ...rest] = tokens.filter((t) => !(t.type === "token" && t.value.type === "white-space"));
+  if (token?.type === "color" && !rest.length) {
+    const c = token.value;
+    // ponytail: only sRGB colours (hex, rgb()); a lab()/oklch() token fails loudly here, convert via lightningcss when one is added
+    if (typeof c === "object" && c.type === "rgb") return [c.r, c.g, c.b, c.alpha];
+    throw new Error(`cannot read colour ${JSON.stringify(c)}; use hex or rgb()`);
   }
-  const rgba = /^rgba?\(([^)]+)\)$/.exec(value)?.[1]?.split(",").map(Number);
-  if (rgba && rgba.length >= 3 && rgba.every((n) => !Number.isNaN(n))) {
-    const clamp = (n: number, max: number) => Math.min(max, Math.max(0, n));
-    return [clamp(rgba[0]!, 255), clamp(rgba[1]!, 255), clamp(rgba[2]!, 255), clamp(rgba[3] ?? 1, 1)];
+  if (token?.type === "var" && !rest.length) {
+    const name = token.value.name.ident;
+    const value = vars.get(name);
+    if (!value) throw new Error(`${name} is not defined`);
+    if (seen.includes(name)) throw new Error(`${name} refers to itself`);
+    return rgba(value, vars, [...seen, name]);
   }
-  throw new Error(`cannot read colour ${value}`);
+  throw new Error(`cannot read a colour from ${JSON.stringify(tokens)}`);
 }
+const named = (vars: Vars, name: string) => rgba([{ type: "var", value: { name: { ident: `--${name}` } } }], vars);
 
 const over = ([r, g, b, a]: Rgba, [br, bg, bb]: Rgba): Rgba => [r * a + br * (1 - a), g * a + bg * (1 - a), b * a + bb * (1 - a), 1];
 const luminance = ([r, g, b]: Rgba) =>
@@ -87,120 +144,79 @@ const ON: [string, string][] = [
 // The check covers the token pairs globals.css defines; component-level pairs (opacity modifiers,
 // literal colours) are checked by the R25 screen plans.
 const PAIRS = [...TEXT.flatMap((text) => SURFACES.map((bg) => ({ text, bg }))), ...ON.map(([text, bg]) => ({ text, bg }))];
+// Hive tokens with no `--color-*` mapping, so Tailwind has no utility for them: read the custom property itself.
+const RAW = new Set("ink-2 primary-text surface-1 surface-2 on-lime lime primary-soft success-soft warning-soft danger danger-soft".split(" "));
+const texts = new Set([...TEXT, ...ON.map(([text]) => text)]);
+const surfaces = new Set([...SURFACES, ...ON.map(([, bg]) => bg)]);
+const MAPPED = [...[...texts].map((t) => `text-${t}`), ...[...surfaces].map((s) => `bg-${s}`)].filter((u) => !RAW.has(u.replace(/^(text|bg)-/, "")));
 
-function themes(css: string): [string, Vars][] {
-  const light = block(css, ":root");
-  return [
-    ["light", light],
-    ["dark", { ...light, ...block(css, ".dark") }],
-  ];
+// Compile the real stylesheet; `rules` is the AST of what Tailwind would ship for the utilities this check reads.
+async function compiled(css: string) {
+  const compiler = await compile(css, { base: root, onDependency() {} });
+  const rules = ast(compiler.build([...MAPPED, "font-sans", "font-mono"]));
+  return { ...themesOf(rules, ROOT, cls("dark")), utils: utilities(rules) };
 }
 
-export function contrastFailures(css: string) {
+export async function contrastFailures(css: string) {
+  const { light, dark, utils } = await compiled(css);
   const failures: string[] = [];
-  for (const [theme, vars] of themes(css)) {
-    const page = color(resolve(vars, "bg"));
+  const missing = new Set<string>();
+  const painted = (kind: "text" | "bg", name: string, vars: Vars) => {
+    if (RAW.has(name)) return named(vars, name);
+    const tokens = utils.get(`${kind}-${name}/${kind === "text" ? "color" : "background-color"}`);
+    if (!tokens) {
+      missing.add(`${kind}-${name}: Tailwind emits no utility, so --color-${name} is missing or reset`);
+      return undefined;
+    }
+    return rgba(tokens, vars);
+  };
+  for (const [theme, vars] of [["light", light] as const, ["dark", dark] as const]) {
+    const page = named(vars, "bg");
     assert.equal(page[3], 1, `${theme} --bg must be opaque`);
-    const paint = (name: string) => color(resolve(vars, name));
     for (const { text, bg } of PAIRS) {
-      const surface = over(paint(bg), page);
-      const contrast = ratio(over(paint(text), surface), surface);
+      const [fg, back] = [painted("text", text, vars), painted("bg", bg, vars)];
+      if (!fg || !back) continue;
+      const surface = over(back, page);
+      const contrast = ratio(over(fg, surface), surface);
       if (contrast < AA) failures.push(`${theme}: --${text} on --${bg} is ${contrast.toFixed(2)}:1, below ${AA}:1`);
     }
   }
-  return failures;
+  return [...missing, ...failures];
 }
 
-// Tailwind reads colours through `@theme inline { --color-x: var(--x); }`; a literal there would bypass the check.
-export function themeMappingFailures(css: string) {
-  const clean = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  // every `@theme <options> {` block, merged in order (later wins)
-  const colors = new Map<string, string>();
-  let found = false;
-  for (let from = 0; ; ) {
-    const open = /@theme\b[^{};]*\{/g;
-    open.lastIndex = from;
-    const m = open.exec(clean);
-    if (!m) break;
-    found = true;
-    let depth = 1;
-    let body = "";
-    let i = open.lastIndex;
-    for (; i < clean.length; i++) {
-      const c = clean[i];
-      if (c === "{") depth++;
-      else if (c === "}" && --depth === 0) break;
-      // top-level text only: nested blocks (@keyframes) are skipped
-      else if (c !== "}" && depth === 1) body += c;
-    }
-    from = i + 1;
-    for (const [, name, value] of body.matchAll(/--color-([\w-]+)\s*:\s*([^;]+?)\s*(?:;|$)/g)) colors.set(name!, value!);
-  }
-  assert.ok(found, "no @theme block");
-  const checked = new Set([...TEXT, ...SURFACES, ...ON.flat()]);
-  const failures: string[] = [];
-  for (const [name, value] of colors) {
-    if (checked.has(name) && value !== `var(--${name})`) failures.push(`--color-${name} is ${value}, expected var(--${name})`);
-  }
-  return failures;
-}
-
-const failures = [...contrastFailures(globals), ...themeMappingFailures(globals)];
+const failures = await contrastFailures(globals);
 assert.deepEqual(failures, [], `contrast below WCAG AA:\n${failures.join("\n")}`);
 
-// The check bites: a washed-out muted text, or a muted surface it can no longer be read on, fails by name.
+// The check bites: each way of washing out a token fails by name, and each cascade guess throws or is modelled.
 const lightOnly = (from: string, to: string) => {
   const at = globals.indexOf(from);
   assert.ok(at >= 0 && at < globals.indexOf(".dark {"), `${from} is not in the light theme`);
   return globals.replace(from, to);
 };
-assert.ok(
-  contrastFailures(lightOnly("--muted-foreground: #6b6b74;", "--muted-foreground: #bbbbbb;")).some((f) =>
-    f.startsWith("light: --muted-foreground on --background is 1."),
-  ),
-  "a #bbbbbb muted text fails",
+const fails = async (css: string, prefix: string, because: string) =>
+  assert.ok(
+    (await contrastFailures(css)).some((f) => f.startsWith(prefix)),
+    because,
+  );
+const MUTED = "light: --muted-foreground on --background is 1.";
+await fails(lightOnly("--muted-foreground: #6b6b74;", "--muted-foreground: #bbbbbb;"), MUTED, "a #bbbbbb muted text fails");
+await fails(lightOnly("--muted: var(--surface-2);", "--muted: #bbbbbb;"), "light: --muted-foreground on --muted is 2.", "a #bbbbbb muted surface fails");
+await fails(`${globals}\n:root { --muted-foreground: #bbbbbb }\n`, MUTED, "an appended :root block (no semicolon) wins in light");
+const later = (await contrastFailures(`${globals}\n:root { --muted-foreground: #bbbbbb; }\n`)).filter((f) => f.startsWith("dark: --muted-foreground "));
+assert.deepEqual(later, [], "a :root appended after .dark does not flip dark");
+await fails(`${globals}\n.dark { --muted-foreground: #333333; }\n`, "dark: --muted-foreground on --background is 1.", "a later .dark block wins in dark");
+await assert.rejects(contrastFailures(`${globals}\n@media print { :root { --muted-foreground: #bbbbbb; } }\n`), /unconditional and unlayered/);
+await assert.rejects(contrastFailures(`${globals}\n:root { & .x { --muted-foreground: #bbbbbb; } }\n`), /plain scope selector/);
+await assert.rejects(contrastFailures(`${globals}\n:root { --secondary-foreground: #bbbbbb !important; }\n`), /!important/);
+await fails(`${globals}\n@theme inline { --color-muted-foreground: initial; }\n`, "text-muted-foreground: ", "a reset Tailwind colour fails by name");
+// Tailwind itself refuses `@apply border-border` once every colour is reset
+await assert.rejects(contrastFailures(`${globals}\n@theme inline { --color-*: initial; }\n`), /unknown utility class `border-border`/);
+await fails(
+  globals.replace("--color-muted-foreground: var(--muted-foreground);", "--color-muted-foreground: #bbbbbb;"),
+  "light: --muted-foreground on --background is 1.",
+  "a literal Tailwind colour fails with the pair",
 );
-assert.ok(
-  contrastFailures(lightOnly("--muted: var(--surface-2);", "--muted: #bbbbbb;")).some((f) => f.startsWith("light: --muted-foreground on --muted is 2.")),
-  "a #bbbbbb muted surface fails",
-);
-assert.ok(
-  contrastFailures(`${globals}\n:root { --muted-foreground: #bbbbbb; }\n`).some((f) => f.startsWith("light: --muted-foreground on --background is 1.")),
-  "an appended :root block is seen",
-);
-assert.ok(
-  contrastFailures(`${globals}\n:root { --muted-foreground: #bbbbbb }\n`).some((f) => f.startsWith("light: --muted-foreground on --background is 1.")),
-  "a last declaration without a semicolon is seen",
-);
-assert.ok(
-  contrastFailures(`${globals}\n:root { --secondary-foreground: #bbbbbb; }\n@media print { .unused {} :root { --secondary-foreground: var(--ink); } }\n`).some(
-    (f) => f.startsWith("light: --secondary-foreground "),
-  ),
-  "a :root nested in an at-rule is ignored",
-);
-assert.throws(() => contrastFailures(`${globals}\n:root { --secondary-foreground: #bbbbbb !important; }\n`), /!important/);
-const mapping = "--color-muted-foreground: var(--muted-foreground);";
-assert.ok(globals.includes(mapping), "globals.css maps --color-muted-foreground");
-assert.ok(
-  themeMappingFailures(globals.replace(mapping, "--color-muted-foreground: #bbbbbb;")).some((f) => f.startsWith("--color-muted-foreground ")),
-  "a literal Tailwind colour mapping fails",
-);
-assert.ok(
-  themeMappingFailures(`${globals}\n@theme inline { --color-muted-foreground: #bbbbbb; }\n`).some((f) => f.startsWith("--color-muted-foreground ")),
-  "a later @theme block is seen",
-);
-const themeEnd = globals.indexOf("\n}\n", globals.indexOf("@theme inline {"));
-assert.ok(themeEnd >= 0, "found the end of @theme inline");
-assert.ok(
-  themeMappingFailures(`${globals.slice(0, themeEnd)}\n  --color-warning: #bbbbbb${globals.slice(themeEnd)}`).some((f) => f.startsWith("--color-warning ")),
-  "a last @theme declaration without a semicolon is seen",
-);
-const faint = "--faint: var(--muted-foreground);";
-assert.ok(globals.includes(faint), "globals.css defines --faint");
-assert.ok(
-  contrastFailures(globals.replace(faint, "--faint: rgba(107,107,116,2);")).some((f) => f.startsWith("dark: --faint ")),
-  "an out-of-range rgba alpha is clamped",
-);
+await fails(globals.replace("--color-warning: var(--warning);", ""), "text-warning: ", "a deleted Tailwind mapping fails by name");
 
 // The tokens are hive.css's values. hive.css's --muted is a text colour; here it is --muted-foreground.
 const HIVE_TOKENS: Record<string, string> = Object.fromEntries(
@@ -208,21 +224,26 @@ const HIVE_TOKENS: Record<string, string> = Object.fromEntries(
     .split(" ")
     .map((t) => [t, t === "muted" ? "muted-foreground" : t]),
 );
-const hiveLight = block(hive, ".hv");
-const hiveThemes: Record<string, Vars> = { light: hiveLight, dark: { ...hiveLight, ...block(hive, ".hv.dark") } };
+const hiveThemes = themesOf(ast(hive), cls("hv"), cls("hv", "dark"));
 // hive.css's light --success on --success-soft is 4.49:1, below AA; globals.css lightens the surface to #e8f7ed (4.53:1).
-const DEVIATIONS: Record<string, Vars> = { light: { "success-soft": "#e8f7ed" }, dark: {} };
-for (const [theme, vars] of themes(globals)) {
-  for (const [token, ours] of Object.entries(HIVE_TOKENS)) {
-    const want = DEVIATIONS[theme]![token] ?? hiveThemes[theme]![token]!;
-    assert.deepEqual(color(resolve(vars, ours)), color(want), `${theme}: --${ours} should equal hive.css --${token}`);
+const DEVIATIONS: Record<string, Record<string, Rgba>> = { light: { "success-soft": [0xe8, 0xf7, 0xed, 1] }, dark: {} };
+const ours = await compiled(globals);
+for (const theme of ["light", "dark"] as const) {
+  for (const [token, name] of Object.entries(HIVE_TOKENS)) {
+    const want = DEVIATIONS[theme]![token] ?? named(hiveThemes[theme], token);
+    assert.deepEqual(named(ours[theme], name), want, `${theme}: --${name} should equal hive.css --${token}`);
   }
 }
-assert.equal(block(globals, ":root").radius, hiveLight["radius-md"], "--radius is hive.css --radius-md");
-const flat = (s: string) => s.replace(/\s+/g, "");
+assert.deepEqual(ours.light.get("--radius"), hiveThemes.light.get("--radius-md"), "--radius is hive.css --radius-md");
+// font stacks, tokens only: ours is `var(--font-x), <hive's stack>`
+const stack = (tokens: TokenOrValue[] = []) =>
+  tokens.flatMap((t) =>
+    t.type === "token" && t.value.type !== "white-space" ? [t.value.type === "comma" ? "," : String(("value" in t.value && t.value.value) || "")] : [],
+  );
 for (const font of ["sans", "mono"]) {
-  const ours = flat(/--font-[\w-]+\),\s*([^;]+);/.exec(globals.slice(globals.indexOf(`--font-${font}:`)))?.[1] ?? "");
-  assert.equal(ours, flat(hiveLight[`font-${font}`]!), `--font-${font} falls back to hive.css's stack`);
+  const utility = stack(ours.utils.get(`font-${font}/font-family`));
+  assert.ok(utility.length, `Tailwind emits font-${font}`);
+  assert.deepEqual(utility.slice(1), stack(hiveThemes.light.get(`--font-${font}`)), `--font-${font} falls back to hive.css's stack`);
 }
 
 console.log("contrast regressions passed");
