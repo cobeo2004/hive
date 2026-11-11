@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { assessmentInputSchema } from "./assessment";
 import { evidenceShape } from "./evidence";
+import { isPlanApproval, PLAN_QUESTION_MAX, planQuestion } from "./plan-approval";
 import { mediaShape, withinLimit } from "./media";
 
 export const usageSchema = z.object({
@@ -24,15 +25,33 @@ export const stageReportShape = {
   question: z.string().min(1).max(2000).optional().describe("Required for stage waiting: the concrete question the human must answer."),
   assessment: assessmentInputSchema.optional().describe("Stage pr only: your merge assessment, as the factory playbook describes."),
 };
+/** The reporting tool's input: the stage report plus the plan gate, which the stage event itself doesn't carry (it carries the plan as `question`). */
+export const reportToolShape = {
+  ...stageReportShape,
+  kind: z.literal("plan_approval").optional().describe("Stage waiting only: the plan gate; attach plan (and answerKey) instead of a question."),
+  plan: z.string().min(1).max(200_000).optional().describe("With kind plan_approval: plan.md's contents."),
+  answerKey: z.string().max(200_000).optional().describe("With kind plan_approval: answer-key.md's contents."),
+};
 export const stageReportSchema = z
-  .object(stageReportShape)
+  .object(reportToolShape)
   .refine((r) => r.stage !== "pr" || r.prUrl, { message: "stage pr needs prUrl", path: ["prUrl"] })
   .refine((r) => r.stage === "pr" || !r.assessment, { message: "only stage pr takes an assessment", path: ["assessment"] })
-  .refine((r) => r.stage !== "waiting" || r.question, {
-    message: "stage waiting needs question",
+  .refine((r) => r.stage !== "waiting" || r.question || (r.kind === "plan_approval" && r.plan), {
+    message: "stage waiting needs question, or kind plan_approval with plan",
     path: ["question"],
-  });
+  })
+  .refine((r) => r.kind === "plan_approval" || !isPlanApproval(r.question), {
+    message: "question must not start with the plan header",
+    path: ["question"],
+  })
+  .refine((r) => !r.kind || (r.stage === "waiting" && r.plan), { message: "kind plan_approval needs stage waiting and plan", path: ["kind"] });
 export type StageReport = z.infer<typeof stageReportSchema>;
+
+/** The stage event's fields from a report: a plan approval becomes its question; the tool-only fields never reach the event. */
+export function stageEventFields(report: StageReport) {
+  const { kind, plan, answerKey, ...rest } = report;
+  return kind === "plan_approval" && plan ? { ...rest, question: planQuestion(plan, answerKey) } : rest;
+}
 
 const base = {
   eventId: z.string().min(1),
@@ -87,6 +106,8 @@ export const eventSchema = z.discriminatedUnion("kind", [
     ...base,
     kind: z.literal("stage"),
     ...stageReportShape,
+    /** A plan approval's question is the plan, which is longer than a question the agent asks. */
+    question: z.string().min(1).max(PLAN_QUESTION_MAX).optional(),
     jobKey: z.string().optional(),
     issueKey: z.undefined({ error: "issueKey was renamed to jobKey" }).optional(),
     /** The branch the reporting thread was on; absent on events the runner posts itself. */

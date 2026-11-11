@@ -3,7 +3,7 @@ import { z } from "zod";
 import { intents, jobs, slackMessages, type IntentKind, type JobRow, type SlackMessageRow } from "@/db/schema";
 import type { SessionUser } from "@/lib/auth/owner";
 import { attemptBranch } from "@/lib/factory";
-import { followUpHint, MAX_FEEDBACK_CHARS, MAX_FOLLOW_UP_CHARS, MAX_RETRY_NOTE_CHARS, type InboxAction } from "@/lib/inbox";
+import { followUpHint, inboxKind, MAX_FEEDBACK_CHARS, MAX_FOLLOW_UP_CHARS, MAX_RETRY_NOTE_CHARS, type InboxAction } from "@/lib/inbox";
 import {
   answerQuestion,
   approveMerge,
@@ -129,7 +129,10 @@ function modalCopy(action: ModalAction, job: JobRow): ModalCopy {
       return {
         title,
         label: "What should change",
-        hint: "Sent to the agent, which updates the same branch and PR.",
+        hint:
+          inboxKind(job) === "plan_approval"
+            ? "Sent to the agent, which revises its plan and asks again."
+            : "Sent to the agent, which updates the same branch and PR.",
         submit: "Request changes",
         optional: false,
         max: MAX_FEEDBACK_CHARS,
@@ -262,7 +265,7 @@ function runAction(inbox: InboxDeps, action: InboxAction, job: JobRow, requestId
       return answerQuestion(inbox, job.id, requestId, text);
     case "approve": {
       const decision = mergeDecisionSchema.safeParse(job.merge_decision).data;
-      return approveMerge(inbox, job.id, requestId, decision?.review?.headSha ?? decision?.headSha ?? null);
+      return approveMerge(inbox, job.id, requestId, decision?.review?.headSha ?? decision?.headSha ?? null, inboxKind(job) === "plan_approval");
     }
     case "request_changes":
       return requestChanges(inbox, job.id, requestId, text);
@@ -309,7 +312,7 @@ async function act(deps: InteractionDeps, item: Item, action: InboxAction, text:
       console.error(`slack: update ${item.row.id} failed: ${safeMessage(deps.secrets, error)}`);
     }
   };
-  await show(PENDING_LABELS[action]);
+  await show(action === "approve" && item.event.kind === "plan_approval" ? "⏳ Approving the plan…" : PENDING_LABELS[action]);
   let outcome: InboxOutcome;
   try {
     outcome = await runAction(deps.inbox, action, item.job, await nextRequestId(deps, item.event.id, action), text);

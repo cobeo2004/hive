@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { stageReportSchema, stageReportShape, type FactoryEvent, type StageReport } from "../lib/events";
+import { reportToolShape, stageEventFields, stageReportSchema, type FactoryEvent, type StageReport } from "../lib/events";
 import { REPORT_SERVER, REPORT_TOOL } from "../lib/factory";
 import { reportEvents } from "../lib/outbox";
 import { mcpIdentity, mcpPosts, type McpIdentity } from "../lib/report-identity";
@@ -28,7 +28,7 @@ function eventsFor(identity: McpIdentity, report: StageReport, at: number, openi
     sessionId,
     at,
     kind: "stage",
-    ...report,
+    ...stageEventFields(report),
     jobKey,
     branch,
   };
@@ -62,8 +62,9 @@ server.registerTool(
       "and handover only when you are not, with confidence.reason saying why. " +
       "When the change shows on a page or screen, attach assessment.media: file names in your run's media folder (.sstack/runs/<run>/media/), e.g. before-<step>.png, after-<step>.mp4, each with a caption. " +
       "Stage waiting needs a concrete question; " +
+      "with the plan gate on inbox, stage waiting takes kind plan_approval with plan and answerKey instead of a question; " +
       "stage failed puts the reason in summary.",
-    inputSchema: stageReportShape,
+    inputSchema: reportToolShape,
   },
   async (input) => {
     const parsed = stageReportSchema.safeParse(input);
