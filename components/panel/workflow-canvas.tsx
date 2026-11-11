@@ -66,7 +66,8 @@ export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; 
   // arrow keys move between the tabs, as a tablist does
   const arrows = (e: KeyboardEvent) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    const next = TABS[(TABS.indexOf(tab) + 1) % TABS.length];
+    const step = e.key === "ArrowLeft" ? -1 : 1;
+    const next = TABS[(TABS.indexOf(tab) + step + TABS.length) % TABS.length];
     setTab(next);
     document.getElementById(`step-tab-${next}`)?.focus();
   };
@@ -89,6 +90,11 @@ export function WorkflowCanvas({ repo, files, canEdit: admin }: { repo: string; 
               </span>
             </nav>
             <Gated>Smoke test</Gated>
+            {canEdit && dirty && (
+              <Button variant="outline" size="sm" onClick={cancel}>
+                Cancel
+              </Button>
+            )}
             {canEdit && <Gated disabled={!dirty}>Save as PR</Gated>}
           </>
         }

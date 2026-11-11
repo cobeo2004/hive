@@ -62,6 +62,7 @@ export function steps(all: Record<string, string>): Record<string, Spec> {
   for (const name of names) {
     const builtin = Object.hasOwn(DEFAULTS, name);
     const t = readToml(files[stepPath(name)] ?? "");
+    const loops = t.max_loops;
     const str = (key: string, d: string) => (typeof t[key] === "string" ? (t[key] as string) : d);
     const d = builtin ? DEFAULTS[name as keyof typeof DEFAULTS] : D("", false, "command");
     const role = str("role", d.role);
@@ -75,7 +76,7 @@ export function steps(all: Record<string, string>): Record<string, Spec> {
       // the snapshot has no run.sh or brief.md, so a custom step is a role when it names one
       kind: builtin ? d.kind : role ? "role" : "command",
       builtin,
-      max_loops: typeof t.max_loops === "number" ? t.max_loops : 2, // sstack's default cap
+      max_loops: typeof loops === "number" && Number.isInteger(loops) && loops > 0 ? loops : 2, // sstack's default cap; anything but a positive integer falls back to it
     };
   }
   return out;
@@ -101,10 +102,13 @@ export function chain(specs: Record<string, Spec>): string[] {
   return out;
 }
 
+// recon opens the chain and pr closes it; the editor never moves them
+export const PINNED = new Set(["recon", "pr"]);
+
 // Drag `name` onto `onto`: the fewest `after` lines that make sstack resolve the new order.
 export function move(specs: Record<string, Spec>, name: string, onto: string): Chain | { error: string } {
   const cur = chain(specs);
-  if (name === "recon" || name === "pr") return { error: `${name} stays pinned` };
+  if (PINNED.has(name)) return { error: `${name} stays pinned` };
   if (name === onto || !cur.includes(name) || !cur.includes(onto)) return { error: "nothing to move" };
   const next = cur.filter((n) => n !== name);
   next.splice(cur.indexOf(onto), 0, name);
