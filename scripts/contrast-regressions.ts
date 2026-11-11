@@ -24,7 +24,6 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 // lightningcss types a style rule's body as optional; it is always there
 const body = (rule: Extract<Rule, { type: "style" }>) => ({
   normal: rule.value.declarations?.declarations ?? [],
-  important: rule.value.declarations?.importantDeclarations ?? [],
   nested: rule.value.rules ?? [],
 });
 const layerName = (rule: Rule) => (rule.type === "layer-block" ? rule.value.name?.join(".") : undefined);
@@ -108,11 +107,18 @@ const names = bare[0]?.type === "layer-statement" ? bare[0].value.names.flat() :
 const THEME = (ast(":root,:host{a:b}")[0] as Extract<Rule, { type: "style" }>).value.selectors; // Tailwind's theme rule
 // every custom property declared anywhere inside `rule`, however nested or wrapped (`--tw-*` are Tailwind's own)
 const customs = (rule: unknown) => JSON.stringify(rule).match(/"property":"custom","value":\{"name":"--(?!tw-)[^"]*"/g) ?? [];
+// every !important declaration anywhere, as [selectors, declarations]; a layered !important beats unlayered and utility rules
+const importants = (rules: unknown, found: string[] = []) => (
+  JSON.stringify(rules, (_, v) => (v?.declarations?.importantDeclarations?.length && found.push(JSON.stringify([v.selectors, v.declarations])), v)), found
+);
+const PREFLIGHT = new Set(importants(bare)); // Tailwind's own, e.g. [hidden]
 // An allowlist, not a hunt for overrides: the compiled stylesheet may hold only what the check can model, so an override of any
 // shape (unlayered, !important, attribute/state selector, shorthand, a custom property elsewhere) throws. Also reads class -> painted value.
 function audit(rules: Rule[]) {
   const utils = new Map<string, TokenOrValue[]>();
-  assert.ok(same(rules[0], bare[0]), "layer order is not Tailwind's");
+  assert.ok(same(rules[0], bare[0]), "layer order is not Tailwind's (or an @import/@property precedes it)");
+  const bad = importants(rules).filter((i) => !PREFLIGHT.has(i));
+  if (bad.length) assert.fail(`!important beats the utilities this check models: ${bad}`);
   for (const rule of rules) {
     const layer = layerName(rule) ?? "";
     if (rule.type === "layer-block") {
@@ -124,19 +130,20 @@ function audit(rules: Rule[]) {
           continue;
         }
         if (r.type !== "style") assert.fail(`${r.type} inside utilities`);
-        const { normal, important, nested } = body(r);
+        const { normal, nested } = body(r);
         const [d, ...more] = normal;
         const name = [...WANT.keys()].find((k) => same(r.value.selectors, [cls(k)]));
         const prop = d?.property === "unparsed" ? d.value.propertyId.property : d?.property;
-        if (!name || utils.has(name) || nested.length || important.length || more.length || prop !== WANT.get(name))
+        if (!name || utils.has(name) || nested.length || more.length || prop !== WANT.get(name))
           assert.fail(`utilities may hold one plain, unique candidate class declaring only its colour/font: ${JSON.stringify(r)}`);
         utils.set(name, d?.property === "unparsed" ? d.value.value : [{ type: "color", value: d?.value } as TokenOrValue]);
       }
     } else if (rule.type === "style") {
-      const { important, nested } = body(rule);
-      if (important.length || nested.length || ![ROOT, DARK].some((s) => same(rule.value.selectors, [s])))
-        assert.fail(`unlayered ${JSON.stringify(rule.value.selectors)} beats every layer; only plain :root and .dark scope rules may be unlayered`);
-    } else if (!["layer-statement", "keyframes", "font-face", "property"].includes(rule.type)) assert.fail(`top-level ${rule.type} is outside the allowlist`);
+      // ponytail: only color/background-color of the checked utilities are modelled; opacity/filter/text-fill in base rules are not
+      const { normal, nested } = body(rule);
+      if (nested.length || normal.some((d) => d.property !== "custom") || ![ROOT, DARK].some((s) => same(rule.value.selectors, [s])))
+        assert.fail(`unlayered ${JSON.stringify(rule.value.selectors)} beats every layer; only :root/.dark rules of custom properties may be`);
+    } else if (rule.type !== "layer-statement") assert.fail(`top-level ${rule.type} is outside the allowlist`);
   }
   return utils;
 }
@@ -184,16 +191,17 @@ const CASES: [label: string, css: string, expect: string][] = [
   ["unmapped --color-warning", swap("--color-warning: var(--warning);", ""), "text-warning: "],
   ["later :root", add(":root { --violet: #171717; }"), "dark: --violet on --background is 1."],
   [".dark only", add(".dark { --muted-foreground: #333333; }"), "dark: --muted-foreground on --background is 1."],
-  ["conditional scope", add("@media print { :root { --muted-foreground: #bbbbbb; } }"), "throws"],
-  ["nested in scope", add(":root { & .x { --muted-foreground: #bbbbbb; } }"), "throws"],
-  ["!important scope", add(":root { --x: 1 !important; }"), "throws"],
-  ["unlayered body", add("body { --muted-foreground: #bbbbbb; }"), "throws"],
-  ["utilities custom property", add("@layer utilities { body { --muted-foreground: #bbbbbb; } }"), "throws"],
-  ["unlayered utility", add(".text-warning-foreground { color: #ffffff; }"), "throws"],
-  ["!important utility", add("@layer utilities { .text-warning-foreground { color: #ffffff !important; } }"), "throws"],
-  ["attribute selector", add('[class~="text-warning-foreground"] { color: #ffffff; }'), "throws"],
-  ["background shorthand", add(".bg-background { background: #a15c00; }"), "throws"],
-  ["utility :hover", add("@layer utilities { .text-violet:hover { color: #000000; } }"), "throws"],
+  // each of these must throw (the allowlist excludes it)
+  ...(
+    "@media print { :root { --muted-foreground: #bbbbbb; } } | :root { & .x { --muted-foreground: #bbbbbb; } } | :root { --x: 1 !important; } | " +
+    "@layer theme { :root, :host { --muted-foreground: #bbbbbb !important; } } | @layer base { * { color: #bbbbbb !important; } } | " +
+    "@layer components { .text-violet { color: #171717 !important; } } | :root { filter: invert(1); } | @keyframes k { to { --violet: #171717; } } | " +
+    "body { --muted-foreground: #bbbbbb; } | @layer utilities { body { --muted-foreground: #bbbbbb; } } | .text-warning-foreground { color: #ffffff; } | " +
+    '@layer utilities { .text-warning-foreground { color: #ffffff !important; } } | [class~="text-warning-foreground"] { color: #ffffff; } | ' +
+    ".bg-background { background: #a15c00; } | @layer utilities { .text-violet:hover { color: #000000; } }"
+  )
+    .split(" | ")
+    .map((css): [string, string, string] => [css, add(css), "throws"]),
 ];
 for (const [label, css, expect] of CASES) {
   const found: string[] | Error = await contrastFailures(css).catch((e: Error) => e);
