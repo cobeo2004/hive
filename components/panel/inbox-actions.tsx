@@ -314,7 +314,7 @@ export function InboxActions({
           size="sm"
           disabled={disabled}
           loading={loading("approve")}
-          onClick={() => void run("approve", () => approveMerge(job.id, requestId(), null), "Plan approved.")}
+          onClick={() => void run("approve", () => approveMerge(job.id, requestId(), null, true), "Plan approved.")}
         >
           Approve plan
         </Button>
@@ -325,7 +325,7 @@ export function InboxActions({
           headSha={headSha}
           disabled={disabled || !reviewReady}
           loading={loading("approve")}
-          onApprove={() => void run("approve", () => approveMerge(job.id, requestId(), headSha), "Merged.")}
+          onApprove={() => void run("approve", () => approveMerge(job.id, requestId(), headSha, false), "Merged.")}
         />
       )}
       {has("close") && (

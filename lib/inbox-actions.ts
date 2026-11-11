@@ -77,12 +77,19 @@ async function record(deps: InboxDeps, job: JobRow, kind: IntentKind, requestId:
 
 const badRequest = (requestId: string) => !requestIdSchema.safeParse(requestId).success;
 
-/** Asks the runner to merge the PR at the head the owner reviewed; null merges whatever head it has. */
-export async function approveMerge(deps: InboxDeps, jobId: JobId, requestId: string, headSha: string | null): Promise<InboxOutcome> {
+/**
+ * Asks the runner to merge the PR at the head the owner reviewed; null merges whatever head it has.
+ * Approve means a plan on a plan_approval item and a merge otherwise, so a caller that showed one
+ * passes `plan` and is refused if the job has since moved to the other (a stale click must not
+ * approve something the owner never saw).
+ */
+export async function approveMerge(deps: InboxDeps, jobId: JobId, requestId: string, headSha: string | null, plan?: boolean): Promise<InboxOutcome> {
   if (badRequest(requestId)) return { ok: false, message: "The request is not valid." };
   const found = await ownerJob(deps, jobId, "approve");
   if (!found.ok) return found;
-  if (inboxKind(found.job) === "plan_approval") return replyAndResume(deps, found, requestId, PLAN_APPROVED);
+  const isPlan = inboxKind(found.job) === "plan_approval";
+  if (plan !== undefined && plan !== isPlan) return { ok: false, message: "This item changed since you opened it. Reload the inbox and look again." };
+  if (isPlan) return replyAndResume(deps, found, requestId, PLAN_APPROVED);
   return record(deps, found.job, "approve_merge", requestId, { actor: found.actor, headSha, via: "inbox" } satisfies ApproveDetail);
 }
 

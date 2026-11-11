@@ -823,6 +823,18 @@ try {
   assert.equal(planAnswer!.kind, "answer");
   assert.equal(JSON.parse(planAnswer!.detail!).actor, OWNER, "the intent names who approved");
 
+  const stalePlanClick = crypto.randomUUID();
+  const stale = await inbox.approveMerge(deps(), planId, stalePlanClick, "h1", false);
+  assert.equal(stale.ok === false && /changed since/.test(stale.message), true, "a click that showed a merge is refused on a plan");
+  const PRJOB = await job("STALEPLAN", { stage: "pr", pr_url: "https://github.com/o/r/pull/77" });
+  const stalePlan = await inbox.approveMerge(deps(), (await row(PRJOB)).id, crypto.randomUUID(), null, true);
+  assert.equal(
+    stalePlan.ok === false && /changed since/.test(stalePlan.message),
+    true,
+    "a stale Approve plan click is refused once the job is in review, and records no merge",
+  );
+  assert.equal((await intentRows(PRJOB)).length, 0, "nothing was recorded for it");
+
   const PLAN2 = await job("PLAN2", { stage: "waiting", question: planQuestion("# plan") });
   const changesId = crypto.randomUUID();
   assert.deepEqual(await inbox.requestChanges(deps(), (await row(PLAN2)).id, changesId, "Split step 2."), { ok: true, intentId: `panel:answer:${changesId}` });
