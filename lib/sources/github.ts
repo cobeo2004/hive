@@ -228,7 +228,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
           }
         } catch (error) {
           // One repo's outage (a revoked installation) must not stop intake from the others.
-          console.error("github: could not read issues of", repo, error);
+          if (enabled) console.error("github: could not read issues of", repo, error); // a disabled repo may have no installation: not worth a line every poll
           if (error instanceof GitHubError && error.retryAfterMs) {
             pausedUntil = Date.now() + error.retryAfterMs;
             break;
