@@ -2,32 +2,38 @@ import { z } from "zod";
 import type { JobRow } from "../db/schema";
 import { isAdmin, type SessionUser } from "./auth/owner";
 import { MERGE_VIAS, mergeDecisionSchema, type MergeDecision } from "./merge-decision";
+import { isPlanApproval } from "./plan-approval";
 import { parseStop, stopLine, stopNeedsOwner, stopView } from "./stop";
 
 // The "Needs you" inbox: every job waiting on the owner, in one list. Pure, so the panel, its
 // nav badge, the runner and the regressions share the rules.
 //   question       the job is waiting on an answer
+//   plan_approval  the job is waiting on the owner's go-ahead for its plan (lib/plan-approval.ts)
 //   revert_failed  the factory merged it, main went red, and its revert failed
 //   handover       its PR is ready for review: the runner handed it over, autonomy is off, or trial would merge
 //   failed         the job failed and the owner has not dismissed it; while its stop is on its way the reason says so
 //   stop_unconfirmed  the job was stopped but the runner could not confirm its work ended (lib/stop.ts)
 // The panel's actions become intents the job's runner carries out; their detail shapes live here.
 
-export const INBOX_KINDS = ["question", "revert_failed", "stop_unconfirmed", "handover", "failed"] as const;
+export const INBOX_KINDS = ["question", "plan_approval", "revert_failed", "stop_unconfirmed", "handover", "failed"] as const;
 export type InboxKind = (typeof INBOX_KINDS)[number];
 
 export const INBOX_LABELS: Record<InboxKind, string> = {
   question: "Question",
+  plan_approval: "Plan ready for approval",
   revert_failed: "Revert failed",
   handover: "Ready for your review",
   failed: "Failed",
   stop_unconfirmed: "Stop not confirmed",
 };
 
-/** Questions, failed reverts and agents that may still run block work or main, so they come first; failures last. */
-const RANK: Record<InboxKind, number> = { question: 0, revert_failed: 0, stop_unconfirmed: 0, handover: 1, failed: 2 };
+/** Questions, plans, failed reverts and agents that may still run block work or main, so they come first; failures last. */
+const RANK: Record<InboxKind, number> = { question: 0, plan_approval: 0, revert_failed: 0, stop_unconfirmed: 0, handover: 1, failed: 2 };
 
-export type InboxJob = Pick<JobRow, "key" | "stage" | "stage_at" | "updated_at" | "pr_url" | "merge_decision" | "dismissed_at" | "stop" | "execution">;
+export type InboxJob = Pick<
+  JobRow,
+  "key" | "stage" | "question" | "stage_at" | "updated_at" | "pr_url" | "merge_decision" | "dismissed_at" | "stop" | "execution"
+>;
 
 export type InboxItem<J extends InboxJob = InboxJob> = { kind: InboxKind; job: J; decision: MergeDecision | null; at: Date };
 
@@ -60,7 +66,7 @@ export function inboxKind(job: InboxJob, decision = parseDecision(job.merge_deci
   if (stopNeedsOwner(job.stop, job.dismissed_at)) return "stop_unconfirmed";
   switch (job.stage) {
     case "waiting":
-      return "question";
+      return isPlanApproval(job.question) ? "plan_approval" : "question";
     case "pr":
       return job.pr_url && handedOver(decision) ? "handover" : null;
     case "merged":
@@ -112,6 +118,8 @@ export function inboxReason(item: InboxItem<InboxJob & Pick<JobRow, "question" |
   switch (kind) {
     case "question":
       return job.question ?? job.stage_summary ?? "The agent is waiting on an answer.";
+    case "plan_approval":
+      return job.stage_summary ?? "The agent's plan is ready for your approval.";
     case "revert_failed":
       return `Main went red after the merge and the revert failed${decision?.watch?.reason ? `: ${decision.watch.reason}` : "."}`;
     case "handover":
@@ -136,6 +144,7 @@ export function inboxReason(item: InboxItem<InboxJob & Pick<JobRow, "question" |
 /** The actions each kind offers; the panel shows these and the actions refuse the rest. */
 export const INBOX_ACTIONS = {
   question: ["answer"],
+  plan_approval: ["approve", "request_changes"],
   revert_failed: ["follow_up", "dismiss"],
   handover: ["approve", "request_changes", "close"],
   failed: ["retry", "close", "dismiss"],

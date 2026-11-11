@@ -29,6 +29,7 @@ import { ShortTime } from "./time";
 
 const KIND_DOT: Record<InboxKind, string> = {
   question: "bg-warning",
+  plan_approval: "bg-warning",
   revert_failed: "bg-destructive",
   handover: "bg-primary",
   failed: "bg-destructive",
@@ -95,6 +96,7 @@ function Why({ item }: { item: Item }) {
   const { kind, job, decision } = item;
   switch (kind) {
     case "question":
+    case "plan_approval":
       return <p className="whitespace-pre-wrap">{job.question ?? job.stage_summary}</p>;
     case "failed": {
       const stop = stopView(job.stop, job.execution === "modal");
@@ -294,7 +296,7 @@ function Detail({ item, card, fullView, owner }: { item: Item; card: BoardCard |
   const { job, kind } = item;
   useEscapeToSidePanel(fullView);
   const link = sourceLink(job);
-  const wantsReview = kind !== "question" && job.pr_url !== null;
+  const wantsReview = kind !== "question" && kind !== "plan_approval" && job.pr_url !== null;
   const loaded = useReview(job, wantsReview);
   const review = loaded.kind === "ready" ? loaded.review : null;
   return (
