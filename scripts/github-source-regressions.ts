@@ -91,7 +91,6 @@ try {
   assert.deepEqual(claimed.claimed.sort(), ["GH-owner-on-7", "GH-owner-on-8"]);
   const reposOf = async () => (await landed()).map((j) => j.repo);
   assert.deepEqual(await reposOf(), [ON, ON]);
-  // A repo disabled or removed between ready() and the claim is refused: no job, no default repo.
   const draft = (repo: string, number: number) => ({
     ...seven,
     externalId: `${repo}#${number}`,
@@ -105,7 +104,6 @@ try {
     (e: Error) => /owner-gone-5.*not an enabled repository/.test(e.message) && /owner-off-3/.test(e.message) && /claimed GH-owner-on-12/.test(e.message),
   );
   assert.deepEqual(await reposOf(), [ON, ON, ON], "refused issues have no job, the rest still go (past a repeated key), none fall back to the default");
-  // R5, R6: one status comment per attempt, edited in place; Hive never closes the issue.
   const id = (n: number) => `github:${ON}#${n}` as const;
   const at = (n: number) => eq(jobs.id, id(n));
   const job = async (n: number) => parseJobs(await db.select().from(jobs).where(at(n)))[0] as Job<"github">;
@@ -127,13 +125,14 @@ try {
   assert.deepEqual(names(7), [], "a failed job loses the Hive label, so the poll does not claim it again");
   await adapter.requeue(await job(7));
   assert.deepEqual(names(7), ["hive"], "requeue puts it back");
-  const fromPoll = async (then: () => Promise<unknown>) => {
-    const poll = await adapter.ready();
+  const fromPoll = async (then: () => Promise<unknown>, old?: Awaited<ReturnType<typeof adapter.ready>>) => {
+    const poll = old ?? (await adapter.ready());
     await then();
+    const { attempt } = await job(7);
     await ops.claim({ sources: [{ ...adapter, ready: async () => poll }], repos: async () => [DEFAULT], registry });
-    assert.equal((await job(7)).attempt, 1, "a job that failed, or whose failure was written back (label removed), after the poll is not reclaimed from it");
+    assert.equal((await job(7)).attempt, attempt, "not reclaimed from a poll taken before it failed again, or before its failure was written back");
   };
-  await fromPoll(() => patch(7, { stage: "failed", stage_event_id: "e2", synced_event_id: null }));
+  await patch(7, { stage: "failed", stage_event_id: "e2", synced_event_id: null });
   await fromPoll(async () => {
     await adapter.writeBack(await job(7), { stage: "failed", eventId: "e2" });
     await patch(7, { synced_event_id: "e2" });
@@ -141,8 +140,11 @@ try {
   await adapter.requeue(await job(7));
   await patch(7, { stage: "implementing", stage_event_id: null, synced_event_id: null });
   await fromPoll(() => patch(7, { stage: "failed" }));
+  const old = await adapter.ready();
+  await claim();
+  await fromPoll(() => patch(7, { stage: "failed" }), old);
+  await adapter.requeue(await job(7));
   assert.deepEqual((await claim()).claimed, ["GH-owner-on-7"], "the label added again is a retry");
-  // Past the first page of issues is still read, and one repo's outage hides nothing from the rest.
   for (let n = 300; n <= 400; n++) put(DEFAULT, n);
   down = ON;
   assert.equal((await adapter.ready()).filter((d) => d.repo === DEFAULT).length, 101);

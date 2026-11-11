@@ -103,7 +103,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
       const d = await deps();
       const label = await d.label();
       const { readRegistry } = await import("../repositories");
-      // Each job as it was before the poll reads GitHub: a retry is allowed only if its stage and events are unchanged and the failure was written back (see reclaimIf).
+      // Each job as it was before the poll reads GitHub: a retry is allowed only if its attempt, stage and events are unchanged and the failure was written back (see reclaimIf).
       const rows = await d.db.select().from(jobs).where(eq(jobs.source, "github"));
       const seen = new Map(rows.map((j) => [j.external_id, j]));
       const drafts: JobDraft<"github">[] = [];
@@ -120,7 +120,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
               writeback: { kind: "github", repo, number: issue.number },
               sourceState: { labels: issue.labels.map((l) => l.name) },
               repo, // R2: the claim refuses it rather than route it elsewhere
-              reclaimIf: sql`${jobs.stage}::text is not distinct from ${was?.stage ?? null} and ${jobs.stage_event_id} is not distinct from ${was?.stage_event_id ?? null}::text and ${jobs.synced_event_id} is not distinct from ${was?.synced_event_id ?? null}::text and ${jobs.synced_event_id} is not distinct from ${jobs.stage_event_id}`,
+              reclaimIf: sql`${jobs.stage}::text is not distinct from ${was?.stage ?? null} and ${jobs.attempt} is not distinct from ${was?.attempt ?? null}::int and ${jobs.stage_event_id} is not distinct from ${was?.stage_event_id ?? null}::text and ${jobs.synced_event_id} is not distinct from ${was?.synced_event_id ?? null}::text and ${jobs.synced_event_id} is not distinct from ${jobs.stage_event_id}`,
             });
           }
         } catch (error) {
@@ -161,11 +161,10 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
         throw error;
       }
     },
-    // Questions and answers arrive in the next PR; until then a waiting job waits.
+    // Questions, answers and stops arrive in later PRs: until then a waiting job waits and a running one is stopped from the panel.
     replies: async () => ({ kind: "wait" }),
     acknowledgeReplies: async () => {},
     note: async () => {},
-    // Stops arrive in a later PR; until then a running job is stopped from the panel.
     stopWanted: async () => [],
     confirmStop: async () => ({ stop: false }),
     labels: async () => [],
