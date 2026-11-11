@@ -256,7 +256,7 @@ const snapshot = async () =>
     key: j.key,
     stage: j.stage,
     attempt: j.attempt,
-    state: j.source_state.state,
+    state: "state" in j.source_state ? j.source_state.state : null,
     synced_event_id: j.synced_event_id,
     labels: j.source_state.labels,
     previous_failure: j.previous_failure,

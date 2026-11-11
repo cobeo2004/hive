@@ -563,7 +563,8 @@ export async function claim({
       failed.push(`${source.source}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  const claimed = ready.length === 0 ? { claimed: [], inFlight: 0 } : await claimDrafts(ready, repos, registry);
+  const { refused = [], ...claimed } = ready.length === 0 ? { claimed: [] as string[], inFlight: 0 } : await claimDrafts(ready, repos, registry);
+  failed.push(...refused);
   if (failed.length > 0) throw new Error(`could not read ready work from ${failed.join("; ")} (claimed ${claimed.claimed.join(", ") || "nothing"})`);
   return claimed;
 }
@@ -579,6 +580,8 @@ async function claimDrafts(
   const targetOf = (source: SourceAdapter<JobSource>, draft: JobDraft) =>
     routeRepo(source.overrides(draft.sourceState), known).repo ?? checkouts[0] ?? targets[0]!;
   const me = await mine();
+  // A draft that names its repo runs there or nowhere: never in the default repo or a checkout it did not ask for.
+  const refused: string[] = [];
   return db.transaction(async (tx) => {
     // The lock's name predates other sources; runners on older code take the same one.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('marshal-factory linear-poll'))`);
@@ -591,7 +594,11 @@ async function claimDrafts(
     for (const { source, draft } of ready) {
       if (inFlight >= config.factory.maxInFlight) break;
       const now = new Date();
-      const target = targetOf(source, draft);
+      if (draft.repo && !known.some((r) => r.repo === draft.repo && r.enabled)) {
+        refused.push(`${source.source} ${draft.key} lives in ${draft.repo}, which is not an enabled repository, so it was not claimed`);
+        continue;
+      }
+      const target = draft.repo ?? targetOf(source, draft);
       const inserted = await tx
         .insert(jobs)
         .values({
@@ -660,7 +667,7 @@ async function claimDrafts(
       inFlight++;
       claimed.push(draft.key);
     }
-    return { claimed, inFlight };
+    return { claimed, inFlight, refused };
   });
 }
 
@@ -687,6 +694,7 @@ export function launchMessage(job: Job) {
     "## Issue",
     "",
     job.description?.trim() || "(The issue has no description.)",
+    ...[sourceFor(job.source).launchNote?.(job)].flatMap((note) => (note ? ["", note] : [])),
     ...(job.previous_failure
       ? ["", `This is attempt ${job.attempt}. The previous attempt failed: ${job.previous_failure} Start fresh from main on this branch.`]
       : []),

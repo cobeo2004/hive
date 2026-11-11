@@ -24,6 +24,8 @@ export type JobDraft<S extends JobSource = JobSource> = {
   writeback: WritebackOf<S>;
   /** Merged over the stored state on a reclaim, so state the adapter accumulated survives. */
   sourceState: SourceStateDraftOf<S>;
+  /** The repo the job must run in, for a source whose items live in one; the claim never routes it elsewhere. */
+  repo?: string;
   /** Who is on the item, for picking the job's owner when the claim first inserts it (R8a). */
   owner?: OwnerHints;
 };
@@ -75,6 +77,8 @@ export interface SourceAdapter<S extends JobSource> {
   reopen(job: Job<S>): Promise<void>;
   /** Puts a failed job where the source's intake offers it again, as a person adding the factory label does; the next claim starts a new attempt. */
   requeue(job: Job<S>): Promise<void>;
+  /** What the source adds to the thread's launch message, such as how the PR closes the item. */
+  launchNote?(job: Pick<Job<S>, "key" | "writeback">): string;
   /** The noun phrase naming the job in messages to the thread, such as "Linear issue FAC-7". */
   describe(job: Pick<Job<S>, "key">): string;
   /**
