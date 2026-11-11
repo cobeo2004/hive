@@ -62,9 +62,9 @@ const soft = (p: Promise<unknown>) =>
 /** Always fits (room kept for `-a<n>`) and never repeats: a name the slug would blur (`.`, `_`, `-`, `/`) or that is long carries a hash of the exact name. */
 export function githubKey(repo: string, number: number) {
   const slug = repo.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const hash = createHash("sha256").update(repo.toLowerCase()).digest("hex").slice(0, 8);
+  const hash = createHash("sha256").update(repo.toLowerCase()).digest("hex").slice(0, 20);
   const plain = /^[a-z0-9]+\/[a-z0-9]+$/i.test(repo) && slug.length <= 46;
-  return jobKey("GH", number, plain ? slug : `${slug.slice(0, 37).replace(/-+$/, "")}-${hash}`);
+  return jobKey("GH", number, plain ? slug : `${slug.slice(0, 25).replace(/-+$/, "")}-${hash}`);
 }
 
 /** Every open issue carrying the label, a page at a time. */

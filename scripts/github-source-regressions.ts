@@ -87,6 +87,7 @@ try {
   assert.ok(!calls.some((c) => c.includes(OFF)), "a disabled repo is not read");
   // Keys: never repeated, always fitting, with room for -a<n>.
   assert.notEqual(githubKey("acme/foo.bar", 5), githubKey("acme/foo-bar", 5), "names the slug would blur get different keys");
+  assert.notEqual(githubKey(`o/${"r".repeat(40)}5693`, 7), githubKey(`o/${"r".repeat(40)}28839`, 7), "names sharing a long prefix get different keys");
   const long = githubKey(`${"o".repeat(39)}/${"r".repeat(100)}`, 123456789);
   assert.ok(isJobKey(long) && long.length + 4 <= 64 && parseBranch(attemptBranch(long, 12))?.key === long, "a long name still makes a key");
   // Claim: the job runs in the issue's own repo, never the default one.
