@@ -9,6 +9,7 @@ declare const Bun: { TOML: { parse(text: string): unknown } }; // no bun-types i
 const { patch } = await import("../lib/toml-patch");
 const { parseBranch } = await import("../lib/factory");
 const { mayCreate, runWorkflowPr, runWorkflowSmoke, workflowDeps } = await import("../runner/workflow-pr");
+const { readToml, steps, chain, move, diffLines, meta, tomlError } = await import("../lib/workflow-chain");
 
 const REPO = "acme/sstack";
 const ROLE = ".sstack/roles/implement.toml";
@@ -17,6 +18,7 @@ const CONFIG = ".sstack/config.toml";
 const implement = '# implement role\n\nharness = "claude"  # who implements\nmodel = "opus"\n';
 const step = "id = 'review'\nafter = 'implement'\n";
 const config = "workflow = 'default'\n";
+const harnessModel = 'harness = "claude"\nmodel = "opus"\n';
 const lines = (text: string) => text.split(/(?<=\n)/);
 
 const root = mkdtempSync(join(tmpdir(), "hive-workflow-"));
@@ -185,6 +187,44 @@ try {
   assert.deepEqual(await realDoctor(root), { code: 2, output: "out\nerr\n" });
   process.env.SSTACK_DOCTOR = join(root, "missing");
   await assert.rejects(realDoctor(root));
+
+  // workflow canvas: chain order from `after`, a drag rewrites the fewest lines, recon and pr stay put
+  const s = steps({});
+  assert.deepEqual(chain(s), ["recon", "plan", "implement", "gate", "review", "pr"]);
+  assert.deepEqual(chain(steps({ ".sstack/steps/plan/step.toml": "enabled = false\n" })), ["recon", "implement", "gate", "review", "pr"]);
+  const dmm = steps({ ".sstack/steps/dmm/step.toml": "after = 'implement'\nrole = 'x'\n" });
+  assert.deepEqual(chain(dmm), ["recon", "plan", "implement", "dmm", "gate", "review", "pr"]);
+
+  const moved = move(s, "review", "implement");
+  assert("order" in moved);
+  const diff = diffLines(s, moved.after);
+  assert.equal(diff.length, 2);
+  assert.deepEqual(diff[0], { path: ".sstack/steps/review/step.toml", from: 'after = "gate"', to: 'after = "plan"' });
+  const applied = Object.fromEntries(Object.entries(s).map(([k, v]) => [k, { ...v, after: moved.after[k] ?? v.after }]));
+  assert.deepEqual(chain(applied), moved.order);
+  assert.deepEqual(moved, { order: ["recon", "plan", "review", "implement", "gate", "pr"], after: { review: "plan", implement: "review" } });
+
+  const refused = [
+    ["recon", "plan"],
+    ["pr", "review"],
+    ["plan", "recon"],
+    ["review", "pr"],
+  ].map(([a, b]) => "error" in move(s, a, b));
+  assert.deepEqual(refused, [true, true, true, true]);
+  const gated = { [CONFIG]: '[unattended]\nplan_gate = "inbox" # review plans\n', ".sstack/roles/plan.toml": harnessModel };
+  assert.deepEqual(meta(gated, s.plan), { model: "claude · opus", planGate: "Inbox" });
+  assert.deepEqual(meta({}, s.pr), { model: "—" });
+  assert.deepEqual([meta({ ".sstack/roles/plan.toml": 'model = "sonnet"\n' }, s.plan).model, meta({}, s.review).model], ["claude · sonnet", "default"]);
+  assert.deepEqual(readToml('after = "\\u0070lan"\n"on_fail" = \'a\\b\'\n'), { after: "plan", on_fail: "a\\b" });
+  assert.deepEqual(readToml('"\\u0061fter" = "plan"\nrole = "\\U00000070lan"\n'), { after: "plan", role: "plan" });
+  for (const h of ['["unattended"]\nplan_gate', "[ 'unattended' ]\nplan_gate", "[unattended]\nplan_gate", "unattended.plan_gate"])
+    assert.equal(meta({ [CONFIG]: `${h} = "inbox"\n` }, s.plan).planGate, "Inbox");
+  const six = ["recon", "plan", "implement", "gate", "review", "pr"];
+  for (const after of ['"after" = "\\u0070lan"', 'after = """plan"""']) assert.deepEqual(chain(steps({ ".sstack/steps/review/step.toml": `${after}\n` })), six);
+  const bad = { ".sstack/steps/review/step.toml": "after = \n", [CONFIG]: "unattended.plan_gate =\n" };
+  assert.match(tomlError(bad) ?? "", /^\.sstack\/steps\/review\/step\.toml: /);
+  assert.deepEqual(chain(steps(bad)), six);
+  assert.equal(meta(bad, s.plan).planGate, "Auto");
 
   console.log("workflow regressions passed");
 } catch (error) {
