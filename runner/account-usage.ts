@@ -166,7 +166,8 @@ export async function holdAtPr(job: Pick<JobRow, "key" | "external_id" | "attemp
 /**
  * R10a: the one "does this job have a PR?" check behind all three no-fallback paths (watchdog, inferJob, relaunch). The stored
  * url counts as open; else the attempt branch's PR (`lookup`, so a caller that already started one shares it). A lookup that
- * throws propagates: the caller skips the job rather than treat "unknown" as "no PR" and relaunch it.
+ * throws propagates: the caller skips the job rather than treat "unknown" as "no PR" and relaunch it. A closed, unmerged PR
+ * comes back null from the lookup, so it is "no PR" here: the normal fallback.
  */
 export async function jobPr(
   job: Pick<JobRow, "key" | "attempt" | "repo" | "pr_url">,

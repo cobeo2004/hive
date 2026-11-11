@@ -2,7 +2,6 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { db } from "../db/client";
 import { jobs } from "../db/schema";
 import type { Stage } from "../lib/events";
-import { RATE_LIMITED } from "../lib/creds";
 import { attemptBranch } from "../lib/factory";
 import type { RepoName } from "../lib/github/app";
 import { github } from "../lib/github/pulls";
@@ -10,10 +9,10 @@ import { hosts, isHibernated } from "../lib/host";
 import { parseJobs } from "../lib/sources";
 import type { Job } from "../lib/sources/types";
 import { causeOf, runnerEventId } from "../lib/stages";
-import { holdAtPr, jobPr, rateLimitedRun } from "./account-usage";
+import { jobPr, rateLimitedRun } from "./account-usage";
 import { bindingOf } from "./binding";
 import { thisMachine } from "./heartbeat";
-import { config, harnessDrivers, IN_FLIGHT, jobTracked, postEvent, postMerged, threads, watchdogFail } from "./ops";
+import { config, harnessDrivers, IN_FLIGHT, jobTracked, postEvent, postJobMerged, settleRateLimited, threads, watchdogFail } from "./ops";
 
 // A harness that runs no factory hooks (Codex, Cursor, ...) reports no usage, and stages only
 // through the factory-report MCP server where it has one, so the runner fills the gaps from what it
@@ -65,16 +64,11 @@ async function inferJob(job: Job, now: number): Promise<string | undefined> {
   // stopped thread (this pass runs before the watchdog). A gone thread is the watchdog's to fail.
   const thread = await threads.read(job.t3_thread_id, hosts.forJob(job));
   if (thread.state === "stopped" && (await rateLimitedRun(job, hosts.forJob(job)))) {
-    const had = await jobPr(job, prOnBranch);
-    if (had?.state === "open") return (await holdAtPr(job, had.url)) ? "pr" : undefined;
-    if (!had) return quiet && (await watchdogFail(job, `${RATE_LIMITED} (stage ${job.stage})`)) ? "failed" : undefined;
+    return settleRateLimited(job, await jobPr(job, prOnBranch), { fail: quiet });
   }
   if (!job.pr_url && (quiet || !reported)) {
     const pr = await prOnBranch();
-    if (pr?.state === "merged") {
-      await postMerged(job.key, pr.url, job.session_id ?? runnerEventId("merged", job.external_id));
-      return "merged";
-    }
+    if (pr?.state === "merged") return postJobMerged(job, pr.url);
     if (pr?.state === "open") {
       await post(job, "pr", { summary: `Opened ${pr.url}`, prUrl: pr.url });
       return "pr";

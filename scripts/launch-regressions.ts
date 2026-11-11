@@ -616,7 +616,7 @@ try {
   const openPr = "https://github.com/ski043/factory-demo/pull/1";
   const posted: { jobKey?: string; stage?: string }[] = [];
   ingestClient.post = async (event) => (posted.push(event), ingest(db, [eventSchema.parse(event)])); // the stage posts go through the real projection
-  const rows: { status: string; signal: boolean; pr: boolean; stage: string; inside?: boolean }[] = [
+  const rows: { status: string; signal: boolean; pr: boolean; stage: string; inside?: boolean; merged?: boolean }[] = [
     { status: "failed", signal: false, pr: false, stage: "failed" },
     { status: "completed", signal: false, pr: false, stage: "waiting" },
     ...["failed", "completed", "interrupted"].flatMap((status) => [
@@ -625,11 +625,13 @@ try {
       { status, signal: false, pr: true, stage: "pr" },
       { status, signal: true, pr: true, stage: "pr" },
       { status, signal: true, pr: true, inside: true, stage: "pr" },
+      { status, signal: true, pr: false, merged: true, stage: "merged" },
+      { status, signal: true, pr: false, merged: true, inside: true, stage: "merged" },
     ]),
   ];
-  for (const { status, signal, stage, pr, inside } of rows) {
-    github.pullRequestForBranch = async () => (pr ? { url: openPr, state: "open" } : null);
-    const cx = `${id}-cx-${status}-${signal}${pr ? "-pr" : ""}${inside ? "-in" : ""}`;
+  for (const { status, signal, stage, pr, inside, merged } of rows) {
+    github.pullRequestForBranch = async () => (pr ? { url: openPr, state: "open" } : merged ? { url: openPr, state: "merged" } : null);
+    const cx = `${id}-cx-${status}-${signal}${pr ? "-pr" : ""}${merged ? "-merged" : ""}${inside ? "-in" : ""}`;
     threads.read = async () => ({ state: "stopped", status, lastMessage: null });
     await seed(cx, { provider: "codex", t3_thread_id: `t-${cx}`, stage_at: inside ? new Date() : new Date(0) });
     rateLimitRuntime.signal = async () => signal;
@@ -638,13 +640,15 @@ try {
     await relaunchRateLimited((async (jid: string) => (retried.push(jid), {})) as never);
     const row = (await db.select().from(jobs).where(eq(jobs.key, cx)))[0]!;
     const summary = row.stage_summary ?? "";
-    const tag = `${status}/${signal}/${pr ? "pr" : "no pr"}${inside ? "/inside the grace" : ""}: ${summary}`;
+    const tag = `${status}/${signal}/${pr ? "pr" : merged ? "merged" : "no pr"}${inside ? "/inside the grace" : ""}: ${summary}`;
     assert.equal(row.stage, stage, tag);
-    assert.equal(summary.includes(RATE_LIMITED), signal && !pr && !inside, tag);
+    assert.equal(summary.includes(RATE_LIMITED), signal && !pr && !merged && !inside, tag);
     assert.equal(/rate limit/.test(summary), signal && pr, `${tag}: a PR held at pr says why`);
     assert.equal(posted.filter((e) => e.jobKey === cx && e.stage === "pr").length, stage === "pr" ? 1 : 0, `${tag}: exactly one pr note, however many passes`);
     if (stage === "failed") assert.ok(summary.includes(signal ? RATE_LIMITED : "its T3 thread failed"), tag);
-    assert.equal(retried.includes(jobId("linear", cx)), signal && !pr && !inside, `${tag}: only a rate-limited attempt without a PR is retried`);
+    assert.equal(retried.includes(jobId("linear", cx)), signal && !pr && !merged && !inside, `${tag}: only a rate-limited attempt without a PR is retried`);
+    if (merged)
+      assert.deepEqual([row.pr_url, posted.filter((e) => e.jobKey === cx && e.stage === "merged").length], [openPr, 1], `${tag}: the merge is recorded once`);
   }
   const hold = `${id}-hold`;
   await seed(hold, { t3_thread_id: "mcp:hold", pr_url: openPr });
@@ -668,6 +672,34 @@ try {
   const kicked: string[] = [];
   await relaunchRateLimited((async (jid: string) => (kicked.push(jid), {})) as never);
   assert.ok(!kicked.includes(jobId("linear", unreported)), "and is never relaunched");
+  // Every other PR state on the tracked watchdog: a merged branch PR is the merge, a closed one (the lookup returns null) the normal fallback.
+  const [mergedKey, closedKey] = [`${id}-tracked-merged`, `${id}-tracked-closed`];
+  threads.state = async () => "stopped";
+  rateLimitRuntime.signal = async () => true;
+  for (const [key, pull] of [
+    [mergedKey, { url: openPr, state: "merged" as const }],
+    [closedKey, null],
+  ] as const) {
+    await seed(key, { t3_thread_id: `mcp:${key}` });
+    github.pullRequestForBranch = async () => pull;
+    for (let pass = 0; pass < 2; pass++) await watchdog();
+    const tracked = (await db.select().from(jobs).where(eq(jobs.key, key)))[0]!;
+    const retriedKeys: string[] = [];
+    await relaunchRateLimited((async (jid: string) => (retriedKeys.push(jid), {})) as never);
+    if (pull)
+      assert.deepEqual(
+        [tracked.stage, tracked.pr_url, retriedKeys.includes(jobId("linear", key))],
+        ["merged", openPr, false],
+        "a merged branch PR is the merge, never a retry",
+      );
+    else
+      assert.deepEqual(
+        [tracked.stage, tracked.stage_summary?.includes(RATE_LIMITED), retriedKeys.filter((j) => j === jobId("linear", key)).length],
+        ["failed", true, 1],
+        "a closed, unmerged PR is the normal fallback",
+      );
+    assert.equal(posted.filter((e) => e.jobKey === key && e.stage === "merged").length, pull ? 1 : 0, `${key}: one merged event across two passes`);
+  }
   // R10a: a failed, rate-limited attempt that already has a PR is never relaunched; the same job without one is, once.
   github.pullRequestForBranch = async () => null;
   const [withPr, noPr] = [`${id}-relaunch-pr`, `${id}-relaunch-nopr`];
