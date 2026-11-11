@@ -28,7 +28,7 @@ import { ShortTime } from "./time";
 
 /** Badge colours: lime is PR ready only (Q66), and selection is Unibuz blue. */
 const TONE: Record<BadgeTone, string> = {
-  input: "bg-(--primary-soft) text-primary",
+  input: "bg-(--primary-soft) text-(--primary-text)",
   ready: "bg-(--lime) text-(--on-lime)",
   testing: "bg-(--warning-soft) text-warning",
   failed: "bg-(--danger-soft) text-destructive",
@@ -278,7 +278,7 @@ function Detail({ item, card, fullView, owner }: { item: Item; card: BoardCard |
   const review = loaded.kind === "ready" ? loaded.review : null;
   const assessment = parseAssessment(job.merge_assessment);
   const badge = kindBadge(item);
-  const bugbot = review && kind === "handover" ? bugbotLine(review.bugbot) : null;
+  const bugbot = review ? bugbotLine(review.bugbot) : null;
   // A block's body; null leaves the block out.
   const body = (block: Block): ReactNode => {
     switch (block) {

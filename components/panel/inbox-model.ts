@@ -19,7 +19,7 @@ export const BLOCK_LABEL: Record<Block, string> = {
   stop: "Stop not confirmed",
 };
 
-/** Each kind's blocks in order: a handover reads why, then what ran, what the agent concluded and what it touched. */
+/** Each kind's blocks in order: a handover reads why, what the agent concluded, what it touched and what ran; the other kinds lead with their reason, then show whatever evidence, assessment and review the job has. */
 export function inboxBlocks(kind: InboxKind): readonly Block[] {
   switch (kind) {
     case "question":
@@ -27,13 +27,13 @@ export function inboxBlocks(kind: InboxKind): readonly Block[] {
     case "plan_approval":
       return ["plan"];
     case "handover":
-      return ["why", "evidence", "reading", "changes"];
+      return ["why", "reading", "changes", "evidence"];
     case "failed":
-      return ["failed"];
+      return ["failed", "evidence", "reading", "changes"];
     case "revert_failed":
-      return ["revert"];
+      return ["revert", "evidence", "reading", "changes"];
     case "stop_unconfirmed":
-      return ["stop"];
+      return ["stop", "evidence", "reading", "changes"];
     default: {
       const never: never = kind;
       throw new Error(`unknown inbox kind ${String(never)}`);

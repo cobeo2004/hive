@@ -32,9 +32,14 @@ assert.deepEqual(inboxBlocks("question"), ["asked"]);
 assert.deepEqual(inboxBlocks("plan_approval"), ["plan"]);
 assert.deepEqual(
   inboxBlocks("handover").filter((block) => block === "evidence" || block === "changes"),
-  ["evidence", "changes"],
+  ["changes", "evidence"],
   "a handover shows its evidence and changed files",
 );
+for (const kind of ["failed", "revert_failed", "stop_unconfirmed"] as const)
+  assert.ok(
+    ["reading", "changes"].every((block) => inboxBlocks(kind).includes(block as never)),
+    `${kind} still shows the assessment and the review`,
+  );
 
 for (const kind of KINDS)
   assert.equal(dangerBlock(kind), kind === "failed" || kind === "revert_failed", `${kind} gets a danger well only when it is a failure`);
