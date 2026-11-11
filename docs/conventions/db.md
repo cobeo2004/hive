@@ -1,6 +1,6 @@
 # Database and migrations
 
-Applies to `db/**` and `drizzle/**`. Both are held files (`never_merge`): a migration PR's gate says **HOLD** and a person merges it. That is expected, so state it in the PR body instead of trying to clear it (L26). Live-update behaviour is in [operations.md § Panel access and deploys](../operations.md#panel-access-and-deploys).
+Applies to `db/**` and `drizzle/**`. `drizzle/**`, `db/schema.ts` and `scripts/migrate-guard.ts` are held files (`never_merge` in `.sstack/config.toml`; `db/client.ts` is not): a migration PR's gate says **HOLD** and a person merges it. That is expected, so state it in the PR body instead of trying to clear it (L26). Live-update behaviour is in [operations.md § Panel access and deploys](../operations.md#panel-access-and-deploys).
 
 > This page outranks the `postgres-drizzle` skill wherever they differ. Where the skill says `drizzle-kit push` or `generate --custom` is fine, here it is not.
 
@@ -20,7 +20,7 @@ Applies to `db/**` and `drizzle/**`. Both are held files (`never_merge`): a migr
 - Any Postgres 16 or later. No Neon-specific code: migration and listener use the direct URL.
 - `DATABASE_URL` is the pooled pool used by `db/client.ts` (max 5). `DATABASE_URL_UNPOOLED` is for `drizzle-kit` (`drizzle.config.ts`) and `LISTEN`, which a pooler cannot hold.
 - `db/client.ts` reads `DATABASE_URL` at import, so `next build` fails at "Collecting page data" without it. In a checkout with no `.env.local`, set a dummy before `bun run build` (L7).
-- Migrations run with `bun run db:migrate`: step 3 of `scripts/rollout.ts` on a pool Mac, and `vercel.json`'s build command, which runs `scripts/migrate-guard.ts` first. That guard (`lib/migrate-guard.ts`) holds a list of production Neon endpoints and refuses a non-production Vercel build aimed at one. It is inherited and held; do not extend it for Hive databases.
+- Migrations run with `bun run db:migrate`: step 3 of `scripts/rollout.ts` on a pool Mac, and `vercel.json`'s build command, which runs `scripts/migrate-guard.ts` first. That guard (`lib/migrate-guard.ts`) holds a list of production Neon endpoints and refuses a non-production Vercel build aimed at one. The script is a held file; do not extend the guard for Hive databases.
 
 ## Live-update tables
 
