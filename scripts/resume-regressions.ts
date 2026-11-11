@@ -6,7 +6,8 @@ const { db } = await import("../db/client");
 const { jobs } = await import("../db/schema");
 const { jobId } = await import("../lib/sources");
 const { linearJob } = await import("./fixtures");
-const { claimReplies } = await import("../lib/resume");
+const { claimReplies, resumeMessage } = await import("../lib/resume");
+const { isApproval, PLAN_APPROVED, planNotes, planQuestion } = await import("../lib/plan-approval");
 const { planResume, resumeCommentId, stageCommentId, claimCommentId } = await import("../lib/sources/linear");
 
 const id = `resume-regress-${Date.now()}`;
@@ -47,6 +48,32 @@ assert.deepEqual(
   { kind: "close", state: "Canceled" },
   "a job closed in Linear never resumes",
 );
+
+const approved = resumeMessage("ABC-1", planQuestion("p"), PLAN_APPROVED, "factory");
+assert.match(approved, /Phase 2 \(implement\)/, "an approved plan resumes at implement");
+assert.doesNotMatch(approved, /Phase 1/);
+const approvedTwice = resumeMessage("ABC-1", planQuestion("p"), `${PLAN_APPROVED}\n\n${PLAN_APPROVED}`, "factory");
+assert.match(approvedTwice, /Phase 2 \(implement\)/, "repeated approvals resume at implement");
+assert.doesNotMatch(approvedTwice, /Phase 1/);
+for (const variant of ["  Plan approved.  ", "Plan approved.\r\n\r\nPlan approved.", "Plan approved.\n \n\nPlan approved.\n"]) {
+  const msg = resumeMessage("ABC-1", planQuestion("p"), variant, "factory");
+  assert.match(msg, /Phase 2 \(implement\)/, `whitespace variant ${JSON.stringify(variant)} resumes at implement`);
+  assert.doesNotMatch(msg, /Phase 1/);
+  assert.equal(isApproval(variant), true);
+  assert.deepEqual(planNotes(variant), []);
+}
+assert.deepEqual(planNotes("Plan approved.\r\n\r\nSplit step 2.\r\n"), ["Split step 2."], "an approval mixed with a note keeps only the note");
+assert.deepEqual(planNotes("a\n\nb\n\n\nc"), ["a", "b", "c"], "every other paragraph is a note");
+assert.equal(isApproval("Split step 2."), false);
+assert.equal(isApproval(""), true, "nothing to change is an approval");
+const mixed = resumeMessage("ABC-1", planQuestion("p"), `${PLAN_APPROVED}\n\nSplit step 2.`, "factory");
+assert.match(mixed, /Phase 1 \(plan\)/, "an approval mixed with a note goes back to plan");
+assert.match(mixed, /^> Split step 2\.$/m, "quoting the note after an approval");
+assert.doesNotMatch(mixed, /Plan approved\./, "an approval mixed with a note is not quoted");
+const revise = resumeMessage("ABC-1", planQuestion("p"), "Split step 2.", "factory");
+assert.match(revise, /Phase 1 \(plan\)/, "requested changes go back to plan");
+assert.match(revise, /^> Split step 2\.$/m, "quoting the owner's note");
+assert.match(resumeMessage("ABC-1", "Which layout?", "b", "factory"), /from Triage/, "an ordinary question still resumes from Triage");
 
 const now = new Date();
 const jid = jobId("linear", id);
