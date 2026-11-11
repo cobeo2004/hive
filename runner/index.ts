@@ -24,7 +24,7 @@ const { stopDeliverable } = await import("./binding");
 const { inferUntracked } = await import("./untracked");
 const { flushLocalOutbox } = await import("./outbox");
 const { approveMerge, decideMerges } = await import("./merge-decision");
-const { closeJob, forwardReview, requestChanges, retryJob } = await import("./inbox");
+const { closeJob, forwardReview, relaunchRateLimited, requestChanges, retryJob } = await import("./inbox");
 const { confirmStops, retryStop } = await import("./stops");
 const { approveDetailSchema, closeDetailSchema, feedbackDetailSchema, retryDetailSchema } = await import("../lib/inbox");
 const { watchMerges } = await import("./post-merge");
@@ -223,6 +223,8 @@ async function tick() {
     stopsConfirmed: await isolated(() => confirmStops()),
     pairingsExpired: await isolated(expirePairings),
     synced: await isolated(writeBackPass),
+    // After the write-back, so retryJob's sync gate usually passes on the same tick.
+    rateLimited: await isolated(() => relaunchRateLimited()),
     // Applies the Hive ~/.sstack defaults once doctor accepts them here; a second tick writes nothing.
     defaultsSynced: await isolated(syncDefaults),
     // Starts a rebuild when the pins drifted and returns; the build runs beside the queue.

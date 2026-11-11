@@ -36,6 +36,7 @@ const allowed: [Stage, Stage, Cause][] = [
   ["waiting", "triage", "report"],
   ["failed", "queued", "reclaim"],
   ["failed", "merged", "merged"],
+  ["failed", "pr", "inferred"],
   ...WORKING.flatMap((from): [Stage, Stage, Cause][] => [
     [from, "failed", "watchdog"],
     [from, "failed", "budget"],
@@ -52,11 +53,9 @@ for (const [from, to, cause] of allowed) {
 const forbidden: [Stage, Stage, Cause][] = [
   ...STAGES.flatMap((to) => CAUSES.map((cause): [Stage, Stage, Cause] => ["merged", to, cause])),
   ...STAGES.flatMap((to) =>
-    CAUSES.filter((c) => !(c === "reclaim" && to === "queued") && !(c === "merged" && to === "merged")).map((cause): [Stage, Stage, Cause] => [
-      "failed",
-      to,
-      cause,
-    ]),
+    CAUSES.filter((c) => !(c === "reclaim" && to === "queued") && !(c === "merged" && to === "merged") && !(c === "inferred" && to === "pr")).map(
+      (cause): [Stage, Stage, Cause] => ["failed", to, cause],
+    ),
   ),
   ...STAGES.flatMap((from): [Stage, Stage, Cause][] => [
     [from, "queued", "report"],
@@ -111,6 +110,11 @@ assert.deepEqual(
   decideStage({ ...row, stage: "failed" }, { stage: "pr", at: new Date(2_000), eventId: "e-3", branch: "hive/FAC-7-a2" }),
   { outcome: "refuse", cause: "report", reason: "failed -> pr (report) is not in STAGE_TRANSITIONS" },
   "a stage after failed without a reclaim is refused",
+);
+assert.deepEqual(
+  decideStage({ ...row, stage: "failed" }, { stage: "pr", at: new Date(2_000), eventId: runnerEventId("inferred", "FAC-7", 2, "e"), branch: "hive/FAC-7-a2" }),
+  { outcome: "apply", cause: "inferred" },
+  "the runner puts a rate-limited failed job back at pr once it finds the PR",
 );
 
 console.log(`stages regressions passed: ${allowed.length} allowed and ${forbidden.length} forbidden transitions`);

@@ -9,9 +9,10 @@ import { hosts, isHibernated } from "../lib/host";
 import { parseJobs } from "../lib/sources";
 import type { Job } from "../lib/sources/types";
 import { causeOf, runnerEventId } from "../lib/stages";
+import { jobPr, rateLimitedRun } from "./account-usage";
 import { bindingOf } from "./binding";
 import { thisMachine } from "./heartbeat";
-import { config, harnessDrivers, IN_FLIGHT, jobTracked, postEvent, postMerged, threads, watchdogFail } from "./ops";
+import { config, harnessDrivers, IN_FLIGHT, jobTracked, postEvent, postJobMerged, settleRateLimited, threads, watchdogFail } from "./ops";
 
 // A harness that runs no factory hooks (Codex, Cursor, ...) reports no usage, and stages only
 // through the factory-report MCP server where it has one, so the runner fills the gaps from what it
@@ -56,21 +57,24 @@ async function inferJob(job: Job, now: number): Promise<string | undefined> {
   // A stage the agent reported itself (Codex through the factory-report server) stands until the
   // run has been quiet past the grace, so its own pr report, with its assessment, comes first.
   const reported = job.stage_event_id !== null && causeOf(job.stage_event_id) === "report";
+  const branch = attemptBranch(job.key, job.attempt);
+  let lookup: ReturnType<typeof github.pullRequestForBranch> | undefined;
+  const prOnBranch = () => (lookup ??= github.pullRequestForBranch(job.repo as RepoName, branch));
+  // R10a: the one place the rate-limit signal is read, first and whatever the grace, before anything finalises a
+  // stopped thread (this pass runs before the watchdog). A gone thread is the watchdog's to fail.
+  const thread = await threads.read(job.t3_thread_id, hosts.forJob(job));
+  if (thread.state === "stopped" && (await rateLimitedRun(job, hosts.forJob(job)))) {
+    return settleRateLimited(job, await jobPr(job, prOnBranch), { fail: quiet });
+  }
   if (!job.pr_url && (quiet || !reported)) {
-    const pr = await github.pullRequestForBranch(job.repo as RepoName, attemptBranch(job.key, job.attempt));
-    if (pr?.state === "merged") {
-      await postMerged(job.key, pr.url, job.session_id ?? runnerEventId("merged", job.external_id));
-      return "merged";
-    }
+    const pr = await prOnBranch();
+    if (pr?.state === "merged") return postJobMerged(job, pr.url);
     if (pr?.state === "open") {
       await post(job, "pr", { summary: `Opened ${pr.url}`, prUrl: pr.url });
       return "pr";
     }
   }
-  if (!quiet) return undefined;
-  const thread = await threads.read(job.t3_thread_id, hosts.forJob(job));
-  // A gone thread is the watchdog's to fail.
-  if (thread.state !== "stopped") return undefined;
+  if (!quiet || thread.state !== "stopped") return undefined;
   const settled = settledAs(thread.status);
   switch (settled) {
     case "failed":

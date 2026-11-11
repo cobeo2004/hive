@@ -47,6 +47,22 @@ export function sumUsage(transcript: string): Usage {
   return total;
 }
 
+/** Rate-limited: the last main-thread turn is an API failure Claude Code tagged `error: "rate_limit"`. Never reads message text. */
+export function transcriptRateLimited(transcript: string) {
+  const turns = transcript.split("\n").flatMap((raw) => {
+    try {
+      const e = JSON.parse(raw) as { type?: unknown; error?: unknown; isSidechain?: unknown; message?: { content?: unknown } } | null;
+      const content = e?.message?.content; // a subagent's entry, or a user entry of only tool results, is not the parent's turn
+      const toolOnly = Array.isArray(content) && content.every((b) => b?.type === "tool_result");
+      return e && e.isSidechain !== true && (e.type === "assistant" || (e.type === "user" && !toolOnly)) ? [e] : [];
+    } catch {
+      return [];
+    }
+  });
+  const last = turns.at(-1);
+  return last?.type === "assistant" && last.error === "rate_limit";
+}
+
 /** The meta file can be caught mid-write; then the agent is counted by id alone until the next snapshot. */
 async function toolUseIdFrom(metaPath: string, host: JobHost) {
   try {

@@ -1,6 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, like, sql } from "drizzle-orm";
 import { db } from "../db/client";
-import { auditLog, intents, jobs, type IntentRow } from "../db/schema";
+import { auditLog, intents, jobs, runs, type IntentRow } from "../db/schema";
+import { RATE_LIMITED } from "../lib/creds";
 import { attemptBranch, parseBranch } from "../lib/factory";
 import { github } from "../lib/github/pulls";
 import { ensureAwake } from "../lib/host";
@@ -9,7 +10,8 @@ import { parseJob, sourceFor } from "../lib/sources";
 import type { Job, JobId } from "../lib/sources/types";
 import { canTransition, runnerEventId } from "../lib/stages";
 import { requestedStop } from "../lib/stop";
-import { claim, finishStop, IN_FLIGHT, postEvent, threads } from "./ops";
+import { jobPr } from "./account-usage";
+import { claim, finishStop, IN_FLIGHT, postEvent, settleRateLimited, threads } from "./ops";
 
 // The inbox's actions on the job's own machine. Requested changes reach the thread once per
 // feedback id: the id is claimed on the job before the send and given back if the send fails, as
@@ -219,4 +221,36 @@ export async function retryJob(id: JobId, { actor, attempt, note }: RetryDetail,
     refused:
       "The factory can't start another attempt yet, for example while the failed one is still stopping. The factory label is back on the issue, so the next attempt starts as soon as it can.",
   };
+}
+
+/** R10a: a failed attempt the provider rate-limited starts again, through the usual retry, on the next account in the order. */
+export async function relaunchRateLimited(retry: typeof retryJob = retryJob) {
+  const failed = await db
+    .select()
+    .from(jobs)
+    .where(and(eq(jobs.stage, "failed"), like(jobs.stage_summary, `%${RATE_LIMITED}%`), isNull(jobs.pr_url))); // no account fallback once a PR exists
+  const out: { key: string; started?: number; refused?: string }[] = [];
+  for (const listed of failed) {
+    // Re-read: the row may have moved (a PR opened, a retry started) since the list was taken.
+    const [job] = await db.select().from(jobs).where(eq(jobs.id, listed.id));
+    if (!job || job.stage !== "failed" || job.pr_url || !job.stage_summary?.includes(RATE_LIMITED)) continue;
+    // The PR may exist without having been reported; a failed lookup or settle skips this job, never retries it.
+    try {
+      const pr = await jobPr(job);
+      if (pr) {
+        await settleRateLimited(job, pr, { fail: false }); // open -> pr, merged -> merged; never a retry
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    // ponytail: the runner's own login is the last resort; a rate limit there just stays failed (nothing to exclude, no loop).
+    const [ran] = await db
+      .select({ id: runs.account_id })
+      .from(runs)
+      .where(and(eq(runs.job_key, job.key), eq(runs.branch, attemptBranch(job.key, job.attempt)), isNotNull(runs.account_id)))
+      .limit(1);
+    if (ran) out.push({ key: job.key, ...(await retry(job.id as JobId, { actor: "Hive", attempt: job.attempt, note: "" })) });
+  }
+  return out;
 }

@@ -17,9 +17,9 @@ import { thisMachine } from "./heartbeat";
 import type { JobSource } from "../lib/sources/types";
 import { isMobileSnapshot, type Execution } from "../lib/execution";
 import type { HarnessChoice } from "../lib/settings";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db/client";
-import { repoSstackConfig, type RepoSettingsRow } from "../db/schema";
+import { jobs as jobsTable, repoSstackConfig, type RepoSettingsRow } from "../db/schema";
 import { routeRepo, withRepoDefaults, type Registry } from "../lib/repositories";
 import type { TicketRecord } from "../lib/ticket-overrides";
 import { sourceFor } from "../lib/sources";
@@ -470,6 +470,17 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
   let room = limits.maxParallel - (await sandboxesInFlight(slot.id));
   // claude and codex are the job's owner's or pool's accounts (R9a); null means the runner's own login.
   const leases = new Map<string, { marker: string; slot: string | null; choice: HarnessChoice; claude: Account | null; codex: Account | null }>();
+  const poolWait = async (key: string) => {
+    const POOL_WAIT = "Waiting for the team pool";
+    await db
+      .update(jobsTable)
+      .set({ stage_summary: POOL_WAIT })
+      .where(
+        and(eq(jobsTable.key, key), eq(jobsTable.stage, "queued"), isNull(jobsTable.machine_id), sql`${jobsTable.stage_summary} is distinct from ${POOL_WAIT}`),
+      );
+    runtime.log("sandbox:pool-wait", { key });
+    return false;
+  };
   const loginOf = (slot: string): CodexLogin => ({ slot, auth: runtime.slotAuth(slot) });
   // Account errors carry an account id or fixed text, never a secret.
   const accountError = (event: string, key: string, error: unknown) =>
@@ -485,7 +496,7 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
       }
       if (start.outdated) runtime.log("sandbox:warm-image-outdated", { key, repo: entry.repo, reason: start.outdated });
       const driver = runtime.driverOf(entry.harness.provider);
-      let claude: Account | null = null;
+      let claude: Account | null | "wait" = null;
       try {
         // Only a Claude Code job reads the Claude account, so an unopenable one never blocks another harness.
         if (driver === "claudeAgent") claude = await runtime.account(key, "claude", runtime.claudeToken());
@@ -493,9 +504,10 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
         accountError("sandbox:no-account", key, error);
         return false;
       }
+      if (claude === "wait") return poolWait(key);
       const { choice, fallback } = sandboxHarness(entry.harness, driver, Boolean(claude), limits.codexModel);
       if (!(await claimLaunch(key, marker, slot, choice, { execution: "modal", ticket: entry.ticket }))) return false;
-      let codex: Account | null = null;
+      let codex: Account | null | "wait" = null;
       try {
         // With no default passed, only a real row comes back: it replaces a leased slot, which stays the runner's own login.
         if (needsCodexSlot(choice.provider)) codex = await runtime.account(key, "codex", undefined);
@@ -504,6 +516,7 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
         accountError("sandbox:no-account", key, error);
         return false;
       }
+      if (codex === "wait") return releaseLaunch(key, marker).then(() => poolWait(key));
       const codexSlot = needsCodexSlot(choice.provider) && !codex ? await leaseCodexSlot(key, marker, usableSlots(limits)) : null;
       if (codexSlot === undefined) {
         await releaseLaunch(key, marker);

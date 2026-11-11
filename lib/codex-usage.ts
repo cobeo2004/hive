@@ -45,7 +45,10 @@ const tokenCount = z.object({
   }),
 });
 
-const taskEvent = z.object({ type: z.literal("event_msg"), payload: z.object({ type: z.enum(["task_started", "task_complete"]) }) });
+const taskEvent = z.object({
+  type: z.literal("event_msg"),
+  payload: z.object({ type: z.enum(["task_started", "task_complete", "error"]), codex_error_info: z.unknown().optional() }),
+});
 
 const subagentSource = z.object({ subagent: z.object({ thread_spawn: z.object({ parent_thread_id: z.string() }) }) });
 
@@ -64,6 +67,8 @@ export type Rollout = {
   lastUsageAt: number | null;
   /** The last turn ended and no other started. */
   settled: boolean;
+  /** The last usage_limit_exceeded error came after the last task_started. */
+  rateLimited: boolean;
   /** The model is "unknown" until a turn_context names one. */
   usage: Usage;
   /** The rate-limit windows of the last token count that had them; absent with none. */
@@ -84,6 +89,7 @@ export function parseRollout(text: string): Rollout | undefined {
   let total: z.infer<typeof tokenUsage> | undefined;
   let lastUsageAt: number | null = null;
   let settled = false;
+  let rateLimited = false;
   let limits: z.infer<typeof rateLimits>;
   let limitsAt: number | null = null;
   for (const raw of text.split("\n")) {
@@ -106,7 +112,10 @@ export function parseRollout(text: string): Rollout | undefined {
     }
     const task = taskEvent.safeParse(line);
     if (task.success) {
-      settled = task.data.payload.type === "task_complete";
+      const { type, codex_error_info: error } = task.data.payload;
+      if (type === "error") rateLimited ||= error === "usage_limit_exceeded";
+      else settled = type === "task_complete";
+      if (type === "task_started") rateLimited = false;
       continue;
     }
     const count = tokenCount.safeParse(line);
@@ -141,6 +150,7 @@ export function parseRollout(text: string): Rollout | undefined {
     startedAt: time(meta.timestamp),
     lastUsageAt,
     settled,
+    rateLimited,
     usage: {
       input: Math.max(0, (total?.input_tokens ?? 0) - cacheRead - cacheWrite),
       output: total?.output_tokens ?? 0,
@@ -198,7 +208,7 @@ export function codexUsage(rollouts: readonly Rollout[], run: CodexRun): CodexUs
 const RECORD = "\u001e";
 
 // Prints, per rollout written to in the last $2 minutes, a separator with its path, then only the
-// lines the parser needs: the session_meta, the last turn_context, the last turn start or end, the
+// lines the parser needs: the session_meta, the last turn_context, the last two turn or limit-error lines, the
 // last running total and the last rate limits.
 const READ_SCRIPT = `
 cd "$1" 2>/dev/null || exit 0
@@ -206,7 +216,7 @@ find . -name 'rollout-*.jsonl' -mmin "-$2" | while IFS= read -r f; do
   printf '${RECORD}%s\\n' "$f"
   head -n 1 "$f"
   grep -F '"type":"turn_context"' "$f" | tail -n 1
-  grep -E '"type":"task_(started|complete)"' "$f" | tail -n 1
+  grep -E '"type":"task_(started|complete)"|"codex_error_info":"usage_limit_exceeded"' "$f" | tail -n 2
   grep -F '"total_token_usage"' "$f" | tail -n 1
   grep -F '"rate_limits":{' "$f" | tail -n 1
 done

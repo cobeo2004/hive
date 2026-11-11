@@ -1,10 +1,18 @@
-import { and, eq, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, isNull, lt } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
-import { accountUsage, agentAccounts } from "../db/schema";
+import { accountUsage, agentAccounts, runs, type JobRow, type RunRow } from "../db/schema";
 import { unseal } from "../lib/creds";
-import type { Limits, Rollout } from "../lib/codex-usage";
+import { codexUsage, readRollouts, ROLLOUT_SLACK_MS, type Limits, type Rollout } from "../lib/codex-usage";
+import { attemptBranch, isMcpSession } from "../lib/factory";
+import type { RepoName } from "../lib/github/app";
+import { github, type BranchPull } from "../lib/github/pulls";
+import type { JobHost } from "../lib/host";
+import { runnerEventId } from "../lib/stages";
+import { transcriptPathFor, transcriptRateLimited } from "../lib/transcript";
 import { forbidInTest } from "../lib/test-mode";
+import { codexHomeOf } from "./codex-usage";
+import { postEvent } from "./ingest-client";
 
 // The 5h and 7d meters of each subscription account (R11a): Claude's are polled from Anthropic's
 // OAuth usage endpoint, Codex's ride on the rollouts the runner already reads. API-key accounts
@@ -109,4 +117,69 @@ export async function recordCodexLimits(accountId: string, limits: Limits, at?: 
     .from(agentAccounts)
     .where(and(eq(agentAccounts.id, accountId), eq(agentAccounts.kind, "subscription")));
   if (account) await upsertUsage(accountId, limits, new Date(at));
+}
+
+/** The provider's structured record of a run (Claude transcript, Codex rollout): was it ended by a rate limit? Replaced in regressions. */
+export const rateLimitRuntime = {
+  async signal(run: RunRow, host: JobHost) {
+    if (!isMcpSession(run.session_id)) {
+      const path = transcriptPathFor(run);
+      return !!path && transcriptRateLimited((await host.readFile(path)) ?? "");
+    }
+    const startedAt = run.started_at.getTime();
+    const rollouts = await readRollouts(host, codexHomeOf(host), startedAt - ROLLOUT_SLACK_MS);
+    return codexUsage(rollouts, { cwd: run.cwd, branch: run.branch, startedAt })?.main.rateLimited ?? false;
+  },
+};
+
+/** R10a: did the provider rate-limit the job's current attempt? Anything unreadable is no, so a tick never breaks on it. */
+export async function rateLimitedRun(job: { key: string; attempt: number }, host: JobHost) {
+  try {
+    const [run] = await db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.job_key, job.key), eq(runs.branch, attemptBranch(job.key, job.attempt))))
+      .orderBy(desc(runs.started_at))
+      .limit(1);
+    return !!run && (await rateLimitRuntime.signal(run, host));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * R10a: no account fallback once a PR exists (a relaunch could only open a second one): the job stays at pr with one note.
+ * Returns whether it posted. The event id carries the event that moved the job into its stage, so a retry of one transition
+ * is the same id (one note) while a return to implementing after requested changes gets a new one (the next rate limit posts).
+ */
+export async function holdAtPr(
+  job: Pick<JobRow, "key" | "external_id" | "attempt" | "session_id" | "stage" | "stage_event_id" | "stage_summary">,
+  prUrl: string,
+) {
+  if (job.stage === "pr" && job.stage_summary?.startsWith("The account hit its rate limit")) return false;
+  await postEvent({
+    eventId: runnerEventId("inferred", job.external_id, job.attempt, "pr", "rate-limited", job.stage_event_id ?? job.stage),
+    sessionId: job.session_id ?? runnerEventId("inferred", job.external_id, job.attempt),
+    at: Date.now(),
+    kind: "stage",
+    stage: "pr",
+    jobKey: job.key,
+    summary: `The account hit its rate limit, and Hive will not relaunch it now that ${prUrl} is open.`,
+    prUrl,
+  });
+  return true;
+}
+
+/**
+ * R10a: the one "does this job have a PR?" check behind all three no-fallback paths (watchdog, inferJob, relaunch). The stored
+ * url counts as open; else the attempt branch's PR (`lookup`, so a caller that already started one shares it). A lookup that
+ * throws propagates: the caller skips the job rather than treat "unknown" as "no PR" and relaunch it. A closed, unmerged PR
+ * comes back null from the lookup, so it is "no PR" here: the normal fallback.
+ */
+export async function jobPr(
+  job: Pick<JobRow, "key" | "attempt" | "repo" | "pr_url">,
+  lookup: () => Promise<BranchPull | null> = () => github.pullRequestForBranch(job.repo as RepoName, attemptBranch(job.key, job.attempt)),
+): Promise<BranchPull | undefined> {
+  if (job.pr_url) return { url: job.pr_url, state: "open" };
+  return (await lookup()) ?? undefined;
 }

@@ -1,12 +1,14 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 // R9a: sealed credentials and per-user account selection.
 const { db } = await import("../db/client");
-const { agentAccounts, jobs, user } = await import("../db/schema");
+const { accountUsage, agentAccounts, jobs, runs, user } = await import("../db/schema");
+const { config } = await import("../runner/config");
 const { linearJob } = await import("./fixtures");
 const { accountFor, credsProvider, newKeyPair, pickAccount, recordRunAccount, runnerDefaultClaudeToken, seal, unseal } = await import("../lib/creds");
+const { RATE_LIMITED } = await import("../lib/creds");
 
 const FAILED = /^Error: a sealed credential could not be opened$/;
 const pair = newKeyPair();
@@ -50,7 +52,8 @@ const row = (id: string, owner_id: string | null, extra: Partial<Parameters<type
   created_at: new Date(1_700_000_000_000 + n++),
   ...extra,
 });
-const pick = (rows: ReturnType<typeof row>[], owner: string | null, provider: "claude" | "codex" = "claude") => pickAccount(rows, owner, provider)?.id;
+const pick = (rows: ReturnType<typeof row>[], owner: string | null, provider: "claude" | "codex" = "claude") =>
+  (pickAccount(rows, owner, provider) as { id: string } | undefined)?.id;
 assert.equal(pick([row("a1", "A"), row("b1", "B"), row("pool", null)], "A"), "a1", "A's job gets A's account");
 assert.equal(pick([row("b1", "B")], "A"), undefined, "A's job never gets B's account, even when it is the only row");
 assert.equal(pick([row("b1", "B"), row("pool", null)], "A"), "pool", "an owner without an account gets the pool's");
@@ -75,6 +78,7 @@ const account = (id: string, owner_id: string | null, secret: string, provider: 
 });
 const ids = ["creds-a", "creds-b", "creds-pool", "creds-a-codex"];
 await db.delete(agentAccounts).where(inArray(agentAccounts.id, ids));
+await db.delete(runs).where(inArray(runs.job_key, Object.values(keys)));
 await db.delete(jobs).where(inArray(jobs.key, Object.values(keys)));
 await db.delete(user).where(inArray(user.id, [A, B]));
 await db.insert(user).values([
@@ -104,6 +108,35 @@ try {
   assert.deepEqual(await secretOf(keys.none), { id: "creds-pool", secret: "token-of-pool" }, "an owner-less job runs on the pool's");
   assert.deepEqual(await secretOf("CRD-gone"), { id: "creds-pool", secret: "token-of-pool" }, "so does a job that is gone");
 
+  // R10a: the owner's account under 95% of its 5h window, else the pool's; each attempt records its account.
+  const meter = async (used_pct: number, ...ids: string[]) => {
+    await db.delete(accountUsage).where(inArray(accountUsage.account_id, ids));
+    await db.insert(accountUsage).values(ids.map((account_id) => ({ account_id, window: "5h" as const, used_pct, read_at: new Date() })));
+  };
+  const stamp = async (thread: string, branch: string, accountId: string) => {
+    const at = new Date();
+    await db.insert(runs).values({ session_id: `creds-${thread}`, job_key: keys.a, branch, t3_thread_id: thread, started_at: at, last_event_at: at });
+    await recordRunAccount(keys.a, thread, accountId);
+  };
+  const ranOn = () => db.select({ branch: runs.branch, account: runs.account_id }).from(runs).where(eq(runs.job_key, keys.a)).orderBy(runs.branch);
+  const failed = (attempt: number, previous_failure: string | null) => db.update(jobs).set({ attempt, previous_failure }).where(eq(jobs.key, keys.a));
+  await meter(50, "creds-a");
+  assert.deepEqual(await secretOf(keys.a), { id: "creds-a", secret: "token-of-a" }, "1.1: the owner under 95% runs on its own account");
+  await stamp("t-1", "hive/CRD-1", "creds-a");
+  await failed(2, null);
+  await meter(95, "creds-a");
+  assert.deepEqual(await secretOf(keys.a), { id: "creds-pool", secret: "token-of-pool" }, "1.2: at 95% the pool account runs");
+  await meter(95, "creds-pool");
+  config.factory.pool.pauseInstead = true;
+  assert.equal(await secretOf(keys.a), "wait", "1.4: pool at its threshold with pauseInstead on waits");
+  config.factory.pool.pauseInstead = false;
+  await meter(10, "creds-a", "creds-pool");
+  await failed(2, `Watchdog stopped this run: ${RATE_LIMITED} (stage implementing).`);
+  assert.deepEqual(await secretOf(keys.a), { id: "creds-pool", secret: "token-of-pool" }, "1.3: the owner's account just rate-limited, so the pool's runs");
+  await stamp("t-2", "hive/CRD-1-a2", "creds-pool");
+  const ran = (await ranOn()).map((r) => `${r.branch}:${r.account}`);
+  assert.deepEqual(ran, ["hive/CRD-1:creds-a", "hive/CRD-1-a2:creds-pool"], "1.3: each attempt's runs.account_id says which account ran it");
+  await failed(1, null);
   // The pool's rows beat the runner default, and B's account is never A's, whatever is left.
   await db.delete(agentAccounts).where(inArray(agentAccounts.id, ["creds-a", "creds-pool"]));
   assert.deepEqual(await secretOf(keys.a), { id: null, secret: "runner-token" }, "A has none and the pool is empty: the runner default, never B's");
@@ -113,6 +146,9 @@ try {
   await db.insert(agentAccounts).values(account("creds-a-codex", A, '{"auth":"a-codex"}', "codex"));
   assert.deepEqual(await secretOf(keys.a, "codex", null), { id: "creds-a-codex", secret: '{"auth":"a-codex"}' });
   assert.deepEqual(await secretOf(keys.a, "claude", null), null, "a Codex account is not a Claude one");
+  await db.insert(agentAccounts).values(account("creds-pool", null, "token-of-pool"));
+  assert.deepEqual(await secretOf(keys.a), { id: "creds-pool", secret: "token-of-pool" }, "1.5: a Codex-only owner gets a pool Claude account");
+  await db.delete(agentAccounts).where(eq(agentAccounts.id, "creds-pool"));
 
   // A runner without the private key says so without the sealed bytes; one with another key gets the fixed error.
   await assert.rejects(accountFor(keys.b, "claude", undefined, {}), /^Error: HIVE_CREDS_PRIVATE_KEY is not set; cannot open account creds-b$/);
@@ -122,6 +158,7 @@ try {
   await recordRunAccount(keys.a, "thread-1", null);
   await recordRunAccount(keys.a, "thread-1", "creds-a-codex");
 } finally {
+  await db.delete(runs).where(inArray(runs.job_key, Object.values(keys)));
   await db.delete(agentAccounts).where(inArray(agentAccounts.id, ids));
   await db.delete(jobs).where(inArray(jobs.key, Object.values(keys)));
   await db.delete(user).where(inArray(user.id, [A, B]));

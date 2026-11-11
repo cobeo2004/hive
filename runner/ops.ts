@@ -9,13 +9,14 @@ import { canTransition, runnerEventId } from "../lib/stages";
 import { subagentTranscripts, sumUsage, transcriptPathFor } from "../lib/transcript";
 import { checkoutRepo, cleanupRepo, cleanupSubagentWorktrees } from "../lib/worktrees";
 import { sweepMedia } from "./cleanup";
-import { github } from "../lib/github/pulls";
+import { github, type BranchPull } from "../lib/github/pulls";
 import { claimConflict, conflictMessage, unclaimedRunsWithPr } from "../lib/conflicts";
 import { attemptBranch, isJobKey, isMcpSession } from "../lib/factory";
 import { ownerNoteSection } from "../lib/inbox";
 import { attemptBranchSql } from "../lib/branch-sql";
 import { nudgeMessage, watch } from "../lib/watchdog";
 import { factoryPlaybook, jobExecution } from "../lib/playbook";
+import { RATE_LIMITED } from "../lib/creds";
 import { isTracked } from "../lib/harness";
 import { readHarnesses } from "../lib/t3-state";
 import { readSettings, resolveExecution, resolveHarness, type HarnessChoice } from "../lib/settings";
@@ -32,6 +33,7 @@ import { thisMachine } from "./heartbeat";
 import { leaseSlot, teardownSandbox } from "./lifecycle";
 import { confirmStops, stopDelivered } from "./stops";
 import { postEvent } from "./ingest-client";
+import { holdAtPr, jobPr, rateLimitedRun } from "./account-usage";
 import { recordCodexUsage } from "./codex-usage";
 import { recordSstackLineage } from "./sstack-lineage";
 
@@ -268,13 +270,25 @@ export async function watchdog() {
     if (isHibernated(job)) continue;
     const now = new Date();
     const host = hosts.forJob(job);
+    const thread = await threads.state(job.t3_thread_id, host);
+    // R10a: a run the provider rate-limited fails now, so the retry path moves it to the next account.
+    if (thread === "stopped" && (await rateLimitedRun(job, host))) {
+      // A lookup that fails skips the job this pass, never a fallback; the shared handler decides the rest.
+      const pr = await jobPr(job).catch(() => "unknown" as const);
+      if (pr === "unknown") console.error(`watchdog: PR lookup failed for ${job.key}; skipped`);
+      else {
+        const outcome = await settleRateLimited(job, pr, { fail: true, now });
+        if (outcome) actions.push(`${job.key}:${outcome === "failed" ? "rate-limited" : outcome}`);
+      }
+      continue;
+    }
     const action = watch(
       {
         stage: job.stage,
         lastEventAt: lastEventAt ?? job.updated_at,
         nudgedAt: job.nudged_at,
         nudgedStage: job.nudged_stage,
-        thread: await threads.state(job.t3_thread_id, host),
+        thread,
         tracked: jobTracked(job, drivers),
         now,
       },
@@ -343,6 +357,38 @@ export async function watchdogFail(
     jobKey: job.key,
   });
   return true;
+}
+
+/** A job's merged branch PR, found without a stored url (inference, the rate-limit path): the merge goes in as a stage event. */
+export async function postJobMerged(job: Pick<JobRow, "key" | "external_id" | "session_id">, prUrl: string) {
+  await postMerged(job.key, prUrl, job.session_id ?? runnerEventId("merged", job.external_id));
+  return "merged" as const;
+}
+
+/**
+ * R10a: what a rate-limited, stopped job does about its PR (`jobPr`'s answer), shared by the watchdog and inferJob so they cannot
+ * drift. No account fallback once a PR exists: an open one holds the job at pr, a merged one is a merge; only no PR fails the job
+ * for the next account. A closed, unmerged PR is "no PR" (the lookup only returns open or merged), so it falls back as normal.
+ * `fail: false` (inferJob inside the quiet grace) does nothing for no PR. Returns what it did, undefined when nothing posted.
+ */
+export async function settleRateLimited(
+  job: Pick<JobRow, "id" | "key" | "external_id" | "attempt" | "stage" | "stage_event_id" | "stage_summary" | "session_id">,
+  pr: BranchPull | undefined,
+  { fail, now }: { fail: boolean; now?: Date },
+): Promise<"pr" | "merged" | "failed" | undefined> {
+  const state = pr?.state ?? "none";
+  switch (state) {
+    case "open":
+      return (await holdAtPr(job, pr!.url)) ? "pr" : undefined;
+    case "merged":
+      return postJobMerged(job, pr!.url);
+    case "none":
+      return fail && (await watchdogFail(job, `${RATE_LIMITED} (stage ${job.stage})`, now)) ? "failed" : undefined;
+    default: {
+      const never: never = state;
+      throw new Error(`unhandled PR state ${String(never)}`);
+    }
+  }
 }
 
 /**

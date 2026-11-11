@@ -29,7 +29,8 @@ export const STAGE_TRANSITIONS: { readonly [From in Stage]: { readonly [C in Cau
   pr: { report: REPORTED, conflict: ["implementing", "failed"], changes: ["implementing"], stop: ["failed"], merged: ["merged"] },
   waiting: { report: REPORTED, resume: ["queued"], closed: ["failed"], stop: ["failed"], merged: ["merged"] },
   merged: {},
-  failed: { reclaim: ["queued"], merged: ["merged"] },
+  // A rate-limited job failed before its PR was seen; the runner finds the PR afterwards and puts the job back at pr, never relaunching.
+  failed: { reclaim: ["queued"], merged: ["merged"], inferred: ["pr"] },
 };
 
 export const canTransition = (from: Stage, to: Stage, cause: Cause) => STAGE_TRANSITIONS[from][cause]?.includes(to) ?? false;

@@ -6,8 +6,21 @@ import type { JobHost } from "../lib/host";
 import type { LaunchPlan } from "../runner/overrides";
 
 const { db } = await import("../db/client");
-const { jobs, repoSstackConfig } = await import("../db/schema");
-const { bindThread, claimLaunch, deliverStops, pendingLaunches, reconcileStops, releaseLaunch, threads } = await import("../runner/ops");
+const { agentAccounts, jobs, repoSstackConfig, runs: runRows } = await import("../db/schema");
+const { bindThread, claimLaunch, config, deliverStops, pendingLaunches, reconcileStops, releaseLaunch, threads, watchdog } = await import("../runner/ops");
+const { newKeyPair, RATE_LIMITED, seal } = await import("../lib/creds");
+const { rateLimitRuntime } = await import("../runner/account-usage");
+const { transcriptRateLimited } = await import("../lib/transcript");
+const { parseRollout } = await import("../lib/codex-usage");
+const { relaunchRateLimited } = await import("../runner/inbox");
+const { inferUntracked } = await import("../runner/untracked");
+const { ingestClient } = await import("../runner/ingest-client");
+const { ingest } = await import("../lib/ingest");
+const { eventSchema } = await import("../lib/events");
+const { runnerEventId } = await import("../lib/stages");
+const { github } = await import("../lib/github/pulls");
+const { pinnedVersions } = await import("../lib/sandbox");
+const { sandboxHarness, sandboxRuntime } = await import("../runner/sandbox");
 const { jobId, sourceFor } = await import("../lib/sources");
 const { linearJob } = await import("./fixtures");
 const { createLinearAdapter } = await import("../lib/sources/linear");
@@ -15,6 +28,7 @@ const { factorySchema, TEST_MACHINE_ID } = await import("../lib/config");
 const { canReclaim, canReclaimSql, stopDeliverable, stopDeliverableSql } = await import("../runner/binding");
 const { and, sql } = await import("drizzle-orm");
 const { launchEntries, maybeStarted, MaybeStartedError, mobileRepos, parseThreadId, placeMobile, startThread } = await import("../runner/launch");
+const { launchInSandboxes } = await import("../runner/launch");
 const { isMobileSnapshot } = await import("../lib/execution");
 const { hosts, localHost } = await import("../lib/host");
 const { everyAtMost, serialQueue } = await import("../runner/queue");
@@ -550,11 +564,220 @@ try {
   t = 150;
   assert.equal(await hourly(), undefined, "after a success the clock waits a full interval again");
 
+  // R10a: only the provider's structured error marks a rate limit, never what the agent said.
+  const say = (text: string, extra: object = {}) => ({ type: "assistant", message: { content: text }, ...extra });
+  const hit = say("API Error: 429", { error: "rate_limit", isApiErrorMessage: true });
+  const transcript = (...lines: object[]) => lines.map((l) => JSON.stringify(l)).join("\n");
+  for (const [want, ...lines] of [
+    [true, { type: "user" }, hit],
+    [false, hit, say("recovered")],
+    [false, say("Tests failed: expected HTTP 429, received 200."), say("Failed to implement rate limiting")],
+    [false, say("API Error: 429")],
+    [false, say("ok"), { ...hit, isSidechain: true }],
+    [true, hit, { type: "assistant", isSidechain: true }],
+    [true, hit, { type: "user", message: { content: [{ type: "tool_result" }] } }],
+  ] as const)
+    assert.equal(transcriptRateLimited(transcript(...lines)), want, JSON.stringify(lines));
+  const event = (type: string, more: object = {}) => ({ type: "event_msg", payload: { type, ...more } });
+  const full = event("error", { codex_error_info: "usage_limit_exceeded", message: "You've hit your usage limit." });
+  for (const [want, ...events] of [
+    [true, event("task_started"), full],
+    [false, full, event("task_started")],
+    [false, event("task_started"), event("agent_message", { message: "I fixed the rate limit handling." })],
+  ] as const)
+    assert.equal(parseRollout(transcript({ type: "session_meta", payload: { id: "t1" } }, ...events))!.rateLimited, want, JSON.stringify(events));
+  const [rl, acct] = [`${id}-rl`, `${id}-acct`];
+  const now = new Date();
+  await db.insert(agentAccounts).values({ id: acct, provider: "claude", kind: "subscription", label: acct, sealed: seal("t", newKeyPair().publicKey) });
+  const seed = async (key: string, job: object) => {
+    await db.insert(jobs).values(linearJob(key, key, { stage: "implementing", machine_id: TEST_MACHINE_ID, ...job }));
+    await db.insert(runRows).values({ session_id: `${key}-s`, job_key: key, branch: `hive/${key}`, account_id: acct, started_at: now, last_event_at: now });
+  };
+  await seed(rl, { t3_thread_id: "mcp:rl", attempt: 1 });
+  let text = transcript(say("Tests failed: expected HTTP 429, received 200."));
+  threads.state = async (threadId) => (["mcp:rl", "mcp:hold", "mcp:unreported"].includes(threadId ?? "") ? "stopped" : "running");
+  github.pullRequestForBranch = async () => null; // the watchdog looks for the branch's PR before it fails a rate-limited job
+  rateLimitRuntime.signal = async () => transcriptRateLimited(text);
+  await watchdog();
+  assert.equal((await db.select().from(jobs).where(eq(jobs.key, rl)))[0]!.stage, "implementing", "a stopped thread with no provider signal is not failed");
+  text = transcript({ type: "user" }, hit);
+  await assert.rejects(watchdog(), /deployed ingest function/); // the failure row is written before the event posts
+  const waiting = `${id}-wait`;
+  await db.insert(jobs).values(linearJob(waiting, waiting, { stage: "queued" }));
+  const limits = config.factory.sandbox;
+  Object.assign(sandboxRuntime, {
+    image: () => ({ imageId: "im-test", t3Version: limits.t3Version, versions: pinnedVersions(limits), factoryCommit: "abc", builtAt: "now" }),
+    driverOf: (provider: string) => provider,
+    account: async () => "wait",
+  });
+  assert.deepEqual(await launchInSandboxes([entry(waiting)], slot), [], "no thread starts");
+  const { stage, stage_summary, t3_thread_id, machine_id } = (await db.select().from(jobs).where(eq(jobs.key, waiting)))[0]!;
+  assert.deepEqual([stage, stage_summary, t3_thread_id, machine_id], ["queued", "Waiting for the team pool", null, null], "1.4: the job waits for the pool");
+  // 1.3 on an untracked harness, whatever status T3 settled on: with a PR open the job stays at pr with one note and is never relaunched; with none it fails for the next account.
+  const openPr = "https://github.com/ski043/factory-demo/pull/1";
+  const posted: { jobKey?: string; stage?: string }[] = [];
+  ingestClient.post = async (event) => (posted.push(event), ingest(db, [eventSchema.parse(event)])); // the stage posts go through the real projection
+  const rows: { status: string; signal: boolean; pr: boolean; stage: string; inside?: boolean; merged?: boolean }[] = [
+    { status: "failed", signal: false, pr: false, stage: "failed" },
+    { status: "completed", signal: false, pr: false, stage: "waiting" },
+    ...["failed", "completed", "interrupted"].flatMap((status) => [
+      { status, signal: true, pr: false, stage: "failed" },
+      { status, signal: true, pr: false, inside: true, stage: "implementing" },
+      { status, signal: false, pr: true, stage: "pr" },
+      { status, signal: true, pr: true, stage: "pr" },
+      { status, signal: true, pr: true, inside: true, stage: "pr" },
+      { status, signal: true, pr: false, merged: true, stage: "merged" },
+      { status, signal: true, pr: false, merged: true, inside: true, stage: "merged" },
+    ]),
+  ];
+  for (const { status, signal, stage, pr, inside, merged } of rows) {
+    github.pullRequestForBranch = async () => (pr ? { url: openPr, state: "open" } : merged ? { url: openPr, state: "merged" } : null);
+    const cx = `${id}-cx-${status}-${signal}${pr ? "-pr" : ""}${merged ? "-merged" : ""}${inside ? "-in" : ""}`;
+    threads.read = async () => ({ state: "stopped", status, lastMessage: null });
+    await seed(cx, { provider: "codex", t3_thread_id: `t-${cx}`, stage_at: inside ? new Date() : new Date(0) });
+    rateLimitRuntime.signal = async () => signal;
+    for (let pass = 0; pass < (signal ? 2 : 1); pass++) await inferUntracked({ only: [cx] });
+    const retried: string[] = [];
+    await relaunchRateLimited((async (jid: string) => (retried.push(jid), {})) as never);
+    const row = (await db.select().from(jobs).where(eq(jobs.key, cx)))[0]!;
+    const summary = row.stage_summary ?? "";
+    const tag = `${status}/${signal}/${pr ? "pr" : merged ? "merged" : "no pr"}${inside ? "/inside the grace" : ""}: ${summary}`;
+    assert.equal(row.stage, stage, tag);
+    assert.equal(summary.includes(RATE_LIMITED), signal && !pr && !merged && !inside, tag);
+    assert.equal(/rate limit/.test(summary), signal && pr, `${tag}: a PR held at pr says why`);
+    assert.equal(posted.filter((e) => e.jobKey === cx && e.stage === "pr").length, stage === "pr" ? 1 : 0, `${tag}: exactly one pr note, however many passes`);
+    if (stage === "failed") assert.ok(summary.includes(signal ? RATE_LIMITED : "its T3 thread failed"), tag);
+    assert.equal(retried.includes(jobId("linear", cx)), signal && !pr && !merged && !inside, `${tag}: only a rate-limited attempt without a PR is retried`);
+    if (merged)
+      assert.deepEqual([row.pr_url, posted.filter((e) => e.jobKey === cx && e.stage === "merged").length], [openPr, 1], `${tag}: the merge is recorded once`);
+  }
+  const hold = `${id}-hold`;
+  await seed(hold, { t3_thread_id: "mcp:hold", pr_url: openPr });
+  rateLimitRuntime.signal = async () => true;
+  for (let pass = 0; pass < 2; pass++) await watchdog();
+  const held = (await db.select().from(jobs).where(eq(jobs.key, hold)))[0]!;
+  assert.deepEqual([held.stage, /rate limit/.test(held.stage_summary ?? "")], ["pr", true], "a tracked rate-limited job with a PR stays at pr, never failed");
+  assert.equal(posted.filter((e) => e.jobKey === hold && e.stage === "pr").length, 1, "its note is posted once");
+  // Requested changes move it back to implementing (a new stage event); the next rate limit is a new note, still one per limit.
+  const [heldRow] = await db.select().from(jobs).where(eq(jobs.key, hold));
+  await ingestClient.post({
+    eventId: runnerEventId("changes", heldRow!.external_id, "fb-1"),
+    sessionId: heldRow!.session_id ?? runnerEventId("changes", heldRow!.external_id),
+    at: Date.now(),
+    kind: "stage",
+    stage: "implementing",
+    summary: "A reviewer requested changes; the thread is updating it.",
+    jobKey: hold,
+  } as never);
+  assert.equal((await db.select().from(jobs).where(eq(jobs.key, hold)))[0]!.stage, "implementing", "requested changes move the held job back to implementing");
+  for (let pass = 0; pass < 2; pass++) await watchdog();
+  const heldAgain = (await db.select().from(jobs).where(eq(jobs.key, hold)))[0]!;
+  assert.deepEqual(
+    [heldAgain.stage, /rate limit/.test(heldAgain.stage_summary ?? "")],
+    ["pr", true],
+    "a second rate limit after requested changes holds it at pr again",
+  );
+  assert.equal(posted.filter((e) => e.jobKey === hold && e.stage === "pr").length, 2, "one note per rate limit: two in total, none from the second pass");
+  // The tracked job opened its PR but hit the limit before reporting it: no stored url, an open PR on its branch.
+  const unreported = `${id}-unreported`;
+  await seed(unreported, { t3_thread_id: "mcp:unreported" });
+  github.pullRequestForBranch = async () => ({ url: openPr, state: "open" });
+  for (let pass = 0; pass < 2; pass++) await watchdog();
+  const kept = (await db.select().from(jobs).where(eq(jobs.key, unreported)))[0]!;
+  assert.deepEqual(
+    [kept.stage, kept.pr_url, /rate limit/.test(kept.stage_summary ?? "")],
+    ["pr", openPr, true],
+    "a tracked rate-limited job whose PR was never reported stays at pr",
+  );
+  assert.equal(posted.filter((e) => e.jobKey === unreported && e.stage === "pr").length, 1, "its note is posted once across two passes");
+  const kicked: string[] = [];
+  await relaunchRateLimited((async (jid: string) => (kicked.push(jid), {})) as never);
+  assert.ok(!kicked.includes(jobId("linear", unreported)), "and is never relaunched");
+  // Every other PR state on the tracked watchdog: a merged branch PR is the merge, a closed one (the lookup returns null) the normal fallback.
+  const [mergedKey, closedKey] = [`${id}-tracked-merged`, `${id}-tracked-closed`];
+  threads.state = async () => "stopped";
+  rateLimitRuntime.signal = async () => true;
+  for (const [key, pull] of [
+    [mergedKey, { url: openPr, state: "merged" as const }],
+    [closedKey, null],
+  ] as const) {
+    await seed(key, { t3_thread_id: `mcp:${key}` });
+    github.pullRequestForBranch = async () => pull;
+    for (let pass = 0; pass < 2; pass++) await watchdog();
+    const tracked = (await db.select().from(jobs).where(eq(jobs.key, key)))[0]!;
+    const retriedKeys: string[] = [];
+    await relaunchRateLimited((async (jid: string) => (retriedKeys.push(jid), {})) as never);
+    if (pull)
+      assert.deepEqual(
+        [tracked.stage, tracked.pr_url, retriedKeys.includes(jobId("linear", key))],
+        ["merged", openPr, false],
+        "a merged branch PR is the merge, never a retry",
+      );
+    else
+      assert.deepEqual(
+        [tracked.stage, tracked.stage_summary?.includes(RATE_LIMITED), retriedKeys.filter((j) => j === jobId("linear", key)).length],
+        ["failed", true, 1],
+        "a closed, unmerged PR is the normal fallback",
+      );
+    assert.equal(posted.filter((e) => e.jobKey === key && e.stage === "merged").length, pull ? 1 : 0, `${key}: one merged event across two passes`);
+  }
+  // R10a: a failed, rate-limited attempt that already has a PR is never relaunched; the same job without one is, once.
+  github.pullRequestForBranch = async () => null;
+  const [withPr, noPr] = [`${id}-relaunch-pr`, `${id}-relaunch-nopr`];
+  await seed(withPr, { stage: "failed", stage_summary: RATE_LIMITED, attempt: 1, pr_url: openPr });
+  await seed(noPr, { stage: "failed", stage_summary: RATE_LIMITED, attempt: 1 });
+  const relaunched: string[] = [];
+  const result = await relaunchRateLimited((async (jid: string) => (relaunched.push(jid), {})) as never);
+  assert.deepEqual(
+    relaunched.filter((j) => j.endsWith("-relaunch-pr") || j.endsWith("-relaunch-nopr")),
+    [jobId("linear", noPr)],
+    "only the job with no PR is retried, once",
+  );
+  assert.ok(!result.some((r) => r.key === withPr) && result.some((r) => r.key === noPr), "the result has no entry for the job with a PR");
+  // A failed marker job with no stored url whose branch has an open PR is not retried, and a failing lookup skips it.
+  const [branchPr, lookupFails] = [`${id}-relaunch-branch-pr`, `${id}-relaunch-lookup-fails`];
+  await seed(branchPr, { stage: "failed", stage_summary: RATE_LIMITED, attempt: 1 });
+  await seed(lookupFails, { stage: "failed", stage_summary: RATE_LIMITED, attempt: 1 });
+  github.pullRequestForBranch = async (_repo, branch) => {
+    if (branch.includes("lookup-fails")) throw new Error("GitHub is down");
+    return branch.includes("branch-pr") ? { url: openPr, state: "open" } : null;
+  };
+  relaunched.length = 0;
+  await relaunchRateLimited((async (jid: string) => (relaunched.push(jid), {})) as never);
+  assert.ok(
+    relaunched.includes(jobId("linear", noPr)),
+    "a job with no PR anywhere is still retried (and a failing lookup on another job does not stop the pass)",
+  );
+  assert.ok(!relaunched.includes(jobId("linear", branchPr)), "an unreported open branch PR blocks the retry");
+  assert.ok(!relaunched.includes(jobId("linear", lookupFails)), "a lookup that throws skips the job instead of retrying it");
+  // The PR was exposed after the watchdog's lookup: the relaunch pass settles the failed job itself (open -> pr, merged -> merged) and never retries it.
+  for (const state of ["open", "merged"] as const) {
+    const late = `${id}-relaunch-late-${state}`;
+    await seed(late, { stage: "failed", stage_summary: RATE_LIMITED, attempt: 1 });
+    github.pullRequestForBranch = async () => ({ url: openPr, state });
+    const retriedLate: string[] = [];
+    for (let pass = 0; pass < 2; pass++) await relaunchRateLimited((async (jid: string) => (retriedLate.push(jid), {})) as never);
+    const settled = (await db.select().from(jobs).where(eq(jobs.key, late)))[0]!;
+    const want = state === "open" ? "pr" : "merged";
+    assert.deepEqual(
+      [settled.stage, settled.pr_url],
+      [want, openPr],
+      `a failed job whose ${state} PR shows up at relaunch is settled at ${want} with the url stored`,
+    );
+    if (state === "open") assert.match(settled.stage_summary ?? "", /rate limit/, "the rate-limit note is the summary");
+    assert.ok(!retriedLate.includes(jobId("linear", late)), `${state}: never retried`);
+    assert.equal(posted.filter((e) => e.jobKey === late && e.stage === want).length, 1, `${state}: one ${want} event across two passes`);
+  }
+  const lead = { provider: "claudeAgent", model: "claude-opus-5-5" };
+  assert.deepEqual(sandboxHarness(lead, "claudeAgent", true, limits.codexModel), { choice: lead }, "1.5: a pool Claude account keeps the Claude harness");
   console.log("launch regressions passed");
 } catch (error) {
   console.error(error);
   process.exitCode = 1;
 } finally {
+  await db.delete(runRows).where(like(runRows.job_key, `${id}-%`));
+  await db.delete(agentAccounts).where(like(agentAccounts.id, `${id}-%`));
+  await db.delete(jobs).where(like(jobs.key, `${id}-%`));
   await db.delete(jobs).where(eq(jobs.id, jid));
   await db.delete(repoSstackConfig).where(like(repoSstackConfig.repo, `${id}-%`));
   process.exit(process.exitCode ?? 0);
