@@ -61,11 +61,11 @@ function edit(text: string, section: string, key: string, rendered: string): str
   }
   let end = start;
   while (end < lines.length && !isHeader(end)) end++;
-  const full = new RegExp(`^(\\s*${key}\\s*=\\s*)((?:"(?:[^"\\\\]|\\\\.)*"|'[^']*'|[^#"'])*?)(\\s*(?:#.*)?)$`);
+  const full = /^(\s*)([A-Za-z0-9_-]+)(\s*=\s*)((?:"(?:[^"\\]|\\.)*"|'[^']*'|[^#"'])*?)(\s*(?:#.*)?)$/;
   for (let i = start; i < end; i++) {
     const match = inValue[i] || !code[i]!.trim() ? null : full.exec(lines[i]!.replace(EOL, ""));
-    if (!match) continue;
-    lines[i] = `${match[1]}${rendered}${match[3]}${EOL.exec(lines[i]!)?.[0] ?? ""}`;
+    if (!match || match[2] !== key) continue;
+    lines[i] = `${match[1]}${match[2]}${match[3]}${rendered}${match[5]}${EOL.exec(lines[i]!)?.[0] ?? ""}`;
     return lines.join("");
   }
   let last = end - 1;
