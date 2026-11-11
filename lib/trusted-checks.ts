@@ -23,8 +23,23 @@ export function scriptsOf(packageJson: string | null): Scripts | null {
     const scripts: unknown = (JSON.parse(packageJson) as { scripts?: unknown } | null)?.scripts ?? {};
     // A non-string value (`"t": null` after `"t": "echo A"`) means a duplicate key JSON.parse and bun read differently.
     if (typeof scripts !== "object" || scripts === null || Array.isArray(scripts)) return null;
-    const values = Object.values(scripts);
-    return values.every((value) => typeof value === "string") ? (scripts as Scripts) : null;
+    if (!Object.values(scripts).every((value) => typeof value === "string")) return null;
+    // bun skips an empty script value and keeps the first string when the last is a non-string, while JSON.parse keeps the
+    // last, so a repeated key is only safe when both agree, which varies by value: reject every one. The text is valid JSON
+    // here, so its string tokens are in sync; a token followed by `:` is a key, and decoding it folds `\u`/`\/` spellings.
+    // Over-matching (a script name that is also a dependency name, a nested key) only hands over.
+    const watched = new Set(["scripts", ...Object.keys(scripts)]);
+    const seen = new Set<string>();
+    const colon = /\s*:/y;
+    for (const token of packageJson.matchAll(/"(?:[^"\\]|\\.)*"/g)) {
+      colon.lastIndex = token.index + token[0].length;
+      if (!colon.test(packageJson)) continue;
+      const key = JSON.parse(token[0]) as string;
+      if (!watched.has(key)) continue;
+      if (seen.has(key)) return null;
+      seen.add(key);
+    }
+    return scripts as Scripts;
   } catch {
     return null;
   }

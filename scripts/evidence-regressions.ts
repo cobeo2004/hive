@@ -339,6 +339,21 @@ assert.match(
 // bun runs the first `"t"`, JSON.parse keeps the last: a non-string value anywhere is ambiguous, not "no script".
 assert.equal(scriptsOf('{"scripts":{"t":"echo A","t":null}}'), null, "a null duplicate script");
 assert.equal(scriptsOf('{"scripts":{"t":"echo A","t":1}}'), null, "a number duplicate script");
+// bun skips an empty value and JSON.parse keeps the last duplicate, so every repeated script name is ambiguous.
+assert.equal(scriptsOf('{"scripts":{"t":"echo A","t":""}}'), null, "an empty last duplicate runs A in bun");
+assert.equal(scriptsOf('{"scripts":{"t":"echo A","t":"echo B"}}'), null, "two string duplicates");
+assert.equal(scriptsOf('{"scripts":{"t":"","t":"echo B"}}'), null, "an empty first duplicate");
+assert.equal(scriptsOf('{"scripts":{"a\\/b":"x","a/b":"y"}}'), null, "an escaped and a plain spelling of one script name");
+assert.match(
+  edits(["package.json"], { t: "" }, scriptsOf('{"scripts":{"t":"echo A","t":""}}'))[0]!,
+  /couldn't be compared/,
+  "an empty-duplicate head against a base of an empty script is a handover",
+);
+const ownPackageJson = readFileSync("package.json", "utf8");
+assert.deepEqual(scriptsOf(ownPackageJson), (JSON.parse(ownPackageJson) as { scripts: Record<string, string> }).scripts, "the repo's own package.json parses");
+// Deliberate over-match: a script name that is also a dependency name is a repeated key, so it hands over.
+assert.equal(scriptsOf('{"scripts":{"lint":"x"},"dependencies":{"lint":"1"}}'), null, "a script name that is also a dependency name");
+assert.deepEqual(scriptsOf('{"scripts":{"t":"x"},"dependencies":{"u":"1"},"x":"t"}'), { t: "x" }, "a script name used as a value is not a key");
 assert.equal(scriptsOf('{"scripts":{"t":{"a":1}}}'), null, "an object script");
 assert.equal(scriptsOf('{"scripts":[]}'), null, "scripts as an array");
 assert.equal(scriptsOf('{"scripts":"x"}'), null, "scripts as a string");
