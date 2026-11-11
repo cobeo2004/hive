@@ -1,0 +1,1 @@
+No before: this PR adds the six convention docs (`docs/conventions/*.md`) and the full `[practices]` table in `.sstack/project.toml`. Neither existed on `main`, so there is no earlier state to compare. The previous `[practices]` table mapped six areas to `docs/operations.md` and two skills, and pointed `functions/**` at a directory that does not exist.
