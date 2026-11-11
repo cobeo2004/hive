@@ -35,7 +35,7 @@ const commentSchema = z.object({
 });
 
 /** On the issue exactly while the job waits on a person (R5). */
-const WAITING = "hive:waiting";
+export const WAITING = "hive:waiting";
 /** Hive's comments carry a hidden marker, so a retry finds the one it posted and never posts it twice. */
 const mark = (kind: string, id: string) => `<!-- hive:${kind}:${id} -->`;
 const ANSWER = /^<!-- hive:answer:\S+ -->/;
@@ -57,7 +57,7 @@ export type GithubDeps = {
 };
 
 let appLogin: string | undefined;
-async function runtimeDeps(): Promise<GithubDeps> {
+export async function githubDeps(): Promise<GithubDeps> {
   const [{ db }, { linearSettings }] = await Promise.all([import("../../db/client"), import("../linear-settings")]);
   return {
     db,
@@ -455,7 +455,7 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
 }
 
 /** The switch is Settings' choice of sources, with FACTORY_GITHUB_ISSUES=on as an override (lib/job-sources.ts). */
-export const github = createGithubAdapter(runtimeDeps, async () => {
+export const github = createGithubAdapter(githubDeps, async () => {
   const [{ db }, { sourcesOn }] = await Promise.all([import("../../db/client"), import("../job-sources")]);
   return (await sourcesOn(db)).github;
 });

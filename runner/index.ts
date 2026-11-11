@@ -19,6 +19,7 @@ const { launchQueued } = await import("./launch");
 const { openT3, tickSandboxes } = await import("./lifecycle");
 const { recheckScheduler } = await import("./recheck");
 const { everyAtMost, serialQueue } = await import("./queue");
+const { syncGithubLabelsNow } = await import("../lib/sources");
 const { isolated, reconcile } = await import("./reconcile");
 const { stopDeliverable } = await import("./binding");
 const { inferUntracked } = await import("./untracked");
@@ -326,12 +327,21 @@ const hourlyCleanup = everyAtMost(3_600_000, () => ops.cleanup());
 const accountUsage = everyAtMost(300_000, () => pollClaudeUsage());
 const labelSync = ops.config.factory.syncLinearLabels ? everyAtMost(86_400_000, () => syncOverrideLabels()) : undefined;
 if (ops.config.factory.syncLinearLabels) void serial("labelSync", () => syncOverrideLabels());
+// R15: GitHub Issues' labels in every enabled repo, at start and every few hours, so a repo added by a runner or a failed sync is caught up. A no-op while GitHub Issues is off.
+const githubLabelSync = everyAtMost(6 * 3_600_000, () => syncGithubLabelsNow(db));
+void serial("githubLabelSync", () => syncGithubLabelsNow(db).catch((error) => console.error("github: label sync failed", error)));
 setInterval(() => {
   void serial("tick", async () => {
     const result = { ...(await tick()), ...(await launchAndAnnounce()) };
     const cleaned = await hourlyCleanup();
     const labels = await labelSync?.();
-    return { ...result, ...(cleaned !== undefined && { cleaned }), ...(labels !== undefined && { labels }) };
+    const githubLabels = await githubLabelSync();
+    return {
+      ...result,
+      ...(cleaned !== undefined && { cleaned }),
+      ...(labels !== undefined && { labels }),
+      ...(githubLabels !== undefined && { githubLabels }),
+    };
   });
   // Its own step, so a snapshot that takes minutes never pushes the tick past its timeout.
   void serial("onboarding", () => advanceOnboarding());
