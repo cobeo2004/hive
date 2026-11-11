@@ -256,6 +256,7 @@ export function SettingsForm({
   notifications,
   linear,
   sources,
+  githubForced,
   children,
 }: {
   children?: ReactNode;
@@ -265,6 +266,7 @@ export function SettingsForm({
   notifications: NotificationSettingsRow | null;
   linear: { saved: LinearSettings; userName: string | null };
   sources: SourceChoice;
+  githubForced: boolean;
 }) {
   const router = useRouter();
   const { rows, status } = useFeed(machines);
@@ -312,7 +314,7 @@ export function SettingsForm({
       <PanelHeader title="Settings" />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-6xl flex-col divide-y p-4 md:p-8">
-          <JobSourcesSection saved={sources} />
+          <JobSourcesSection saved={sources} forced={githubForced} />
           {sources !== "github" && <LinearSettingsSection saved={linear.saved} userName={linear.userName} />}
           {children}
           <SettingsSection

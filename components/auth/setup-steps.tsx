@@ -30,8 +30,11 @@ type LinearCard = { matched: boolean; note: string };
  * setup_done_at and opens Jobs.
  */
 export function SetupSteps({ user, sources, linear, optIns: savedOptIns }: { user: SetupUser; sources: SourceChoice; linear: LinearCard; optIns: OptIns }) {
+  // The picked radio is `choice`; the steps follow what was saved, so they do not move before the pick is stored.
   const [choice, setChoice] = useState(sources);
-  const steps: readonly string[] = setupSteps(user.role, choice);
+  const [stored, setStored] = useState(sources);
+  const [labelNote, setLabelNote] = useState<string>();
+  const steps: readonly string[] = setupSteps(user.role, stored);
   const [step, setStep] = useState("Account");
   const [name, setName] = useState(user.name);
   const [enrolled, setEnrolled] = useState(user.twoFactorEnabled);
@@ -66,7 +69,7 @@ export function SetupSteps({ user, sources, linear, optIns: savedOptIns }: { use
         ) : step === "Linear" ? (
           <Linear linear={linear} optIns={optIns} pending={pending} setOptIns={setOptIns} />
         ) : (
-          <Done choice={choice} name={name} user={user} />
+          <Done choice={stored} labelNote={labelNote} name={name} user={user} />
         )}
       </div>
 
@@ -93,7 +96,9 @@ export function SetupSteps({ user, sources, linear, optIns: savedOptIns }: { use
                 try {
                   const result = await saveJobSources(choice);
                   if (!result.ok) return setError(result.message);
-                  go(1);
+                  setStored(choice);
+                  setLabelNote(result.labelNote);
+                  setStep(setupSteps(user.role, choice)[at + 1] ?? step);
                 } catch {
                   setError("Couldn't save your choice. Try again.");
                 } finally {
@@ -526,7 +531,7 @@ function OptIn({
   );
 }
 
-function Done({ user, name, choice }: { user: SetupUser; name: string; choice: SourceChoice }) {
+function Done({ user, name, choice, labelNote }: { user: SetupUser; name: string; choice: SourceChoice; labelNote?: string }) {
   return (
     <>
       <h1 className="text-2xl font-semibold tracking-[-0.015em]">You&apos;re set up</h1>
@@ -544,6 +549,11 @@ function Done({ user, name, choice }: { user: SetupUser; name: string; choice: S
           title={name.trim() || user.email}
         />
       </div>
+      {labelNote && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {labelNote} Save the choice again in Settings → Job sources to retry.
+        </p>
+      )}
       {user.role === "admin" && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-muted/40 px-4 py-3">
           <span className="flex-1 basis-80 text-sm text-muted-foreground">

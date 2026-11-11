@@ -7,7 +7,7 @@ const { linearSettings: table } = await import("../db/schema");
 const { readSourceChoice, saveSourceChoice, sourcesOn, writeSourceChoice } = await import("../lib/job-sources");
 const { linearSettings, saveLinearSettings } = await import("../lib/linear-settings");
 const { parseConfig, requireLinearKey } = await import("../lib/config");
-const { createLinearAdapter } = await import("../lib/sources/linear");
+const { createLinearAdapter, linear } = await import("../lib/sources/linear");
 const { github } = await import("../lib/sources/github");
 
 // Where jobs come from (R13, R14): one choice in the Linear settings row, Linear alone until an admin makes it.
@@ -59,6 +59,17 @@ const boom = () => {
 };
 assert.deepEqual(await createLinearAdapter(boom, async () => false).ready(), [], "Linear off: no key is needed and nothing is read");
 await assert.rejects(createLinearAdapter(boom, async () => true).ready(), /loaded/, "Linear on: it is polled");
+
+// New job (panel, Slack, inbox) files through Linear's adapter: with GitHub Issues alone that issue would never be claimed.
+const draft = { requestId: "r1", title: "t", description: "d" };
+const notASource = /not a job source/;
+await writeSourceChoice(db, "github", "owner@example.com");
+await assert.rejects(linear.file!(draft), notASource, "GitHub alone: New job is refused, not filed to a Linear nobody reads");
+for (const choice of ["linear", "both"] as const) {
+  await writeSourceChoice(db, choice, "owner@example.com");
+  delete process.env.LINEAR_API_KEY;
+  await assert.rejects(linear.file!(draft), /LINEAR_API_KEY is not set/, `${choice}: past the source check, filing goes on to Linear's own key`);
+}
 
 await db.delete(table);
 console.log("job-sources regressions passed");

@@ -11,7 +11,7 @@ import type { SourceChoice } from "@/lib/source-choice";
 import { SettingsSection } from "./settings-section";
 
 /** Settings → Job sources (R13): where jobs come from. Choosing GitHub Issues alone hides Linear's section (R14); turning GitHub on creates its labels (R15). */
-export function JobSourcesSection({ saved }: { saved: SourceChoice }) {
+export function JobSourcesSection({ saved, forced = false }: { saved: SourceChoice; forced?: boolean }) {
   const router = useRouter();
   const [choice, setChoice] = useState(saved);
   const [failure, setFailure] = useState<string | null>(null);
@@ -38,6 +38,12 @@ export function JobSourcesSection({ saved }: { saved: SourceChoice }) {
       <Card>
         <CardContent>
           <SourceChoiceField disabled={pending} onChange={setChoice} value={choice} />
+          {forced && (
+            <p className="mt-4 text-sm text-muted-foreground">
+              GitHub Issues is also on: <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">FACTORY_GITHUB_ISSUES=on</code> forces
+              it on, whatever is chosen here.
+            </p>
+          )}
           {failure && (
             <p role="alert" className="mt-4 text-sm text-destructive">
               {failure}

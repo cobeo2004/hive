@@ -52,6 +52,7 @@ async function Panel() {
       notifications={notifications}
       linear={linear}
       sources={sources}
+      githubForced={sources === "linear" && process.env.FACTORY_GITHUB_ISSUES === "on"}
     >
       {teamPool}
     </SettingsForm>
