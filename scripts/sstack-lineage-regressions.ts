@@ -1,6 +1,6 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asc, eq, inArray, like, type SQL } from "drizzle-orm";
@@ -11,6 +11,7 @@ const { linearJob, usageRun } = await import("./fixtures");
 const { jobId } = await import("../lib/sources/shapes");
 const { TEST_MACHINE_ID } = await import("../lib/config");
 const { eventSchema } = await import("../lib/events");
+const { attemptBranch } = await import("../lib/factory");
 const { ingest } = await import("../lib/ingest");
 const { HostGoneError, localHost } = await import("../lib/host");
 const { parseRollout } = await import("../lib/codex-usage");
@@ -38,7 +39,7 @@ const [S2, S3] = [`lead2-${KEY}`, `lead3-${KEY}`];
 const sessions = [SESSION, DECOY, S2, S3];
 const root = mkdtempSync(join(tmpdir(), "sstack-lineage-"));
 const worktree = join(root, "worktree");
-const claudeDir = join(root, "claude");
+const claudeDir = join(root, "projects/lead");
 const codexHome = join(root, "codex");
 const claudeChild = join(claudeDir, "child-uuid.jsonl");
 ingestClient.post = async (event) => ingest(db, [eventSchema.parse(event)]);
@@ -53,38 +54,29 @@ const tokensOf = (r: Agent) => [r.input_tokens, r.output_tokens, r.cache_read_to
 try {
   mkdirSync(join(worktree, ".sstack/runs"), { recursive: true });
   cpSync(join(FIXTURES, "index.jsonl"), join(worktree, ".sstack/runs/index.jsonl"));
-  // The lead's own transcript, a decoy session's that ends closer to the child's end, and the child's.
-  mkdirSync(claudeDir);
-  const usageLine = (id: string, input: number) =>
-    JSON.stringify({ type: "assistant", message: { id, model: "claude-opus-5-5", usage: { input_tokens: input, output_tokens: 1 } } });
-  writeFileSync(join(claudeDir, `${SESSION}.jsonl`), usageLine("l1", 1));
-  writeFileSync(join(claudeDir, `${DECOY}.jsonl`), usageLine("d1", 999_999));
-  writeFileSync(
-    claudeChild,
-    readFileSync(join(FIXTURES, "claude/child.jsonl"), "utf8").replace("__START__", new Date(startOf(implement) + 1000).toISOString()),
-  );
-  utimesSync(claudeChild, new Date(endOf(implement) - 5000), new Date(endOf(implement) - 5000));
-  utimesSync(join(claudeDir, `${DECOY}.jsonl`), new Date(endOf(implement)), new Date(endOf(implement)));
-  // The codex child's rollout, started when its line says, in the worktree.
+  // The lead's own transcript, another run's session whose prompt names the child's brief too, and the child's.
+  mkdirSync(claudeDir, { recursive: true });
+  const usageLine = (id: string, input: number, model = "claude-opus-5-5") =>
+    JSON.stringify({ type: "assistant", message: { id, model, usage: { input_tokens: input, output_tokens: 1 } } });
+  const prompt = (wt: string, ...dirs: string[]) =>
+    JSON.stringify({ type: "user", message: { content: dirs.map((d) => `Read the brief at ${wt}/${d}/brief.skills.md`).join() } });
+  const leadPath = join(claudeDir, `${SESSION}.jsonl`);
+  writeFileSync(leadPath, usageLine("l1", 1));
+  writeFileSync(join(claudeDir, `${DECOY}.jsonl`), `${prompt(worktree, implement.run_dir)}\n${usageLine("d1", 999_999, "claude-haiku-5-5")}`);
+  writeFileSync(claudeChild, readFileSync(join(FIXTURES, "claude/child.jsonl"), "utf8").replace("__WORKTREE__", worktree));
+  // The codex child's rollout, in the worktree; another root thread that started at the same instant names no run_dir.
   cpSync(join(FIXTURES, "codex"), codexHome, { recursive: true });
   const day = join(codexHome, "sessions/2026/11/11");
   const rollout = join(day, readdirSync(day)[0]!);
-  writeFileSync(
-    rollout,
-    readFileSync(rollout, "utf8")
-      .replaceAll("__START__", new Date(startOf(review)).toISOString())
-      .replaceAll("__WORKTREE__", worktree),
-  );
+  const at = new Date(startOf(review)).toISOString();
+  const text = readFileSync(rollout, "utf8").replace(/__START__|__WORKTREE__/g, (m) => (m === "__START__" ? at : worktree));
+  writeFileSync(rollout, text);
+  const decoy = text.replaceAll("0000a1", "0000a0").replaceAll(review.run_dir, "x").replace('"input_tokens":20000', '"input_tokens":99999');
+  writeFileSync(join(day, "rollout-2026-11-11T10-19-00-019b0000-0000-7000-8000-0000000000a0.jsonl"), decoy);
   process.env.CODEX_HOME = codexHome;
 
   await db.insert(jobs).values(linearJob(`sstack-lineage-${KEY}`, KEY, { machine_id: TEST_MACHINE_ID, stage: "implementing" }));
-  const lead = {
-    ...usageRun(KEY),
-    session_id: SESSION,
-    cwd: worktree,
-    transcript_path: join(claudeDir, `${SESSION}.jsonl`),
-    started_at: new Date(startOf(implement) - 600_000),
-  };
+  const lead = { ...usageRun(KEY), session_id: SESSION, cwd: worktree, transcript_path: leadPath, started_at: new Date(startOf(implement) - 600_000) };
   await db.insert(runs).values(lead);
   // Another run's session, so its transcript is not a child's.
   await db.insert(runs).values({ ...usageRun(KEY), session_id: DECOY, job_key: null, branch: null });
@@ -118,13 +110,6 @@ try {
   assert.ok(claudeCost > 0 && codexCost > 0, "both have a price");
   assert.ok(Math.abs((await branchSpend(db, [lead.branch!]))[lead.branch!]! - (leadCost + claudeCost + codexCost)) < 1e-12, "lead plus both children");
 
-  await db
-    .update(agents)
-    .set({ input_tokens: claude.input_tokens + 1000 })
-    .where(eq(agents.agent_id, claude.agent_id!));
-  await recordSstackLineage(await runRow(), localHost);
-  assert.equal((await rowsOf())[0]!.input_tokens, claude.input_tokens + 1000, "a read never lowers a recorded count");
-
   // A finished run does not claim a child dispatched after it ended.
   await clear();
   await recordSstackLineage({ ...(await runRow()), status: "ended", last_event_at: new Date(endOf(review) + 1000) }, localHost);
@@ -136,8 +121,7 @@ try {
   assert.equal((await rowsOf()).length, 0, "children from before the run are skipped");
 
   // With no transcript or rollout the children are recorded with no tokens, so their cost is unknown.
-  rmSync(claudeChild);
-  rmSync(rollout);
+  for (const f of [claudeChild, rollout]) rmSync(f);
   await reconcileUsage({ only: [KEY] });
   const bare = await rowsOf();
   assert.equal(bare.map((a) => `${a.model}:${hasTokens(a)}`).join(), "haiku:false,gpt-6-luna:false,some-pi-model:false", "the line's model, no tokens");
@@ -147,7 +131,7 @@ try {
   const iso = (ms: number) => new Date(ms).toISOString();
   const T = endOf(implement);
   const child = (l: object) => ({ ts: iso(T), role: "review", exit: 0, secs: 60, harness: "claude", model: "haiku", run_dir: implement.run_dir, ...l });
-  const [wt2, wt3, dir3] = ["wt2", "wt3", "claude3"].map((n) => join(root, n));
+  const [wt2, wt3, dir3, other] = ["wt2", "wt3", "projects/lead3", "projects/other"].map((n) => join(root, n));
   const writeIndex = (wt: string, children: object[]) => {
     mkdirSync(join(wt, ".sstack/runs"), { recursive: true });
     writeFileSync(join(wt, ".sstack/runs/index.jsonl"), children.map((c) => JSON.stringify(c)).join("\n"));
@@ -163,26 +147,57 @@ try {
   });
   const [run2, run3] = await db
     .insert(runs)
-    .values([runOf(S2, wt2), runOf(S3, wt3, join(dir3, "lead.jsonl"))])
+    .values([runOf(S2, wt2), { ...runOf(S3, wt3, join(dir3, "lead.jsonl")), branch: attemptBranch(KEY, 3) }])
     .returning();
   writeIndex(wt2, [child({ variant: "x" }), child({ variant: "y" }), child({ harness: "codex", model: "gpt-6-luna" })]);
   await recordSstackLineage(run2!, localHost);
   const same = await agentsWhere(like(agents.agent_id, `sstack:${implement.run_dir}#%${KEY}%`));
   assert.equal(same.length, 4, "the first job's child and the panel's three members (two variants) are separate rows");
 
-  // Overlapping claude children each get their own transcript, though B starts nearer A's first line and ends first.
-  mkdirSync(dir3);
-  const put = (name: string, first: number, input: number, mtime: number) => {
-    const file = join(dir3, `${name}.jsonl`);
-    writeFileSync(file, `${JSON.stringify({ type: "user", timestamp: iso(first) })}\n${usageLine(`m${input}`, input)}`);
-    utimesSync(file, new Date(mtime), new Date(mtime));
+  // A child's transcript is the one whose prompt names its brief, in another worktree's project dir; the lead's own names every brief.
+  for (const d of [dir3, other]) mkdirSync(d, { recursive: true });
+  writeFileSync(join(dir3, "lead.jsonl"), `${prompt(wt3, "r/A", "r/B", "r/P")}\n${usageLine("l", 7, "claude-haiku-5-5")}`);
+  const put = (name: string, dir: string, input: number, model = "claude-haiku-5-5", later = "") =>
+    writeFileSync(join(other, `${name}.jsonl`), [prompt(wt3, dir), usageLine(`m${input}`, input, model), later].join("\n"));
+  const [lineA, lineB] = [child({ ts: iso(T + 100_000), secs: 100, run_dir: "r/A" }), child({ ts: iso(T + 90_000), secs: 70, run_dir: "r/B" })];
+  const tick = async (...lines: object[]) => {
+    writeIndex(wt3, lines);
+    await recordSstackLineage(run3!, localHost);
+    return (await agentsWhere(eq(agents.session_id, S3))).map((a) => a.input_tokens).join();
   };
-  put("a", T + 30_000, 100, T + 100_000);
-  put("b", T + 60_000, 200, T + 90_000);
-  writeIndex(wt3, [child({ ts: iso(T + 100_000), secs: 100, run_dir: "A" }), child({ ts: iso(T + 90_000), secs: 70, run_dir: "B" })]);
-  await recordSstackLineage(run3!, localHost);
-  const overlapped = await agentsWhere(eq(agents.session_id, S3));
-  assert.equal(overlapped.map((a) => a.input_tokens).join(), "100,200", "A has its transcript, B its");
+  const spend = async () => (await branchSpend(db, [run3!.branch!]))[run3!.branch!]!;
+  // B alone, indexed first, never takes A's transcript; each child later gets its own.
+  put("a", lineA.run_dir, 1000);
+  assert.equal(await tick(lineB), "0", "B has no transcript of its own yet");
+  put("b", lineB.run_dir, 200);
+  assert.equal(await tick(lineA, lineB), "1000,200", "A and B each have their own");
+  const before = await spend();
+
+  // One transcript gone: nothing is reassigned, stored tokens and spend stay; it comes back, still the same.
+  rmSync(join(other, "a.jsonl"));
+  put("c", "r/C", 999_999);
+  assert.equal(await tick(lineA, lineB), "1000,200", "a transcript naming another child's run_dir is never used");
+  assert.equal(await spend(), before, "and spend is unchanged");
+  put("a", lineA.run_dir, 1000);
+  assert.equal(await tick(lineA, lineB), "1000,200");
+  for (const n of ["a", "b", "c"]) rmSync(join(other, `${n}.jsonl`));
+  assert.equal(await tick(lineA, lineB), "1000,200", "a tick that finds no transcript keeps the tokens");
+
+  // Only the prompt counts: Q's brief quoted later by B's transcript (Q's own absent) is no match. Panel variants are told apart
+  // only by model; two of one model are ambiguous, so neither gets a transcript.
+  const lineQ = child({ ts: iso(T + 50_000), secs: 60, run_dir: "r/Q" });
+  const [px, py] = [child({ run_dir: "r/P", variant: "x" }), child({ run_dir: "r/P", variant: "y", model: "sonnet" })];
+  const quote = JSON.stringify({ type: "user", message: { content: `${wt3}/r/Q/brief.skills.md` } });
+  for (const [lines, files, want] of [
+    [[lineB, lineQ], "b r/B 200 haiku", "200,0"],
+    [[px, { ...py, model: "haiku" }], "x r/P 300 haiku,y r/P 40 haiku", "0,0"],
+    [[px, py], "x r/P 300 haiku,y r/P 40 sonnet", "300,40"],
+  ] as const) {
+    await db.delete(agents).where(eq(agents.session_id, S3));
+    for (const f of readdirSync(other)) rmSync(join(other, f));
+    for (const [n, d, i, m] of files.split(",").map((f) => f.split(" "))) put(n!, d!, Number(i), `claude-${m}-5-5`, n === "b" ? quote : "");
+    assert.equal(await tick(...lines), want);
+  }
 
   // A bad line (secs 1e17), a child started before the run (an older job's, though it ended after) and a read error.
   writeIndex(wt2, [child({ secs: 1e17, run_dir: "bad" }), child({ run_dir: "good", harness: "pi", model: "x" }), child({ secs: 600, run_dir: "old" })]);
