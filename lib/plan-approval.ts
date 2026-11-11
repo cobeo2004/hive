@@ -19,3 +19,13 @@ export function planQuestion(plan: string, answerKey = "") {
 }
 
 export const isPlanApproval = (question?: string | null) => !!question?.startsWith(PLAN_HEADER);
+
+/** The paragraphs of an answer that are not the approval text: the owner's requested changes. */
+export const planNotes = (answer: string) =>
+  answer
+    .split(/\n\s*\n/)
+    .map((part) => part.trim())
+    .filter((part) => part && part !== PLAN_APPROVED);
+
+/** Whether an answer asks for no changes, so the thread resumes at implement. */
+export const isApproval = (answer: string) => planNotes(answer).length === 0;

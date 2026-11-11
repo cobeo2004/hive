@@ -21,7 +21,7 @@ import {
 } from "@/lib/inbox";
 import { mergeDecisionSchema, reviewSummary, type ReviewSummary } from "@/lib/merge-decision";
 import { createJob, type NewJobDeps } from "@/lib/new-job";
-import { PLAN_APPROVED } from "@/lib/plan-approval";
+import { isApproval, PLAN_APPROVED } from "@/lib/plan-approval";
 import { parseJob } from "@/lib/sources";
 import type { Job, JobId } from "@/lib/sources/types";
 
@@ -136,8 +136,8 @@ export async function requestChanges(deps: InboxDeps, jobId: JobId, requestId: s
   const found = await ownerJob(deps, jobId, "request_changes");
   if (!found.ok) return found;
   if (inboxKind(found.job) === "plan_approval") {
-    // a reply that is exactly the approval text would resume the thread as an approval
-    if (text.data === PLAN_APPROVED) return { ok: false, message: "Write what should change." };
+    // a note that is only approval text would resume the thread as an approval
+    if (isApproval(text.data)) return { ok: false, message: "Write what should change." };
     return replyAndResume(deps, found, requestId, text.data);
   }
   const detail: FeedbackDetail = { from: "panel", id: `panel:${requestId}`, actor: found.actor, body: text.data };

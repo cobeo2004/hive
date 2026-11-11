@@ -7,7 +7,7 @@ const { jobs } = await import("../db/schema");
 const { jobId } = await import("../lib/sources");
 const { linearJob } = await import("./fixtures");
 const { claimReplies, resumeMessage } = await import("../lib/resume");
-const { PLAN_APPROVED, planQuestion } = await import("../lib/plan-approval");
+const { isApproval, PLAN_APPROVED, planNotes, planQuestion } = await import("../lib/plan-approval");
 const { planResume, resumeCommentId, stageCommentId, claimCommentId } = await import("../lib/sources/linear");
 
 const id = `resume-regress-${Date.now()}`;
@@ -55,6 +55,17 @@ assert.doesNotMatch(approved, /Phase 1/);
 const approvedTwice = resumeMessage("ABC-1", planQuestion("p"), `${PLAN_APPROVED}\n\n${PLAN_APPROVED}`, "factory");
 assert.match(approvedTwice, /Phase 2 \(implement\)/, "repeated approvals resume at implement");
 assert.doesNotMatch(approvedTwice, /Phase 1/);
+for (const variant of ["  Plan approved.  ", "Plan approved.\r\n\r\nPlan approved.", "Plan approved.\n \n\nPlan approved.\n"]) {
+  const msg = resumeMessage("ABC-1", planQuestion("p"), variant, "factory");
+  assert.match(msg, /Phase 2 \(implement\)/, `whitespace variant ${JSON.stringify(variant)} resumes at implement`);
+  assert.doesNotMatch(msg, /Phase 1/);
+  assert.equal(isApproval(variant), true);
+  assert.deepEqual(planNotes(variant), []);
+}
+assert.deepEqual(planNotes("Plan approved.\r\n\r\nSplit step 2.\r\n"), ["Split step 2."], "an approval mixed with a note keeps only the note");
+assert.deepEqual(planNotes("a\n\nb\n\n\nc"), ["a", "b", "c"], "every other paragraph is a note");
+assert.equal(isApproval("Split step 2."), false);
+assert.equal(isApproval(""), true, "nothing to change is an approval");
 const mixed = resumeMessage("ABC-1", planQuestion("p"), `${PLAN_APPROVED}\n\nSplit step 2.`, "factory");
 assert.match(mixed, /Phase 1 \(plan\)/, "an approval mixed with a note goes back to plan");
 assert.match(mixed, /^> Split step 2\.$/m, "quoting the note after an approval");

@@ -21,6 +21,7 @@ const { SOURCES } = await import("../lib/sources");
 const { TEST_MACHINE_ID } = await import("../lib/config");
 const { eventSchema, stageEventFields, stageReportSchema } = await import("../lib/events");
 const { PLAN_APPROVED, PLAN_HEADER, PLAN_MAX, PLAN_QUESTION_MAX, PLAN_TRUNCATED, planQuestion } = await import("../lib/plan-approval");
+const { resumeMessage } = await import("../lib/resume");
 const { ingest } = await import("../lib/ingest");
 const { hosts, localHost } = await import("../lib/host");
 const { github, pullsClient } = await import("../lib/github/pulls");
@@ -838,6 +839,20 @@ try {
     "the approval text cannot be sent as requested changes",
   );
   assert.equal(replies.length, repliesBeforeApprovalAsChanges, "a refused request changes posts no reply");
+  // requestChanges and resumeMessage share one definition of an approval: accepted iff the thread goes back to Phase 1
+  for (const [note, accepted] of [
+    ["Plan approved.", false],
+    ["Plan approved.\n\nPlan approved.", false],
+    ["  Plan approved.  \r\n\r\nPlan approved.", false],
+    ["Plan approved.\n\nSplit step 2.", true],
+  ] as const) {
+    const before = replies.length;
+    const out = await inbox.requestChanges(deps(), (await row(PLAN2)).id, crypto.randomUUID(), note);
+    assert.equal(out.ok, accepted, `requestChanges ${accepted ? "accepts" : "refuses"} ${JSON.stringify(note)}`);
+    assert.equal(replies.length, before + (accepted ? 1 : 0), `a ${accepted ? "accepted" : "refused"} note ${accepted ? "posts" : "posts no"} reply`);
+    if (accepted) assert.equal(replies.at(-1)!.body, note.trim(), "the reply posted is the note");
+    assert.equal(/Phase 1 \(plan\)/.test(resumeMessage("ABC-1", planQuestion("p"), note, "factory")), accepted, "resume agrees on what is an approval");
+  }
 
   // --- close and dismiss
   const CLOSE = await job("CLOSE", {}, { number: 8 });

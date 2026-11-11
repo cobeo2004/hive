@@ -2,7 +2,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "../db/schema";
 import { jobs } from "../db/schema";
-import { isPlanApproval, PLAN_APPROVED } from "./plan-approval";
+import { isApproval, isPlanApproval, planNotes } from "./plan-approval";
 import type { JobId } from "./sources/shapes";
 
 const quote = (text: string) => text.trim().replace(/^/gm, "> ");
@@ -14,11 +14,7 @@ export function qaBlock(question: string, answer: string) {
 /** The turn a resumed thread receives. */
 export function resumeMessage(subject: string, question: string, answer: string, playbook: string) {
   if (isPlanApproval(question)) {
-    const notes = answer
-      .split(/\n\s*\n/)
-      .map((part) => part.trim())
-      .filter((part) => part && part !== PLAN_APPROVED);
-    return notes.length === 0
+    return isApproval(answer)
       ? [
           `The owner approved your plan on ${subject}.`,
           "",
@@ -31,7 +27,7 @@ export function resumeMessage(subject: string, question: string, answer: string,
           "",
           "## Requested changes",
           "",
-          quote(notes.join("\n\n")),
+          quote(planNotes(answer).join("\n\n")),
         ].join("\n");
   }
   return [
