@@ -13,6 +13,7 @@ import { showsDecision, whereLine, type BoardCard } from "./cards";
 import { EvidenceLine } from "./evidence";
 import { formatUsd, runCost, runTitle, shortId } from "./format";
 import { jobsHref } from "./job-view";
+import { useOwnerParam } from "./use-owner-param";
 import { decisionLine } from "./merge-decision";
 import { ModelChip } from "./model-chip";
 import { Time } from "./time";
@@ -140,6 +141,7 @@ export function StageCard({
   /** The job's thread in its machine's T3, for a stop that couldn't be confirmed. */
   t3Href?: string;
 }) {
+  const owner = useOwnerParam();
   const { latest } = card;
   const where = card.runsOn && whereLine(card.runsOn, machineName);
   const sandbox = card.runsOn?.kind === "modal" ? card.runsOn.sandbox : null;
@@ -147,7 +149,7 @@ export function StageCard({
     <div data-card={card.id} className={cn(cardClass(selected), "gap-1.5")}>
       {latest && (
         <Link
-          href={jobsHref("board", latest.session_id)}
+          href={jobsHref("board", latest.session_id, false, owner)}
           scroll={false}
           aria-label={`Open ${card.jobKey ?? card.title}`}
           className="absolute inset-0 rounded-lg"

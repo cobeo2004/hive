@@ -6,7 +6,7 @@ import { stageReportSchema, stageReportShape, type FactoryEvent, type StageRepor
 import { REPORT_SERVER, REPORT_TOOL } from "../lib/factory";
 import { reportEvents } from "../lib/outbox";
 import { mcpIdentity, mcpPosts, type McpIdentity } from "../lib/report-identity";
-import { screenshotEvents, unreadable } from "../lib/screenshot-files";
+import { mediaEvents, runsRoot, unreadable } from "../lib/media-files";
 
 // Under Claude Code the PostToolUse hook (hooks/report.ts), which knows the session id, turns the
 // accepted call into the stage event, so the tool only validates. Under any other harness the tool
@@ -32,8 +32,8 @@ function eventsFor(identity: McpIdentity, report: StageReport, at: number, openi
     jobKey,
     branch,
   };
-  // The images go first, so the panel never shows an assessment whose screenshots haven't arrived.
-  const images = screenshotEvents(report.assessment?.screenshots ?? [], { jobKey, stageEventId: stage.eventId, sessionId, at });
+  // The media go first, so the panel never shows an assessment whose files haven't arrived.
+  const images = mediaEvents(report.assessment?.media ?? [], { jobKey, stageEventId: stage.eventId, sessionId, at }, runsRoot(process.cwd()));
   if (!opening) return [...images, stage];
   // Opens the run and links it to the job; the same id from a restarted server is stored once.
   return [{ eventId: `mcp-start:${sessionId}`, sessionId, at, kind: "session_start", cwd: process.cwd(), branch, repo }, ...images, stage];
@@ -57,9 +57,10 @@ server.registerTool(
     title: "Report factory stage",
     description:
       "Report that this factory run entered a stage. Call it at every stage transition. " +
+      "Working stages run in this order: triage, investigating, planning, implementing, verifying, then pr. " +
       "Stage pr needs prUrl and should carry your merge assessment: recommend merge when you are confident you built what the issue asked for and that it works, " +
       "and handover only when you are not, with confidence.reason saying why. " +
-      "When the change shows on a page, attach assessment.screenshots: the files the playwright server saved, each with a caption. " +
+      "When the change shows on a page or screen, attach assessment.media: file names in your run's media folder (.sstack/runs/<run>/media/), e.g. before-<step>.png, after-<step>.mp4, each with a caption. " +
       "Stage waiting needs a concrete question; " +
       "stage failed puts the reason in summary.",
     inputSchema: stageReportShape,
@@ -73,8 +74,8 @@ server.registerTool(
       };
     }
     // Checked under every harness: under Claude Code the hook reads the same files once this call succeeds.
-    const missing = unreadable(parsed.data.assessment?.screenshots ?? []);
-    if (missing.length > 0) return { isError: true, content: [{ type: "text", text: `Can't attach the screenshots: ${missing.join("; ")}.` }] };
+    const missing = unreadable(parsed.data.assessment?.media ?? [], runsRoot(process.cwd()));
+    if (missing.length > 0) return { isError: true, content: [{ type: "text", text: `Can't attach the media: ${missing.join("; ")}.` }] };
     // A reporting failure must never fail the call; the outbox keeps whatever was queued.
     const text = await post(parsed.data).catch(
       (error: unknown) => `Stage ${parsed.data.stage} is valid, but reporting it failed: ${error instanceof Error ? error.message : String(error)}`,

@@ -3,6 +3,7 @@
 import { db } from "@/db/client";
 import { machines } from "@/db/schema";
 import { currentUser } from "@/lib/auth/server";
+import { saveLinear, saveLinearSettings as writeLinear, type LinearConfig } from "@/lib/linear-settings";
 import { reportedHarnesses } from "@/lib/machine";
 import { saveSettings as save, writeSettings, type SettingsInput } from "@/lib/settings";
 
@@ -17,4 +18,8 @@ export async function saveSettings(input: SettingsInput) {
     },
     input,
   );
+}
+
+export async function saveLinearSettings(input: LinearConfig) {
+  return saveLinear({ user, save: (config, by) => writeLinear(db, config, by, new Date()) }, input);
 }

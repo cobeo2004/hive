@@ -25,6 +25,9 @@ assert.equal(verifyGithub("{}", `sha256=${createHmac("sha256", "").update("{}").
 
 const opts = { FACTORY_TEAM_KEY: "FAC", FACTORY_LABEL: "hive" };
 const linearIntent = (body: unknown, env: typeof opts) => webhook.intent(body, env);
+const { db } = await import("../db/client");
+const { intents, linearSettings, webhookDeliveries } = await import("../db/schema");
+await db.delete(linearSettings); // no saved row, so the env defaults decide
 const issue = (over: Record<string, unknown> = {}, updatedFrom?: Record<string, unknown>) => ({
   action: "update",
   type: "Issue",
@@ -39,24 +42,49 @@ const issue = (over: Record<string, unknown> = {}, updatedFrom?: Record<string, 
     ...over,
   },
 });
-assert.deepEqual(linearIntent(issue({}, { labelIds: [] }), opts), { kind: "claim", jobId: "linear:i1" }, "labeled in Todo means claim");
-assert.equal(linearIntent(issue({ state: { type: "started", name: "In Progress" } }), opts), null, "a started issue is not claimed again");
-assert.equal(linearIntent(issue({ identifier: "ALE-3", team: { key: "ALE" } }), opts), null, "other teams are ignored");
-assert.equal(linearIntent(issue({ labels: [], labelIds: [] }, { labelIds: ["l1"] }), opts)?.kind, "stop", "removing the label stops");
+assert.deepEqual(await linearIntent(issue({}, { labelIds: [] }), opts), { kind: "claim", jobId: "linear:i1" }, "labeled in Todo means claim");
+assert.equal(await linearIntent(issue({ state: { type: "started", name: "In Progress" } }), opts), null, "a started issue is not claimed again");
+assert.equal(await linearIntent(issue({ identifier: "ALE-3", team: { key: "ALE" } }), opts), null, "other teams are ignored");
+assert.equal((await linearIntent(issue({ labels: [], labelIds: [] }, { labelIds: ["l1"] }), opts))?.kind, "stop", "removing the label stops");
 assert.equal(
-  linearIntent(issue({ labels: [{ id: "l2", name: "bug" }], labelIds: ["l2"] }, { labelIds: ["l1"] }), opts)?.kind,
+  (await linearIntent(issue({ labels: [{ id: "l2", name: "bug" }], labelIds: ["l2"] }, { labelIds: ["l1"] }), opts))?.kind,
   "stop",
   "swapping factory for another label in one edit stops too",
 );
-assert.equal(linearIntent(issue({ state: { type: "canceled", name: "Canceled" } }, { stateId: "x" }), opts)?.kind, "stop", "canceling stops");
-assert.deepEqual(linearIntent({ action: "create", type: "Comment", data: { id: "c1", issueId: "i1", body: "1: (b)" } }, opts), {
+assert.equal((await linearIntent(issue({ state: { type: "canceled", name: "Canceled" } }, { stateId: "x" }), opts))?.kind, "stop", "canceling stops");
+assert.deepEqual(
+  await linearIntent(issue({ labels: [], labelIds: [], assignee: { id: "u1", name: "N" } }), opts),
+  { kind: "claim", jobId: "linear:i1" },
+  "assigned in Todo wakes a claim",
+);
+assert.equal(await linearIntent(issue({ labels: [], labelIds: [] }), opts), null, "no label, no assignee: nothing");
+assert.equal(
+  await linearIntent(issue({ labels: [{ id: "l9", name: "factory-failed" }], labelIds: ["l9"], assignee: { id: "u1" } }), opts),
+  null,
+  "a failed issue is not woken by its assignee",
+);
+assert.equal(
+  await linearIntent(issue({ identifier: "ALE-3", team: { key: "ALE" }, labels: [], labelIds: [], assignee: { id: "u1" } }), opts),
+  null,
+  "an assigned issue in another team is ignored",
+);
+assert.equal(
+  await linearIntent(issue({ state: { type: "started", name: "In Progress" }, assignee: null }, { assigneeId: "lin-hive" }), opts),
+  null,
+  "unassigning sends no stop",
+);
+assert.deepEqual(await linearIntent({ action: "create", type: "Comment", data: { id: "c1", issueId: "i1", body: "1: (b)" } }, opts), {
   kind: "answer",
   jobId: "linear:i1",
 });
 
 const delivered = JSON.stringify({ ...issue({}, { labelIds: [] }), webhookTimestamp: now - 1_000 });
 assert.deepEqual(verifyLinear(delivered, sign(delivered), secret, now), { ok: true }, "a signed delivery passes the source's webhook");
-assert.deepEqual(webhook.intent(JSON.parse(delivered), opts), { kind: "claim", jobId: "linear:i1" }, "and the source's webhook turns it into the claim intent");
+assert.deepEqual(
+  await webhook.intent(JSON.parse(delivered), opts),
+  { kind: "claim", jobId: "linear:i1" },
+  "and the source's webhook turns it into the claim intent",
+);
 assert.equal(webhook.deliveryHeader, "Linear-Delivery");
 assert.equal(webhook.eventHeader, "Linear-Event");
 
@@ -76,8 +104,6 @@ process.env.LINEAR_WEBHOOK_SECRET = secret;
 process.env.GITHUB_APP_WEBHOOK_SECRET = secret;
 const { POST } = await import("../app/api/webhooks/[source]/route");
 const deliver = (source: string, request: Request) => POST(request, { params: Promise.resolve({ source }) });
-const { db } = await import("../db/client");
-const { intents, webhookDeliveries } = await import("../db/schema");
 const { eq } = await import("drizzle-orm");
 const deliveryId = `webhook-regress-${Date.now()}`;
 const post = (raw: string, signature: string, delivery: string | null = deliveryId) =>

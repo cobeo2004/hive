@@ -17,12 +17,22 @@ const { modal } = await import("../lib/modal-host");
 const { CODEX_AUTH, GITHUB_TOKEN_PATH, pinnedVersions, playbooksVersion, readSlotHealth, sandboxReadiness } = await import("../lib/sandbox");
 const { github } = await import("../lib/github/pulls");
 const { canReclaim, canReclaimSql } = await import("../runner/binding");
-const { checkPullRequests, config, deliverStops, ingestClient, reconcileUsage, resumeAnswered, threads, toLaunch, watchdog } = await import("../runner/ops");
+const { STAGES } = await import("../lib/events");
+const { canTransition } = await import("../lib/stages");
+const { checkPullRequests, config, deliverStops, IN_FLIGHT, ingestClient, reconcileUsage, resumeAnswered, threads, toLaunch, watchdog } = await import(
+  "../runner/ops"
+);
 const { hibernateIdle, reap, refreshTokens, sandboxesInFlight, teardownFinished, tickSandboxes, TOKEN_REFRESH_MS } = await import("../runner/lifecycle");
 const { launchInSandboxes } = await import("../runner/launch");
 const { CodexLoginError, sandboxRuntime, usableSlots } = await import("../runner/sandbox");
 
 modal.api = fakeModal;
+
+assert.deepEqual(
+  IN_FLIGHT,
+  STAGES.filter((s) => canTransition(s, "failed", "watchdog")),
+  "the in-flight stages are exactly those a watchdog can fail",
+);
 
 const stamp = Date.now() % 1_000_000;
 const label = config.factory.label;

@@ -50,7 +50,7 @@ async function sourceWebhook(source: JobSource, request: Request) {
   const deliveryId = request.headers.get(webhook.deliveryHeader);
   if (!deliveryId) return Response.json({ error: `missing ${webhook.deliveryHeader}` }, { status: 400 });
   const body = JSON.parse(raw) as unknown;
-  const intent = webhook.intent(body, process.env);
+  const intent = await webhook.intent(body, process.env);
   return Response.json(await record(source, deliveryId, request.headers.get(webhook.eventHeader) ?? "?", body, intent));
 }
 

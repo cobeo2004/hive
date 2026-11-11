@@ -103,6 +103,36 @@ for (const status of [500, 429] as const) {
   assert.equal(await client.labelId("t1", "needs-human"), id, "and later lookups find that label");
 }
 
+{
+  // A stage with no write-back entry makes no Linear call, so the issue keeps the "In Progress" from the claim.
+  const { createLinearAdapter } = await import("../lib/sources/linear");
+  const boom = new Proxy({}, { get: () => () => assert.fail("write-back called Linear") });
+  const adapter = createLinearAdapter(() => ({ client: boom, db: boom, limits: { label: "factory", teamKey: "FAC" } }) as never);
+  type WriteBackArgs = Parameters<typeof adapter.writeBack>;
+  const job = { writeback: { kind: "linear", issueId: "issue-1" } } as WriteBackArgs[0];
+  for (const stage of ["investigating", "planning"] as const) {
+    const transition = { stage, eventId: `e-${stage}` } as WriteBackArgs[1];
+    assert.equal(await adapter.writeBack(job, transition), false, `entering ${stage} writes nothing to Linear`);
+  }
+}
+
+{
+  const { client, requests } = fakeLinear(() => ({ data: { issues: { nodes: [] } } }), []);
+  await client.readyIssues({ teamKeys: ["FAC", "MOB"], label: "foo", hiveUserId: "lin-hive", emails: ["pick-eve@x.com"] });
+  const { filter } = requests[0]!.variables as unknown as { filter: { team: unknown; state: unknown; or: unknown } };
+  assert.deepEqual(filter.team, { key: { in: ["FAC", "MOB"] } }, "readyIssues filters team.key in teamKeys");
+  assert.deepEqual(filter.state, { type: { eq: "unstarted" } });
+  assert.deepEqual(
+    filter.or,
+    [
+      { labels: { some: { name: { eqIgnoreCase: "foo" } } } },
+      { assignee: { id: { eq: "lin-hive" } } },
+      { assignee: { email: { eqIgnoreCase: "pick-eve@x.com" } } },
+    ],
+    "readyIssues asks for any trigger",
+  );
+}
+
 await assert.rejects(linearClient("key").team("FAC"), /Linear API was called during a regression run/, "the real client refuses to run under the test harness");
 
 console.log("linear regressions passed");

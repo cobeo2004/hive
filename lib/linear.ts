@@ -5,6 +5,8 @@ import { forbidInTest } from "./test-mode";
 const ENDPOINT = "https://api.linear.app/graphql";
 const TIMEOUT_MS = 15_000;
 
+const personSchema = z.object({ id: z.string(), email: z.string().nullish() });
+
 const issueSchema = z.object({
   id: z.string(),
   identifier: z.string(),
@@ -14,6 +16,8 @@ const issueSchema = z.object({
   createdAt: z.string(),
   state: z.object({ name: z.string(), type: z.string() }),
   labels: z.object({ nodes: z.array(z.object({ name: z.string(), parent: z.object({ name: z.string() }).nullish() })) }),
+  assignee: personSchema.nullish(),
+  creator: personSchema.nullish(),
 });
 export type LinearIssue = z.infer<typeof issueSchema>;
 
@@ -114,18 +118,34 @@ export function linearClient(apiKey: string, { fetch: fetchImpl = realFetch, sle
       return { id: team.id, states: team.states.nodes };
     },
 
-    async readyIssues(teamKey: string, label: string) {
+    /** Todo issues in any of the teams that carry the label, are Hive's, or are assigned to one of `emails`. */
+    async readyIssues({
+      teamKeys,
+      label,
+      hiveUserId,
+      emails,
+    }: {
+      teamKeys: readonly string[];
+      label: string;
+      hiveUserId: string | null;
+      emails: readonly string[];
+    }) {
+      const filter = {
+        team: { key: { in: teamKeys } },
+        state: { type: { eq: "unstarted" } },
+        or: [
+          { labels: { some: { name: { eqIgnoreCase: label } } } },
+          ...(hiveUserId ? [{ assignee: { id: { eq: hiveUserId } } }] : []),
+          ...emails.map((email) => ({ assignee: { email: { eqIgnoreCase: email } } })),
+        ],
+      };
       const data = await gql(
-        `query($team: String!, $label: String!) {
-          issues(first: 50, filter: {
-            team: { key: { eq: $team } },
-            labels: { some: { name: { eqIgnoreCase: $label } } },
-            state: { type: { eq: "unstarted" } }
-          }) {
-            nodes { id identifier title url description createdAt state { name type } labels { nodes { name parent { name } } } }
+        `query($filter: IssueFilter) {
+          issues(first: 50, filter: $filter) {
+            nodes { id identifier title url description createdAt state { name type } labels { nodes { name parent { name } } } assignee { id email } creator { id email } }
           }
         }`,
-        { team: teamKey, label },
+        { filter },
         z.object({ issues: z.object({ nodes: z.array(issueSchema) }) }),
       );
       return data.issues.nodes.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -305,6 +325,16 @@ export function linearClient(apiKey: string, { fetch: fetchImpl = realFetch, sle
         }),
       );
       return data.fileUpload.uploadFile;
+    },
+
+    /** The workspace member with this email, for an @-mention (their profile URL); null when there is none. */
+    async userByEmail(email: string): Promise<{ id: string; url: string } | null> {
+      const data = await gql(
+        `query($email: String!) { users(filter: { email: { eqIgnoreCase: $email } }, first: 1) { nodes { id url } } }`,
+        { email },
+        z.object({ users: z.object({ nodes: z.array(z.object({ id: z.string(), url: z.string() })) }) }),
+      );
+      return data.users.nodes[0] ?? null;
     },
 
     /** Returns false when a comment with this id already exists. */

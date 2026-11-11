@@ -31,15 +31,26 @@ const sessionMeta = z.object({
 
 const turnContext = z.object({ type: z.literal("turn_context"), payload: z.object({ model: z.string().min(1) }) });
 
+// The subscription's rate-limit windows ride on token_count lines: primary is the 5h window, secondary the 7d.
+const limitWindow = z.object({ used_percent: z.number(), resets_at: z.number().nullish() }).nullish().catch(undefined);
+const rateLimits = z.object({ primary: limitWindow, secondary: limitWindow }).nullish().catch(undefined);
+
 const tokenCount = z.object({
   type: z.literal("event_msg"),
   timestamp: z.string().optional(),
-  payload: z.object({ type: z.literal("token_count"), info: z.object({ total_token_usage: tokenUsage }).nullish() }),
+  payload: z.object({
+    type: z.literal("token_count"),
+    info: z.object({ total_token_usage: tokenUsage }).nullish(),
+    rate_limits: rateLimits,
+  }),
 });
 
 const taskEvent = z.object({ type: z.literal("event_msg"), payload: z.object({ type: z.enum(["task_started", "task_complete"]) }) });
 
 const subagentSource = z.object({ subagent: z.object({ thread_spawn: z.object({ parent_thread_id: z.string() }) }) });
+
+/** A rate-limit window's used percent and its reset, in epoch seconds as Codex writes it. */
+export type Limits = Partial<Record<"5h" | "7d", { usedPct: number; resetsAt: number | null }>>;
 
 export type Rollout = {
   threadId: string;
@@ -55,6 +66,10 @@ export type Rollout = {
   settled: boolean;
   /** The model is "unknown" until a turn_context names one. */
   usage: Usage;
+  /** The rate-limit windows of the last token count that had them; absent with none. */
+  rateLimits?: Limits;
+  /** When that token count was written (epoch ms), so an older read never replaces a newer one. */
+  rateLimitsAt?: number;
 };
 
 const time = (iso: string | undefined) => {
@@ -69,6 +84,8 @@ export function parseRollout(text: string): Rollout | undefined {
   let total: z.infer<typeof tokenUsage> | undefined;
   let lastUsageAt: number | null = null;
   let settled = false;
+  let limits: z.infer<typeof rateLimits>;
+  let limitsAt: number | null = null;
   for (const raw of text.split("\n")) {
     if (!raw.trim()) continue;
     let line: unknown;
@@ -93,6 +110,11 @@ export function parseRollout(text: string): Rollout | undefined {
       continue;
     }
     const count = tokenCount.safeParse(line);
+    // The last line that has them, file order: a null `info` line still carries the limits.
+    if (count.success && count.data.payload.rate_limits) {
+      limits = count.data.payload.rate_limits;
+      limitsAt = time(count.data.timestamp);
+    }
     const usage = count.success ? count.data.payload.info?.total_token_usage : undefined;
     // The total only grows; the largest one is the thread's spend so far, whatever the line order.
     if (usage && (!total || usage.input_tokens + usage.output_tokens >= total.input_tokens + total.output_tokens)) {
@@ -104,6 +126,12 @@ export function parseRollout(text: string): Rollout | undefined {
   const cacheRead = total?.cached_input_tokens ?? 0;
   const cacheWrite = total?.cache_write_input_tokens ?? 0;
   const parent = subagentSource.safeParse(meta.source);
+  const rateLimitWindows = (
+    [
+      ["5h", limits?.primary],
+      ["7d", limits?.secondary],
+    ] as const
+  ).flatMap(([name, w]) => (w ? [[name, { usedPct: w.used_percent, resetsAt: w.resets_at ?? null }] as const] : []));
   return {
     threadId: meta.id,
     sessionId: meta.session_id ?? meta.id,
@@ -120,6 +148,10 @@ export function parseRollout(text: string): Rollout | undefined {
       cacheWrite,
       model,
     },
+    ...(rateLimitWindows.length > 0 && {
+      rateLimits: Object.fromEntries(rateLimitWindows) as Limits,
+      ...(limitsAt !== null && { rateLimitsAt: limitsAt }),
+    }),
   };
 }
 
@@ -166,8 +198,8 @@ export function codexUsage(rollouts: readonly Rollout[], run: CodexRun): CodexUs
 const RECORD = "\u001e";
 
 // Prints, per rollout written to in the last $2 minutes, a separator with its path, then only the
-// lines the parser needs: the session_meta, the last turn_context, the last turn start or end, and
-// the last running total.
+// lines the parser needs: the session_meta, the last turn_context, the last turn start or end, the
+// last running total and the last rate limits.
 const READ_SCRIPT = `
 cd "$1" 2>/dev/null || exit 0
 find . -name 'rollout-*.jsonl' -mmin "-$2" | while IFS= read -r f; do
@@ -176,6 +208,7 @@ find . -name 'rollout-*.jsonl' -mmin "-$2" | while IFS= read -r f; do
   grep -F '"type":"turn_context"' "$f" | tail -n 1
   grep -E '"type":"task_(started|complete)"' "$f" | tail -n 1
   grep -F '"total_token_usage"' "$f" | tail -n 1
+  grep -F '"rate_limits":{' "$f" | tail -n 1
 done
 `;
 

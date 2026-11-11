@@ -65,9 +65,12 @@ export type SandboxLimits = z.infer<typeof sandboxSchema>;
 /** Every factory limit lives here, with defaults; the config file overrides any of them. */
 export const factorySchema = z
   .object({
+    /** Env defaults only: once Settings → Linear is saved, its teamKeys and label decide which webhook deliveries count (lib/linear-settings.ts). */
     teamKey: z.string().default("FAC"),
     label: z.string().default("hive"),
     maxInFlight: z.number().int().positive().default(4),
+    /** Local (on-this-Mac) jobs a runner holds at once; a local claim beyond it is refused (R22.3). */
+    maxLocal: z.number().int().positive().default(3),
     /** A working job with no event for this long, or whose thread stopped, gets one nudge. */
     stuckAfterMinutes: z.number().positive().default(30),
     /** A stopped thread counts as stuck only after this much quiet, so a turn that just ended isn't. */

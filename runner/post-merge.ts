@@ -14,6 +14,7 @@ import { config } from "./config";
 import { thisMachine } from "./heartbeat";
 import { auditFactory, mergeRevert, storedDecision, syncComments } from "./merge-service";
 import { factoryCheckouts } from "./ops";
+import { snapshotSstack } from "./sstack-snapshot";
 
 // After the factory merges a PR, the timer watches the merge commit's checks on the base branch
 // for factory.postMergeWatchMinutes. Green or no verdict in time ends the watch. Red reverts the
@@ -192,11 +193,13 @@ export async function watchMerges({ now = Date.now(), only }: { now?: number; on
   );
   const changed: string[] = [];
   const errors: { key: string; error: string }[] = [];
+  const snapshotRepos = new Set<string>();
   for (const job of rows) {
     try {
       let decision = storedDecision(job);
       if (!decision?.merged || !decision.watch) continue;
       if (decision.watch.state === "watching") {
+        snapshotRepos.add(job.repo);
         const ended = await watchOne(job, { ...decision, merged: decision.merged, watch: decision.watch }, now);
         if (ended) {
           decision = ended;
@@ -208,5 +211,10 @@ export async function watchMerges({ now = Date.now(), only }: { now?: number; on
       errors.push({ key: job.key, error: error instanceof Error ? error.message : String(error) });
     }
   }
+  // A snapshot at the sha already stored writes nothing, so a repo in its watch window costs a fetch and a no-op.
+  for (const repo of snapshotRepos)
+    await snapshotSstack(repo).catch((error: unknown) =>
+      console.error(JSON.stringify({ event: "post-merge:sstack-snapshot-failed", repo, error: firstLine(error) })),
+    );
   return errors.length > 0 ? { changed, errors } : changed;
 }

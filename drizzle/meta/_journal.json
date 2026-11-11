@@ -295,6 +295,34 @@
       "when": 1794235365120,
       "tag": "0041_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794325091920,
+      "tag": "0042_pink_silvermane",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794326171353,
+      "tag": "0043_agent_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794326882430,
+      "tag": "0044_mixed_ser_duncan",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794329124654,
+      "tag": "0045_job_media",
+      "breakpoints": true
     }
   ]
 }
