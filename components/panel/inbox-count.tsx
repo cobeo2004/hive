@@ -14,7 +14,12 @@ export function InboxCount({ jobs, me }: { jobs: Feed<JobRow>; me: Viewer | null
   if (count === 0) return null;
   return (
     <>
-      <Badge variant="secondary" size="sm" className="tabular-nums in-data-collapsed:hidden" aria-label={`${count} waiting on you`}>
+      <Badge
+        variant="secondary"
+        size="sm"
+        className="border-transparent bg-(--lime) font-bold text-(--on-lime) tabular-nums in-data-collapsed:hidden"
+        aria-label={`${count} waiting on you`}
+      >
         {count}
       </Badge>
       <span aria-hidden className="absolute top-1.5 left-6 hidden size-1.5 rounded-full bg-primary in-data-collapsed:block" />

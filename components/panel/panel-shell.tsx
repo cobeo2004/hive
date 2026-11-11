@@ -1,32 +1,29 @@
 "use client";
 
-import { ActivityIcon, FolderGit2Icon, InboxIcon, KanbanIcon, type LucideIcon, PanelLeftIcon, ServerIcon, SettingsIcon } from "lucide-react";
+import { FolderGit2Icon, InboxIcon, KanbanIcon, type LucideIcon, MenuIcon, PanelLeftIcon, SettingsIcon } from "lucide-react";
 import { LayoutGroup, MotionConfig, motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { createContext, type ReactElement, type ReactNode, useContext, useEffect, useState } from "react";
+import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Sheet, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { crumbsOf } from "./shell-model";
 import { UserMenu, type PanelUser } from "./user-menu";
 
 /** The layout reads this cookie, so a reload keeps the rail collapsed. */
 export const COLLAPSED_COOKIE = "sidebar_state";
 
-type NavItem = { href: "/inbox" | "/" | "/activity" | "/machines" | "/repositories" | "/settings"; label: string; icon: LucideIcon };
+type NavItem = { href: "/inbox" | "/" | "/repositories" | "/settings"; label: string; icon: LucideIcon };
 
-/** The jobs come first, led by the inbox of jobs that need the owner. */
+/** The canvas nav: the jobs, then the inbox of jobs that need the owner. Machines and Other activity stay reachable by URL. */
 const NAV: readonly (readonly NavItem[])[] = [
   [
-    { href: "/inbox", label: "Inbox", icon: InboxIcon },
     { href: "/", label: "Jobs", icon: KanbanIcon },
-  ],
-  [
-    { href: "/activity", label: "Other activity", icon: ActivityIcon },
-    { href: "/machines", label: "Machines", icon: ServerIcon },
+    { href: "/inbox", label: "Inbox", icon: InboxIcon },
     { href: "/repositories", label: "Repositories", icon: FolderGit2Icon },
     { href: "/settings", label: "Settings", icon: SettingsIcon },
   ],
@@ -39,16 +36,6 @@ const isActive = (href: NavItem["href"], pathname: string) => (href === "/" ? pa
 /** Typing in a field must never toggle the rail or walk a list. */
 export const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
-
-type Shell = { openNav: () => void };
-
-const ShellContext = createContext<Shell | null>(null);
-
-export function useShell() {
-  const shell = useContext(ShellContext);
-  if (!shell) throw new Error("useShell needs a PanelShell above it");
-  return shell;
-}
 
 function RailTip({ collapsed, label, children }: { collapsed: boolean; label: ReactNode; children: ReactElement }) {
   return (
@@ -64,12 +51,14 @@ function RailTip({ collapsed, label, children }: { collapsed: boolean; label: Re
 function Nav({
   collapsed,
   inboxCount,
+  sidebar,
   user,
   onNavigate,
   onToggle,
 }: {
   collapsed: boolean;
   inboxCount: ReactNode;
+  sidebar: ReactNode;
   user: PanelUser;
   onNavigate?: () => void;
   onToggle?: () => void;
@@ -78,15 +67,14 @@ function Nav({
   const fade = cn("transition-opacity duration-150", collapsed && "pointer-events-none opacity-0");
   return (
     <div className="flex h-full min-h-0 flex-col whitespace-nowrap">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3.5">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-primary text-[11px] font-semibold text-primary-foreground">M</span>
-        <span className={cn("min-w-0 truncate font-medium", fade)}>Hive</span>
+      <div className="flex shrink-0 items-center gap-2.5 px-3.5 pt-3 pb-2.5">
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="size-[18px] shrink-0">
+          <path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="var(--lime)" />
+        </svg>
+        <b className={cn("text-[15px] font-bold tracking-tight text-foreground", fade)}>Hive</b>
+        <span className={cn("rounded-md border px-1.5 text-[11px] font-semibold text-muted-foreground", fade)}>Unibuz</span>
       </div>
-      <nav
-        aria-label="Panel"
-        data-collapsed={collapsed || undefined}
-        className="flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto px-1.5 py-2"
-      >
+      <nav aria-label="Panel" data-collapsed={collapsed || undefined} className="flex shrink-0 flex-col gap-4 overflow-x-hidden border-b px-1.5 pt-1 pb-2">
         {NAV.map((group) => (
           <div key={group[0]!.href} className="flex flex-col gap-px">
             {group.map(({ href, label, icon: Icon }) => {
@@ -99,12 +87,14 @@ function Nav({
                     aria-current={on ? "page" : undefined}
                     aria-label={collapsed ? label : undefined}
                     className={cn(
-                      "relative flex h-8 items-center gap-2 overflow-hidden rounded-md px-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                      on ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                      "relative flex h-8 items-center gap-2.5 overflow-hidden rounded-lg px-2.5 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                      on
+                        ? "bg-primary/10 font-semibold text-foreground shadow-[inset_0_0_0_1px_var(--border)]"
+                        : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                     )}
                   >
                     {on && (
-                      <motion.span layoutId="panel-nav-marker" transition={spring} className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-foreground" />
+                      <motion.span layoutId="panel-nav-marker" transition={spring} className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary" />
                     )}
                     <Icon className="size-4 shrink-0" />
                     <span className={cn("min-w-0 flex-1 truncate", fade)}>{label}</span>
@@ -116,8 +106,19 @@ function Nav({
           </div>
         ))}
       </nav>
+      {/* Hidden while the rail is collapsed; the Sheet always shows it. */}
+      <div
+        className={cn("min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 py-1", collapsed && "hidden")}
+        onClick={(e) => {
+          // The links inside are the interactive elements; the wrapper only closes the Sheet, as the nav links above do.
+          if ((e.target as HTMLElement).closest("a")) onNavigate?.();
+        }}
+      >
+        {sidebar}
+      </div>
+      {collapsed && <div className="flex-1" />}
       {/* The rail toggle keeps the bottom-left corner in both states; the theme menu sits beside it, or above it when collapsed. */}
-      <div className="relative flex h-10 shrink-0 items-center gap-1 border-t px-1.5">
+      <div className="relative flex h-12 shrink-0 items-center gap-1 border-t px-1.5">
         {onToggle && (
           <RailTip
             collapsed
@@ -133,24 +134,55 @@ function Nav({
             </Button>
           </RailTip>
         )}
-        <div className={cn("flex items-center gap-1", collapsed && "absolute bottom-full left-1.5 mb-1.5 flex-col")}>
+        <div className={cn("flex min-w-0 items-center gap-1", collapsed && "absolute bottom-full left-1.5 mb-1.5 flex-col")}>
           <ThemeToggle />
           <UserMenu user={user} />
+          <span className={cn("min-w-0 truncate text-xs text-foreground", collapsed && "hidden")}>{user.name}</span>
         </div>
       </div>
     </div>
   );
 }
 
-/** The app frame: a hairline rail on the left that collapses with `[`, and a column each page fills with its header, content and footer. */
+/** The breadcrumb bar over every page, with the menu button that opens the sidebar Sheet below md. */
+function Crumbs({ onMenu }: { onMenu: () => void }) {
+  const crumbs = crumbsOf(usePathname());
+  return (
+    <nav aria-label="Breadcrumb" className="flex min-h-[52px] shrink-0 items-center gap-2 border-b px-3 text-sm md:px-6">
+      <Button aria-label="Open navigation" className="md:hidden" onClick={onMenu} size="icon-sm" variant="ghost">
+        <MenuIcon />
+      </Button>
+      {crumbs.map((crumb, i) => (
+        <span key={crumb} className="flex items-center gap-2">
+          {i > 0 && (
+            <span aria-hidden className="text-(--border-strong)">
+              /
+            </span>
+          )}
+          {i === crumbs.length - 1 ? (
+            <span aria-current="page" className="font-semibold text-foreground">
+              {crumb}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">{crumb}</span>
+          )}
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+/** The app frame: the canvas sidebar on the left that collapses with `[`, and a column each page fills under the breadcrumb bar. */
 export function PanelShell({
   defaultCollapsed,
   inboxCount,
+  sidebar,
   user,
   children,
 }: {
   defaultCollapsed: boolean;
   inboxCount: ReactNode;
+  sidebar: ReactNode;
   user: PanelUser;
   children: ReactNode;
 }) {
@@ -170,32 +202,31 @@ export function PanelShell({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const shell: Shell = { openNav: () => setNavOpen(true) };
-
   return (
     <MotionConfig reducedMotion="user">
-      <ShellContext value={shell}>
-        <LayoutGroup id="panel-shell">
-          <div className="flex h-svh min-h-0 w-full overflow-hidden bg-background text-sm">
-            <motion.aside
-              aria-label="Sidebar"
-              animate={{ width: collapsed ? 48 : 232 }}
-              initial={false}
-              transition={spring}
-              className="hidden shrink-0 overflow-hidden border-e md:block"
-            >
-              <Nav collapsed={collapsed} inboxCount={inboxCount} onToggle={() => setCollapsed((c) => !c)} user={user} />
-            </motion.aside>
-            <Sheet open={navOpen} onOpenChange={setNavOpen}>
-              <SheetPopup side="left" className="w-64 max-w-[85%] md:hidden">
-                <SheetTitle className="sr-only">Navigation</SheetTitle>
-                <Nav collapsed={false} inboxCount={inboxCount} onNavigate={() => setNavOpen(false)} user={user} />
-              </SheetPopup>
-            </Sheet>
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
-          </div>
-        </LayoutGroup>
-      </ShellContext>
+      <LayoutGroup id="panel-shell">
+        <div className="flex h-svh min-h-0 w-full overflow-hidden bg-background text-sm">
+          <motion.aside
+            aria-label="Sidebar"
+            animate={{ width: collapsed ? 48 : 264 }}
+            initial={false}
+            transition={spring}
+            className="hidden shrink-0 overflow-hidden border-e bg-(--surface-1) md:block"
+          >
+            <Nav collapsed={collapsed} inboxCount={inboxCount} onToggle={() => setCollapsed((c) => !c)} sidebar={sidebar} user={user} />
+          </motion.aside>
+          <Sheet open={navOpen} onOpenChange={setNavOpen}>
+            <SheetPopup side="left" className="w-72 max-w-[85%] bg-(--surface-1) md:hidden">
+              <SheetTitle className="sr-only">Navigation</SheetTitle>
+              <Nav collapsed={false} inboxCount={inboxCount} onNavigate={() => setNavOpen(false)} sidebar={sidebar} user={user} />
+            </SheetPopup>
+          </Sheet>
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <Crumbs onMenu={() => setNavOpen(true)} />
+            {children}
+          </main>
+        </div>
+      </LayoutGroup>
     </MotionConfig>
   );
 }
