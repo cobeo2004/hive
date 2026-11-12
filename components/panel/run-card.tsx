@@ -118,7 +118,7 @@ const STOP_TONE: Record<StopView["kind"], string> = {
 };
 
 /** Where the job's stop is; an unconfirmed one links to its thread in T3 when the card knows the link. */
-export function StopLine({ view, t3Href }: { view: StopView; t3Href?: string }) {
+function StopLine({ view, t3Href }: { view: StopView; t3Href?: string }) {
   return (
     <p
       className={cn("flex flex-wrap items-center gap-x-1.5 text-xs", STOP_TONE[view.kind])}

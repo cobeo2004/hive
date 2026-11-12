@@ -18,7 +18,7 @@ export const stageSchema = z.enum(STAGES);
 export type Stage = z.infer<typeof stageSchema>;
 
 /** What a factory thread passes to `report_stage`; the hook re-parses the same shape from tool_input. */
-export const stageReportShape = {
+const stageReportShape = {
   stage: stageSchema.describe("The stage the run just entered."),
   summary: z.string().min(1).max(500).describe("One or two sentences on what happened. For failed, the reason."),
   prUrl: z.url().optional().describe("Required for stage pr: the pull request URL."),
@@ -144,7 +144,6 @@ export const eventSchema = z.discriminatedUnion("kind", [
     .refine(withinLimit, { message: "file is over the limit for its type", path: ["data"] }),
 ]);
 export type FactoryEvent = z.infer<typeof eventSchema>;
-export type EventKind = FactoryEvent["kind"];
 
 export const MAX_BATCH = 100;
 

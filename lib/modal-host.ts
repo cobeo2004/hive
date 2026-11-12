@@ -166,7 +166,7 @@ export async function snapshotSandbox(sandboxId: string, ttlMs: number) {
   }
 }
 
-export type Tunnel = { kind: "url"; url: string } | { kind: "no port" } | { kind: "not ready" };
+type Tunnel = { kind: "url"; url: string } | { kind: "no port" } | { kind: "not ready" };
 
 /** The public https URL of the sandbox's tunnel to `port`; "no port" when it was created without one, "not ready" while Modal is still opening it. */
 export async function tunnelUrl(sandboxId: string, port: number): Promise<Tunnel> {

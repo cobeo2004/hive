@@ -78,7 +78,7 @@ export async function expirePairings() {
   return cleared.length;
 }
 
-export type Delivery = "lease" | "receipt" | "skip";
+type Delivery = "lease" | "receipt" | "skip";
 
 export function deliveryFor(kind: IntentKind, owner: string | null, me: string, hasSlack = false): Delivery {
   const route = INTENT_ROUTES[kind];
@@ -103,7 +103,7 @@ export function deliveryFor(kind: IntentKind, owner: string | null, me: string, 
  * cannot be started again while it holds the lease. The timer redoes every intent's work, so a
  * crashed runner's intent waiting out its lease delays nothing that matters.
  */
-export const LEASE_MINUTES = 10;
+const LEASE_MINUTES = 10;
 /** A broadcast stays open this long for machines that were offline when it arrived. */
 const BROADCAST_MINUTES = 10;
 

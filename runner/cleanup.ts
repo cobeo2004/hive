@@ -2,7 +2,7 @@ import { and, inArray, lt, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { jobMedia, jobs } from "../db/schema";
 
-export const MEDIA_RETENTION_DAYS = 30;
+const MEDIA_RETENTION_DAYS = 30;
 
 /**
  * Deletes the images and videos of jobs that ended (merged, or failed, which is where a closed PR lands)

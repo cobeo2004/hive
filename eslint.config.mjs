@@ -50,6 +50,8 @@ const eslintConfig = defineConfig([
   ]),
   // An eslint-disable that no longer suppresses anything fails lint instead of lingering.
   { linterOptions: { reportUnusedDisableDirectives: "error" } },
+  // knip removes unused exports; this catches what is left dead inside a module.
+  { rules: { "@typescript-eslint/no-unused-vars": "error" } },
   { rules: boundary({ linear: [ANYWHERE], adapters: true, named: true }) },
   { files: ["lib/*.ts"], rules: boundary({ linear: [ANYWHERE, "^\\./linear"], adapters: true, named: true }) },
   { files: ["lib/sources/**/*.ts"], rules: boundary({ linear: [ANYWHERE, "^\\.\\./linear"] }) },

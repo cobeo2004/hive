@@ -5,7 +5,7 @@ import { GITHUB_APP_PATH } from "../config";
 import { forbidInTest } from "../test-mode";
 
 export const GITHUB_API = process.env.GITHUB_API_URL ?? "https://api.github.com";
-export const GITHUB_API_VERSION = "2026-03-10";
+const GITHUB_API_VERSION = "2026-03-10";
 
 export type RepoName = `${string}/${string}`;
 

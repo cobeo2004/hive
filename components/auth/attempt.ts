@@ -1,5 +1,5 @@
 type AuthError = { message?: string; code?: string };
-export type AuthFailure = { message: string };
+type AuthFailure = { message: string };
 
 export async function attempt(call: () => Promise<{ error: AuthError | null }>, fallback: string): Promise<AuthFailure | null> {
   try {

@@ -11,7 +11,7 @@ export const NOT_MEMBER = "Sign in to Hive first.";
 export const NO_TOKEN = "The panel has no SLACK_BOT_TOKEN, so it can't act from Slack.";
 
 /** Checks `X-Slack-Signature`: v0, HMAC-SHA256 of `v0:<timestamp>:<raw body>` with the signing secret. */
-export function verifySignature(secret: string, timestamp: string | null, signature: string | null, body: string, nowMs: number) {
+function verifySignature(secret: string, timestamp: string | null, signature: string | null, body: string, nowMs: number) {
   if (!secret || !timestamp || !signature || !/^\d+$/.test(timestamp)) return false;
   if (Math.abs(nowMs / 1000 - Number(timestamp)) > MAX_SKEW_SECONDS) return false;
   const expected = Buffer.from(`v0=${createHmac("sha256", secret).update(`v0:${timestamp}:${body}`).digest("hex")}`);

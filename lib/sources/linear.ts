@@ -176,7 +176,7 @@ export function linearOverrides(state: SourceStateDraftOf<"linear">): SourceOver
   return { harness: inGroup(OVERRIDE_GROUPS.harness), runsOn: inGroup(OVERRIDE_GROUPS.runsOn), repository: inGroup(OVERRIDE_GROUPS.repository) };
 }
 
-export type LinearDeps = {
+type LinearDeps = {
   client: LinearClient;
   db: NodePgDatabase<typeof schema>;
   limits: FactoryLimits;
@@ -560,7 +560,7 @@ const fileFromEnv = async (draft: FileDraft) => {
 };
 
 /** Adds the label groups and children the team is missing, as the runner's label sync does, from the panel. */
-export function linearLabelSyncer(apiKey: string, teamKey: string, options?: LinearOptions) {
+function linearLabelSyncer(apiKey: string, teamKey: string, options?: LinearOptions) {
   const client = linearClient(apiKey, options);
   return async (groups: readonly LabelGroupSpec[]) => {
     const { created, problems } = await syncLabelGroups(client, (await client.team(teamKey)).id, groups);
@@ -579,7 +579,7 @@ const syncLabelsFromEnv = (groups: readonly LabelGroupSpec[]) => {
  * the factory's own, so the runner reads it as a reply like one typed in Linear. The id comes from
  * the request, so a retry finds the comment already posted.
  */
-export function linearReplier(apiKey: string, options?: LinearOptions) {
+function linearReplier(apiKey: string, options?: LinearOptions) {
   const client = linearClient(apiKey, options);
   return async (issueId: string, requestId: string, body: string) => {
     await client.comment(issueId, commentId(issueId, "panel-answer", requestId), body);

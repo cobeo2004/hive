@@ -3,7 +3,7 @@ import { parse } from "smol-toml";
 import { ROLES, readToml, usable, type Spec } from "./workflow-chain";
 
 export type Edit = { path: string; section: string; key: string; value: string | number | boolean };
-export type Patch = (text: string, section: string, key: string, value: Edit["value"]) => string;
+type Patch = (text: string, section: string, key: string, value: Edit["value"]) => string;
 
 export const CONFIG = ".sstack/config.toml";
 export const stepFile = (name: string) => `.sstack/steps/${name}/step.toml`;

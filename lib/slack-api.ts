@@ -5,7 +5,7 @@ import type { SlackMessage } from "./slack";
 // Retry-After when it is short; a longer one pauses the client, and every call until then throws
 // SlackRateLimited without reaching Slack. Errors name the method and Slack's error code, never the token.
 
-export const SLACK_API_URL = "https://slack.com/api/";
+const SLACK_API_URL = "https://slack.com/api/";
 
 export class SlackApiError extends Error {
   constructor(
@@ -22,7 +22,7 @@ export class SlackRateLimited extends Error {
   }
 }
 
-export type SlackClientOptions = {
+type SlackClientOptions = {
   token: string;
   /** The fake server's URL in the regressions; Slack's otherwise. */
   baseUrl?: string;

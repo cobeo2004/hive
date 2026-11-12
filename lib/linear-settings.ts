@@ -49,7 +49,7 @@ export async function saveLinearSettings(db: Db, config: LinearConfig, by: strin
     .onConflictDoUpdate({ target: table.id, set: { ...values, config: sql`${table.config} || ${JSON.stringify(config)}::jsonb` } });
 }
 
-export type LinearSaveOutcome = { ok: true } | { ok: false; status: 400 | 403 | 502; message: string };
+type LinearSaveOutcome = { ok: true } | { ok: false; status: 400 | 403 | 502; message: string };
 
 export async function saveLinear(
   deps: { user: () => Promise<SessionUser | null | undefined>; save: (config: LinearConfig, by: string) => Promise<void> },

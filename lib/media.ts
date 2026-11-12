@@ -68,7 +68,7 @@ export const mediaUrl = (jobKey: string, index: number, reportId: string | null)
   `/api/jobs/${encodeURIComponent(jobKey)}/media/${index}?v=${encodeURIComponent(reportId ?? "")}`;
 
 /** Files whose change shows on a page or screen. */
-export const UI_GLOBS = ["**/*.tsx", "**/*.jsx", "**/*.vue", "**/*.svelte", "**/*.astro", "**/*.html", "**/*.css", "**/*.scss", "**/*.sass", "**/*.less"];
+const UI_GLOBS = ["**/*.tsx", "**/*.jsx", "**/*.vue", "**/*.svelte", "**/*.astro", "**/*.html", "**/*.css", "**/*.scss", "**/*.sass", "**/*.less"];
 
 /** The changed files a merge should have media for. */
 export const uiFiles = (paths: readonly string[]) => paths.filter((path) => matchesAny(path, UI_GLOBS));

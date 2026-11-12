@@ -5,7 +5,7 @@ import { bindingOf } from "./binding";
 import { interruptThread, listSubagents, sendMessage, showThread as showCli, type InterruptOutcome, type SubagentThread } from "../lib/t3-client";
 
 /** What `t3 thread show` says about a thread: its state, the status of its last run, and its last assistant message. */
-export type ThreadRead = { state: ThreadState; status: string | null; lastMessage: string | null };
+type ThreadRead = { state: ThreadState; status: string | null; lastMessage: string | null };
 
 /** The thread as a stop sees it: whether a run is active, and the project its subagent threads are listed under. */
 export type ThreadActivity = { state: ThreadState; activeRunId: string | null; projectId: string | null };

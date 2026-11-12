@@ -18,7 +18,7 @@ import { claim, finishStop, IN_FLIGHT, postEvent, settleRateLimited, threads } f
 // resumes do with reply ids. A close closes the PR and fails the job the way a stop does.
 // A person's GitHub review can arrive before its job can take it; it waits, see forwardReview.
 
-export type ChangesResult = { sent: string; moved: boolean } | { skipped: string } | { refused: string };
+type ChangesResult = { sent: string; moved: boolean } | { skipped: string } | { refused: string };
 /** Feedback the job cannot take yet but may later: its intent stays open and is tried again. */
 type Waiting = { waiting: string };
 
@@ -141,7 +141,7 @@ export async function forwardReview(intent: ReviewIntent, feedback: GithubFeedba
   return { refused: detail };
 }
 
-export type CloseResult = { closed: string; pr: "closed" | "already closed" | "none" } | { refused: string };
+type CloseResult = { closed: string; pr: "closed" | "already closed" | "none" } | { refused: string };
 
 /**
  * Closes the job's PR if it is open and fails the job with the owner's reason, telling its thread
@@ -188,7 +188,7 @@ export async function closeJob(id: JobId, { actor, reason }: CloseDetail, now = 
   throw new Error("the stage kept changing; the close is retried");
 }
 
-export type RetryResult = { started: number } | { refused: string };
+type RetryResult = { started: number } | { refused: string };
 
 /**
  * Starts the next attempt of a failed job the way the label does: the source shows the issue as

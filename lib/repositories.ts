@@ -33,19 +33,13 @@ function labelMatches(registry: Registry, name: string) {
   return [];
 }
 
-/** The one repo a Repository label names; a name more than one repo answers to names none. */
-export function repoForLabel(registry: Registry, name: string) {
-  const matches = labelMatches(registry, name);
-  return matches.length === 1 ? matches[0] : undefined;
-}
-
 /** The label that names `row`: its display name, or its full name while another repo shares the display name. */
 export function repoLabel(registry: Registry, row: Pick<RepoSettingsRow, "repo" | "display_name">) {
   const name = displayName(row);
   return registry.some((r) => r.repo !== row.repo && same(displayName(r), name)) ? row.repo : name;
 }
 
-export type RepoRoute = { repo: string | null; problem?: string };
+type RepoRoute = { repo: string | null; problem?: string };
 
 /** The repo a ticket's overrides pick; one that cannot apply goes to the default and says why. Null only with no default. */
 export function routeRepo(asked: Pick<SourceOverrides, "repository">, registry: Registry): RepoRoute {
@@ -81,7 +75,7 @@ export function desiredRepositoryGroup(registry: Registry) {
   return { group: REPOSITORY_GROUP, children: names };
 }
 
-export type LaunchDefaults = { harness: EffectiveHarness; execution: Execution };
+type LaunchDefaults = { harness: EffectiveHarness; execution: Execution };
 
 /**
  * The repo's default harness and place over Settings; the ticket's labels then go over these. A
@@ -180,7 +174,7 @@ export const repositoryInputSchema = z.object({
   requireBugbot: z.boolean({ error: "Say whether pull requests wait for Bugbot." }),
 });
 export type RepositoryInput = z.input<typeof repositoryInputSchema>;
-export type RepositoryChoice = z.output<typeof repositoryInputSchema>;
+type RepositoryChoice = z.output<typeof repositoryInputSchema>;
 
 export const defaultRepoInputSchema = z.object({ repo: z.string().regex(REPO_NAME, "Name the repo as owner/name.") });
 export type DefaultRepoInput = z.input<typeof defaultRepoInputSchema>;
@@ -203,7 +197,7 @@ export async function writeRepository(database: Db, choice: RepositoryChoice, by
   if (updated.length === 0) throw new Error(`${choice.repo} is not in the registry`);
 }
 
-export type RepositoryDeps = {
+type RepositoryDeps = {
   user: () => Promise<SessionUser | null | undefined>;
   registry: () => Promise<Registry>;
   /** What the machines report; null when none has reported its harnesses yet. */
@@ -245,7 +239,7 @@ export async function saveRepository(deps: RepositoryDeps, input: unknown): Prom
   }
 }
 
-export type DefaultRepoDeps = {
+type DefaultRepoDeps = {
   user: () => Promise<SessionUser | null | undefined>;
   registry: () => Promise<Registry>;
   save: (repo: string, by: string) => Promise<void>;

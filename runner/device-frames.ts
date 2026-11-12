@@ -6,7 +6,7 @@ import { deviceFrame } from "../lib/t3-client";
 import { IN_FLIGHT } from "./ops";
 import { message } from "./queue";
 
-export const VIEWER_FRESH_MS = 15_000;
+const VIEWER_FRESH_MS = 15_000;
 
 type FrameJob = { key: string; t3_thread_id: string };
 

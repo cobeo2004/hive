@@ -6,7 +6,7 @@ import type { Stage } from "@/lib/events";
 import { Time } from "./time";
 
 /** The runner captures frames only while a heartbeat is under 15 s old; 5 s keeps one alive across a missed beat. */
-export const HEARTBEAT_MS = 5_000;
+const HEARTBEAT_MS = 5_000;
 
 /** Stages whose job can have an open device: `IN_FLIGHT` in runner/ops.ts minus `queued`, which has no thread yet. */
 export const WATCHABLE_STAGES: readonly Stage[] = ["triage", "investigating", "planning", "implementing", "verifying"];

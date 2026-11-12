@@ -8,6 +8,7 @@ import { Dialog, DialogClose, DialogDescription, DialogFooter, DialogHeader, Dia
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import type { JobId } from "@/lib/sources/shapes";
+import { copyText } from "@/lib/clipboard";
 
 const POLL_MS = 1_500;
 /** The runner works one step at a time, so a busy queue can hold the request for a few minutes. */
@@ -67,10 +68,11 @@ export function useSandboxT3(jobId: JobId) {
     if (next) void ask(round.current);
   };
 
-  const copy = async (pairUrl: string) => {
-    await navigator.clipboard.writeText(pairUrl);
-    setCopied(true);
-  };
+  const copy = (pairUrl: string) =>
+    copyText(pairUrl).then(
+      () => setCopied(true),
+      () => setCopied(false),
+    );
 
   const dialog = (
     <Dialog open={open} onOpenChange={change}>

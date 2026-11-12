@@ -1,13 +1,13 @@
 import { z } from "zod";
 
 /** USD per million tokens. Cache reads and writes are billed apart from uncached input. */
-export const priceSchema = z.object({
+const priceSchema = z.object({
   input: z.number().nonnegative(),
   output: z.number().nonnegative(),
   cacheRead: z.number().nonnegative(),
   cacheWrite: z.number().nonnegative(),
 });
-export type Price = z.infer<typeof priceSchema>;
+type Price = z.infer<typeof priceSchema>;
 
 /** `factory.pricing`: a price per model id (or id prefix), or null to treat a model's cost as unknown. */
 export const pricingSchema = z.record(z.string().min(1), priceSchema.nullable());
@@ -20,7 +20,7 @@ export type PricingOverrides = z.infer<typeof pricingSchema>;
 // short-context column (at most 272K input tokens per request); cache writes at the 30-minute
 // write price. A longer request costs more than this counts. Under a ChatGPT login Codex is not
 // billed per token; these are what the same tokens cost on the API.
-export const DEFAULT_PRICES: Readonly<Record<string, Price>> = {
+const DEFAULT_PRICES: Readonly<Record<string, Price>> = {
   "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
   "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
   "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
@@ -35,7 +35,7 @@ export const DEFAULT_PRICES: Readonly<Record<string, Price>> = {
   "gpt-5.6-luna": { input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25 },
 };
 
-export type TokenCounts = {
+type TokenCounts = {
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;

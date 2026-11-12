@@ -44,7 +44,7 @@ export type DetailProps = {
 };
 
 /** The open run: its id right away, its feeds once they load. */
-export type OpenRun = { sessionId: string; data: Promise<DetailProps> };
+type OpenRun = { sessionId: string; data: Promise<DetailProps> };
 
 type LoadedDetailProps = Omit<ComponentProps<typeof RunDetail>, "agents" | "events" | "stages" | "audit" | "evidence" | "frame"> & {
   data: Promise<DetailProps>;
@@ -59,7 +59,7 @@ function LoadedRunDetail({ data, ...props }: LoadedDetailProps) {
 export type PanelView = "inbox" | "jobs" | "activity";
 
 /** What the jobs page and the inbox need of each registered repo. */
-export type PanelRepo = Pick<RepoSettingsRow, "repo" | "display_name" | "enabled" | "is_default">;
+type PanelRepo = Pick<RepoSettingsRow, "repo" | "display_name" | "enabled" | "is_default">;
 
 const LIST_KEYS: readonly KeyHint[] = [
   { keys: ["J", "K"], label: "move" },

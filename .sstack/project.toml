@@ -7,6 +7,7 @@ docs   = ["docs/prd.md", "docs/glossary.md", "docs/operations.md"]
 verify = [
   "bun install --frozen-lockfile",       # fresh worktrees have no node_modules (lesson L19)
   "bun run lint",
+  "bun run lint:unused",                          # unused files, exports and dependencies
   "bunx next typegen && bunx tsc --noEmit",
   "bun run format:check",                 # CI format job (lesson L17)
 ]

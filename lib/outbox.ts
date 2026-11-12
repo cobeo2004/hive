@@ -21,12 +21,12 @@ export const rejectedDir = (state: string) => join(state, "outbox-rejected");
 const droppedLog = (state: string) => join(state, "outbox-dropped.log");
 
 /** A batch stops growing past this much JSON, so a few screenshots never make one request too large; one event always goes. */
-export const MAX_BATCH_CHARS = 4_000_000;
+const MAX_BATCH_CHARS = 4_000_000;
 
 /** Past this many undelivered events every append warns. */
 export const HIGH_WATER = 1_000;
 /** Past this many the oldest are dropped, each one logged with its id and kind. */
-export const HARD_CAP = 10_000;
+const HARD_CAP = 10_000;
 
 export type OutboxFs = {
   exists(path: string): Promise<boolean>;
@@ -58,7 +58,7 @@ const pending = (dir: string) =>
     .filter((name) => name.endsWith(".json"))
     .sort();
 
-export type AppendResult = { file: string; pending: number; dropped: string[] };
+type AppendResult = { file: string; pending: number; dropped: string[] };
 
 /**
  * Writes the event to the outbox before anyone posts it. The write is a rename, so a flush in

@@ -13,7 +13,7 @@ export type Autonomy = z.infer<typeof autonomySchema>;
 
 export const AUTONOMY_LABELS: Record<Autonomy, string> = { off: "Off", trial: "Trial", auto: "Merge when confident" };
 
-export const CHECKS_TIMEOUT_MS = 60 * 60_000;
+const CHECKS_TIMEOUT_MS = 60 * 60_000;
 /** How long a head with no check run and no status may wait for CI to start before it counts as having none. */
 export const DEFAULT_NO_CI_GRACE_MS = 5 * 60_000;
 export const REVIEW_LABEL = "review";
@@ -22,7 +22,7 @@ export const REVIEW_LABEL = "review";
 export type RepoPolicy = { autonomy: Autonomy; requireBugbot: boolean };
 export const DEFAULT_POLICY: RepoPolicy = { autonomy: "off", requireBugbot: true };
 
-export const MERGE_OUTCOMES = ["merge", "handover", "pending"] as const;
+const MERGE_OUTCOMES = ["merge", "handover", "pending"] as const;
 export type MergeOutcome = (typeof MERGE_OUTCOMES)[number];
 
 export const MERGE_METHODS = ["squash", "merge", "rebase"] as const;
@@ -32,8 +32,7 @@ export type MergeMethod = (typeof MERGE_METHODS)[number];
 export const MERGE_VIAS = ["auto", "inbox", "run_detail"] as const;
 export type MergeVia = (typeof MERGE_VIAS)[number];
 
-export const WATCH_STATES = ["watching", "green", "expired", "reverted", "revert_failed"] as const;
-export type WatchState = (typeof WATCH_STATES)[number];
+const WATCH_STATES = ["watching", "green", "expired", "reverted", "revert_failed"] as const;
 
 /** What the factory merged; the post-merge watch reads the base branch at this commit. */
 export const factoryMergeSchema = z.object({
@@ -61,7 +60,7 @@ export const watchSchema = z.object({
 export type MergeWatch = z.infer<typeof watchSchema>;
 
 /** The most changed files a review summary lists; fileCount still counts them all. */
-export const REVIEW_FILE_LIMIT = 100;
+const REVIEW_FILE_LIMIT = 100;
 
 /** What the owner reviews in the inbox: the PR's changed files and Bugbot's findings at one head. */
 export const reviewSchema = z.object({

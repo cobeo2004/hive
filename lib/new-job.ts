@@ -42,7 +42,7 @@ export async function createJob(deps: NewJobDeps, input: unknown): Promise<NewJo
   }
 }
 
-export type ImageUploadDeps = {
+type ImageUploadDeps = {
   user: () => Promise<SessionUser | null | undefined>;
   upload: (image: ImageFile) => Promise<string>;
 };

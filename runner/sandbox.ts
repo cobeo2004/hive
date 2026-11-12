@@ -121,7 +121,7 @@ export function sandboxHarness(harness: HarnessChoice, driver: string, hasClaude
 /** Only a sandbox thread on Codex needs a Codex login slot; Claude Code logs in with the runner's token, in any number of sandboxes. */
 export const needsCodexSlot = (provider: string | null) => provider !== CLAUDE;
 
-export const t3Settings = (choice: HarnessChoice, hasClaude: boolean) => ({
+const t3Settings = (choice: HarnessChoice, hasClaude: boolean) => ({
   defaultModelSelection: { instanceId: choice.provider, model: choice.model },
   textGenerationModelSelection: { instanceId: choice.provider, model: choice.model },
   defaultRuntimeMode: "full-access",
@@ -136,7 +136,7 @@ export const t3Settings = (choice: HarnessChoice, hasClaude: boolean) => ({
  * itself for the job its env names. It goes after the image's config, which holds the PStack
  * marketplace and plugin. An onboarding run names no job and has no ingest config, so it posts nothing.
  */
-export function codexConfig(image: string | null = null, job?: { key: string; attempt: number; repo: string }) {
+function codexConfig(image: string | null = null, job?: { key: string; attempt: number; repo: string }) {
   const { command, args } = reportServer(FACTORY_ROOT);
   const env = Object.entries(job ? codexReportEnv(job) : { FACTORY_REPORTER: "mcp" }).map(([name, value]) => `${name} = ${JSON.stringify(value)}`);
   const servers =
@@ -199,7 +199,7 @@ export async function installCodexLogin(host: JobHost, slot: string, auth: strin
 /** `marked` false for a pool API key, which is never resealed. */
 export type CodexLogin = { slot: string; auth: string; marked?: boolean };
 
-export type SandboxSetup = {
+type SandboxSetup = {
   repo: string;
   choice: HarnessChoice;
   hasClaude: boolean;

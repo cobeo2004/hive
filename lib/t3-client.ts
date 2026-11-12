@@ -17,7 +17,7 @@ const LIST_SUBAGENTS_PAGES = 20;
 const CLI = { timeoutMs: 60_000, maxBuffer: 16 * 1024 * 1024 };
 
 /** A tool T3 answered with its failure, such as runtime_mode_escalation_denied; carries T3's message. */
-export class T3ToolError extends Error {}
+class T3ToolError extends Error {}
 
 export type SubagentThread = { threadId: string; status: string; latestRunId: string | null };
 export type InterruptOutcome = { kind: "requested" } | { kind: "idle" } | { kind: "refused"; reason: string };
@@ -237,7 +237,7 @@ export async function interruptThread(host: JobHost, threadId: string, requestId
 const openDevices = z.object({ open: z.array(z.object({ hostId: z.string(), deviceId: z.string() })) });
 const deviceShot = z.object({ screenshot: z.object({ data: z.string() }) });
 
-export type DeviceCall = (tool: "device_list" | "device_screenshot", args: Record<string, unknown>) => Promise<unknown>;
+type DeviceCall = (tool: "device_list" | "device_screenshot", args: Record<string, unknown>) => Promise<unknown>;
 
 /**
  * The PNG of the host's first open device, or null when none is open; read-only. A session is not

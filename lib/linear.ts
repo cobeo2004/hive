@@ -19,10 +19,8 @@ const issueSchema = z.object({
   assignee: personSchema.nullish(),
   creator: personSchema.nullish(),
 });
-export type LinearIssue = z.infer<typeof issueSchema>;
 
 const commentSchema = z.object({ id: z.string(), body: z.string(), createdAt: z.string() });
-export type LinearComment = z.infer<typeof commentSchema>;
 
 const stateSchema = z.object({ id: z.string(), name: z.string(), type: z.string() });
 

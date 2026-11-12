@@ -155,7 +155,7 @@ export function readSandboxImage(path = SANDBOX_IMAGE_PATH): SandboxImage | null
 }
 
 /** How an outdated image gets rebuilt: runner/base-image.ts does it on the tick. */
-export const REBUILDS_ITSELF = "the runner rebuilds it on its tick, or run bun scripts/sandbox-image.ts";
+const REBUILDS_ITSELF = "the runner rebuilds it on its tick, or run bun scripts/sandbox-image.ts";
 
 /** Why this image cannot launch jobs under these limits, or undefined when it can. */
 export function imageProblem(image: SandboxImage | null, limits: Pins) {

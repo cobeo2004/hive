@@ -28,7 +28,7 @@ export const jobExecution = (job: { execution: Execution | null; sandbox_id: str
   job.execution ?? (job.sandbox_id || job.sandbox_snapshot ? "modal" : "local");
 
 /** Whether the repo's main has its own copy; any failure to tell counts as none. */
-export async function repoHasPlaybook(host: JobHost, checkout: string) {
+async function repoHasPlaybook(host: JobHost, checkout: string) {
   try {
     await host.run("git", ["-C", checkout, "cat-file", "-e", `origin/main:${REPO_PLAYBOOK}`], { timeoutMs: 30_000 });
     return true;
@@ -38,7 +38,7 @@ export async function repoHasPlaybook(host: JobHost, checkout: string) {
 }
 
 /** The launch message's last section: which playbook to follow, and how a repo copy ranks against it. */
-export function playbookSection(execution: Execution, repoCopy: boolean) {
+function playbookSection(execution: Execution, repoCopy: boolean) {
   const path = factoryPlaybook(execution);
   return [
     "## Factory playbook",

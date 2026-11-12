@@ -29,8 +29,9 @@ import { displayName } from "@/lib/repo-name";
 import { RUNS_ON_LABELS } from "@/lib/ticket-overrides";
 import { cn } from "@/lib/utils";
 import { JOB_IMAGE_TYPES, MAX_JOB_IMAGE_BYTES, newJobSchema, type ImageUploadOutcome, type NewJob, type NewJobOutcome } from "@/lib/new-job-schema";
+import { requestId } from "@/lib/request-id";
 
-const blank = (): NewJob => ({ title: "", description: "", requestId: crypto.randomUUID() });
+const blank = (): NewJob => ({ title: "", description: "", requestId: requestId() });
 
 type JobImage = { id: string; name: string; preview: string } & (
   | { status: "uploading" }
@@ -89,7 +90,7 @@ export function NewJobButton({
   const addImages = (files: File[]) => {
     const draft = form.getValues("requestId");
     for (const file of files) {
-      const id = crypto.randomUUID();
+      const id = requestId();
       setImages((current) => [...current, { id, name: file.name, preview: URL.createObjectURL(file), status: "uploading" }]);
       void uploadImage(file).then((outcome) => {
         // The dialog was closed or reopened while this uploaded; the image belongs to a draft that is gone.

@@ -21,7 +21,7 @@ import type { OptIns } from "@/lib/opt-ins";
 import { setupSteps, type SourceChoice } from "@/lib/source-choice";
 import { cn } from "@/lib/utils";
 
-export type SetupUser = { name: string; email: string; role: "admin" | "engineer"; twoFactorEnabled: boolean; slackMatched: boolean };
+type SetupUser = { name: string; email: string; role: "admin" | "engineer"; twoFactorEnabled: boolean; slackMatched: boolean };
 type LinearCard = { matched: boolean; note: string };
 
 /**

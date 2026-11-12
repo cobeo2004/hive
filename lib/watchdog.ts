@@ -14,7 +14,7 @@ export type WatchInput = {
   now: Date;
 };
 
-export type WatchAction = { kind: "ok" } | { kind: "reset" } | { kind: "nudge"; idleMinutes: number } | { kind: "fail"; reason: string };
+type WatchAction = { kind: "ok" } | { kind: "reset" } | { kind: "nudge"; idleMinutes: number } | { kind: "fail"; reason: string };
 
 const minutes = (ms: number) => ms / 60_000;
 

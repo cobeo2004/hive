@@ -55,7 +55,7 @@ const githubUrl = (repo: string) => `https://github.com/${repo}`;
  * repo, its warm image, or the base image while the warm one is outdated; a local launch needs a
  * runner's checkout.
  */
-export type Places = { modal: boolean; modalNote: string | null; machines: string[]; rebuild?: string };
+type Places = { modal: boolean; modalNote: string | null; machines: string[]; rebuild?: string };
 
 function placesOf(rows: readonly MachineRow[], now: number, row: RepoSettingsRow): Places {
   const sandbox = reportedSandbox(rows, now);

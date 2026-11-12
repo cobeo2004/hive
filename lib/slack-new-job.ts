@@ -43,7 +43,7 @@ const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0
 const decodeEntities = (text: string) => text.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
 
 /** Slack's message markup as plain text: links, mentions and channels by their labels, entities decoded. */
-export function fromSlack(text: string) {
+function fromSlack(text: string) {
   return decodeEntities(
     text.replace(/<([^<>]+)>/g, (_, inner: string) => {
       const [target = "", label] = inner.split("|", 2);
@@ -55,18 +55,18 @@ export function fromSlack(text: string) {
 }
 
 /** A short title from text: its first non-empty line. */
-export const titleFrom = (text: string) => clip((text.split("\n").find((line) => line.trim()) ?? "").replace(/\s+/g, " ").trim(), TITLE_MAX);
+const titleFrom = (text: string) => clip((text.split("\n").find((line) => line.trim()) ?? "").replace(/\s+/g, " ").trim(), TITLE_MAX);
 
-export type Prefill = { title: string; description: string };
+type Prefill = { title: string; description: string };
 
 /** The manifest turns off should_escape for /factory, so its text has no link markup to read. */
-export function commandPrefill(text: string): Prefill {
+function commandPrefill(text: string): Prefill {
   const plain = decodeEntities(text).trim();
   const title = titleFrom(plain);
   return { title, description: plain === title ? "" : clip(plain, SLACK_INPUT_MAX) };
 }
 
-export function shortcutPrefill(text: string, permalink: string | null): Prefill {
+function shortcutPrefill(text: string, permalink: string | null): Prefill {
   const plain = fromSlack(text).trim();
   const source = permalink ? `\n\nFrom Slack: ${permalink}` : "";
   return { title: titleFrom(plain), description: `${clip(plain, SLACK_INPUT_MAX - source.length)}${source}`.trim() };
@@ -75,7 +75,7 @@ export function shortcutPrefill(text: string, permalink: string | null): Prefill
 const metaSchema = z.object({ responseUrl: z.string().optional(), channel: z.string().optional(), threadTs: z.string().optional() });
 type Meta = z.infer<typeof metaSchema>;
 
-export type ModalOptions = { registry: Registry; harnesses: readonly Harness[] };
+type ModalOptions = { registry: Registry; harnesses: readonly Harness[] };
 
 /** The repositories and harnesses the panel's form offers. */
 async function modalOptions(deps: InteractionDeps): Promise<ModalOptions> {
@@ -89,7 +89,7 @@ const plain = (text: string) => ({ type: "plain_text", text });
  * The New job modal with only a note and no submit. The trigger id is good for 3 seconds, so this
  * opens before anything is read; updateView then swaps in the form, which keeps the view's id.
  */
-export function newJobNote(text: string) {
+function newJobNote(text: string) {
   return { type: "modal", callback_id: NEW_JOB_CALLBACK_ID, title: plain("New job"), close: plain("Close"), blocks: [{ type: "section", text: plain(text) }] };
 }
 export const LOADING = "Loading…";
@@ -107,7 +107,7 @@ async function fillIn(deps: InteractionDeps, slack: NonNullable<InteractionDeps[
 }
 
 /** The panel's New job form: title, description, repository, harness and runs on, the defaults preselected. */
-export function renderNewJobModal(prefill: Prefill, options: ModalOptions, meta: Meta) {
+function renderNewJobModal(prefill: Prefill, options: ModalOptions, meta: Meta) {
   const option = (value: string, text: string) => ({ text: plain(clip(text, OPTION_TEXT_MAX)), value });
   const settingsDefault = option(SETTINGS_DEFAULT, "Settings default");
   const repos = options.registry.filter((r) => r.enabled).map((r) => option(r.repo, displayName(r)));
@@ -245,7 +245,7 @@ const stateSchema = z.record(
 const submissionSchema = z.object({ view: z.object({ id: z.string(), private_metadata: z.string(), state: z.object({ values: stateSchema }) }) });
 
 /** The job a submission asks for, with a request id from the modal, so submitting it again files the same issue. */
-export function newJobInput(viewId: string, values: z.infer<typeof stateSchema>) {
+function newJobInput(viewId: string, values: z.infer<typeof stateSchema>) {
   const input = (block: string) => values[block]?.[VALUE];
   const pick = (block: string) => {
     const value = input(block)?.selected_option?.value;

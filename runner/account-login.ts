@@ -42,7 +42,7 @@ export const running = new Map<string, Promise<void>>();
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Seals the secret to the runners' key into the user's own subscription account, replacing an earlier connection of that provider. */
-export async function connectAccount(userId: string, provider: "claude" | "codex", secret: string, env: Record<string, string | undefined> = process.env) {
+async function connectAccount(userId: string, provider: "claude" | "codex", secret: string, env: Record<string, string | undefined> = process.env) {
   const key = env.HIVE_CREDS_PRIVATE_KEY;
   if (!key) throw new Error("HIVE_CREDS_PRIVATE_KEY is not set; cannot seal an account");
   const publicKey = createPublicKey(createPrivateKey(key.replace(/\\n/g, "\n")))

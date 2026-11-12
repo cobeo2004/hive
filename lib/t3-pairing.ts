@@ -36,9 +36,9 @@ export type PairingDeps = {
   now?: () => Date;
 };
 
-export type PairingRequest = { ok: true; intentId: string } | { ok: false; message: string };
+type PairingRequest = { ok: true; intentId: string } | { ok: false; message: string };
 
-export type PairingTake = { status: "pending" } | { status: "ready"; pairUrl: string; expiresAt: string } | { status: "failed"; message: string };
+type PairingTake = { status: "pending" } | { status: "ready"; pairUrl: string; expiresAt: string } | { status: "failed"; message: string };
 
 const OWNER_ONLY = "Only an admin can open a sandbox in T3.";
 

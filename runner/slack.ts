@@ -40,7 +40,7 @@ import { branchCosts } from "../lib/spend";
 // email, else a Linear comment @-mentioning them (R34).
 
 /** Most Slack calls one pass makes; the rest wait for the next tick, so Slack never holds up the runner's queue. */
-export const MAX_CALLS_PER_PASS = 25;
+const MAX_CALLS_PER_PASS = 25;
 /** A row still posting after this belongs to a runner that died mid-post; the event is posted again. */
 export const POSTING_STALE_MS = 5 * 60_000;
 /** Tries at recording a posted message's channel and ts before the row is left posting. */
@@ -105,7 +105,7 @@ async function destination(target: SlackTarget, config: NotificationConfig, slac
 const fingerprint = (message: SlackMessage) => createHash("sha256").update(JSON.stringify(message)).digest("hex").slice(0, 32);
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export type NotifyResult = { posted: number; updated: number; resolved: number; held: number; errors?: string[]; rateLimitedUntil?: string; deferred?: true };
+type NotifyResult = { posted: number; updated: number; resolved: number; held: number; errors?: string[]; rateLimitedUntil?: string; deferred?: true };
 export type NotifyLinear = Pick<LinearClient, "userByEmail" | "comment">;
 
 /** Without a Slack connection, or with the target on owner, each event goes to its job's owner (R34). */

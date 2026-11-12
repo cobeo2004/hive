@@ -8,14 +8,14 @@ import { auth } from "@/lib/auth/server";
 
 export type LinkKind = "setup" | "invite" | "reset";
 
-export const INVITE_DOMAIN = "@unibuz.com.au";
-export const INVALID_LINK = "This link is invalid or used.";
-export const SETUP_BUSY = "Another setup is in progress. Try again in a moment.";
-export const ADMIN_EXISTS = "An admin already exists, so setup links are closed.";
+const INVITE_DOMAIN = "@unibuz.com.au";
+const INVALID_LINK = "This link is invalid or used.";
+const SETUP_BUSY = "Another setup is in progress. Try again in a moment.";
+const ADMIN_EXISTS = "An admin already exists, so setup links are closed.";
 export const SETUP_TTL_MS = 60 * 60 * 1000;
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-export const RESET_TTL_MS = 24 * 60 * 60 * 1000;
-export const MIN_PASSWORD = 8;
+const RESET_TTL_MS = 24 * 60 * 60 * 1000;
+const MIN_PASSWORD = 8;
 // Any fixed key: every setup acceptance takes it, so two different setup tokens can't both make an admin.
 const SETUP_LOCK = 7_342_001;
 
