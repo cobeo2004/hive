@@ -411,6 +411,17 @@ try {
         join(localTree, runner.LOCAL_RESULT),
         JSON.stringify({ recipe: valid, prUrl: `https://github.com/${LOCAL_AGENT}/pull/3`, summary: "Installs with bun." }),
       );
+      // T3 briefly unreachable: the finished run waits for the next pass instead of failing.
+      runner.onboardingRuntime.worktreeOf = async () => {
+        throw new Error("t3 is restarting");
+      };
+      await runner.advanceOnboarding({ only: [LOCAL_AGENT] });
+      assert.deepEqual([(await row(LOCAL_AGENT)).onboarding_state, (await detail(LOCAL_AGENT)).run?.threadId], ["analyzing", "thread-local-1"]);
+      runner.onboardingRuntime.worktreeOf = async () => localTree;
+      writeFileSync(
+        join(localTree, runner.LOCAL_RESULT),
+        JSON.stringify({ recipe: valid, prUrl: `https://github.com/${LOCAL_AGENT}/pull/3`, summary: "Installs with bun." }),
+      );
       await runner.advanceOnboarding({ only: [LOCAL_AGENT] });
       ld = await detail(LOCAL_AGENT);
       assert.deepEqual(

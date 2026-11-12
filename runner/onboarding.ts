@@ -400,12 +400,22 @@ async function advanceAgent(row: RepoSettingsRow, run: OnboardingRun) {
     if (hasSandbox(run)) await refreshToken(row.repo, run, host);
     return undefined;
   }
+  let worktree: string | null = null;
+  if (!hasSandbox(run)) {
+    try {
+      worktree = await onboardingRuntime.worktreeOf(run.threadId!);
+    } catch (error) {
+      // T3 itself may be restarting: try again on the next pass, until the agent's time limit. A thread T3 says is gone has no result.
+      if (read.state !== "gone" && !overdue(run, AGENT_GIVE_UP_MS)) {
+        log("onboarding:worktree-unreadable", { repo: row.repo, error: message(error) });
+        return undefined;
+      }
+    }
+  }
   let text: string | null = null;
   try {
     if (hasSandbox(run)) text = await host.readFile(ONBOARDING_RESULT);
     else {
-      // A thread T3 no longer shows has no result to read; the run fails below for want of one.
-      const worktree = await onboardingRuntime.worktreeOf(run.threadId!).catch(() => null);
       const path = worktree && join(worktree, LOCAL_RESULT);
       text = path ? await localHost.readFile(path) : null;
       if (path) await localHost.remove(path);
