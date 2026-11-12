@@ -19,7 +19,7 @@ import { recordJobCodexUsage } from "./codex-usage";
 import { config } from "./config";
 import { thisMachine } from "./heartbeat";
 import { flushSandboxOutbox } from "./outbox";
-import { LOCAL_SLOT, resealLocal } from "./local-account";
+import { LOCAL_SLOT, resealAccount, resealLocal } from "./local-account";
 import { isolated } from "./reconcile";
 import {
   CodexLoginError,
@@ -190,7 +190,7 @@ const isJsonObject = (text: string) => {
  * nothing to give; that is logged and the caller goes on. The contents are never logged.
  */
 export async function writeBackLogin(key: string, sandboxId: string, slot: string | null) {
-  if (!slot || slot.startsWith("account:")) return "no slot";
+  if (!slot) return "no slot";
   let text: string | null;
   try {
     text = await modalHost(sandboxId).readFile(CODEX_AUTH);
@@ -200,6 +200,12 @@ export async function writeBackLogin(key: string, sandboxId: string, slot: strin
     return "gone";
   }
   if (text === null || !isJsonObject(text)) return "missing";
+  // An account's refreshed login goes back into its sealed copy, so the next job (local or here) starts from the live refresh token.
+  if (slot.startsWith(LOCAL_SLOT)) {
+    const result = await resealAccount(slot.slice(LOCAL_SLOT.length), text);
+    log("sandbox:login-resealed", { key, slot, result });
+    return result;
+  }
   let current: string | null = null;
   try {
     current = sandboxRuntime.slotAuth(slot);
@@ -454,8 +460,9 @@ async function wakeInRoom(row: JobRow, snapshot: string, asleep: SQL | undefined
     sandboxId = created.sandboxId;
     const [recorded] = await db.update(jobs).set({ sandbox_id: sandboxId }).where(asleep).returning({ key: jobs.key });
     if (!recorded) throw new Error(`${row.key} changed while it was being woken`);
-    // An account's snapshot keeps its refreshed login; the sealed copy is stale, so it is not reinstalled.
-    if (!codex && slot) await installCodexLogin(created.host, slot, sandboxRuntime.slotAuth(slot));
+    // An account's sealed copy is current: it was resealed when this sandbox slept, and a local job may have refreshed it since.
+    if (codex) await installCodexLogin(created.host, `account:${codex.id}`, codex.secret);
+    else if (slot) await installCodexLogin(created.host, slot, sandboxRuntime.slotAuth(slot));
     await writeGithubToken(created.host, await sandboxRuntime.githubToken(row.repo as RepoName));
     noteTokenWritten(sandboxId);
     await startT3(created.host);
