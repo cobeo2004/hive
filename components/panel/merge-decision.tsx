@@ -41,7 +41,11 @@ export function decisionLine(decision: MergeDecision | null): DecisionLine {
     case "merge":
       return decision.autonomy === "auto" ? { text: "Merging", tone: "text-success" } : { text: "Would merge (trial)", tone: "text-success" };
     case "pending":
-      return { text: "Waiting for checks", tone: "text-muted-foreground" };
+      // The reason names what it waits on: "Waiting for checks, Bugbot." or "Waiting for Bugbot."
+      return {
+        text: decision.reasons[0]?.startsWith("Waiting for") ? decision.reasons[0].replace(/\.$/, "") : "Waiting for checks",
+        tone: "text-muted-foreground",
+      };
     case "handover":
       return { text: decision.reasons[0] ? `${READY} · ${decision.reasons[0]}` : READY, tone: "text-foreground" };
     default: {
