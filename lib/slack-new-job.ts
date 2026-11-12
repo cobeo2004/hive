@@ -5,7 +5,7 @@ import { createJob } from "@/lib/new-job";
 import { newJobSchema, type NewJob } from "@/lib/new-job-schema";
 import { displayName } from "@/lib/repo-name";
 import { defaultRepo, type Registry } from "@/lib/repositories";
-import { SLACK_COMMAND, SLACK_SHORTCUT_CALLBACK_ID, type SlackMessage } from "@/lib/slack";
+import { escapeMrkdwn, SLACK_COMMAND, SLACK_SHORTCUT_CALLBACK_ID, type SlackMessage } from "@/lib/slack";
 import { actingAs, type InteractionDeps } from "@/lib/slack-interactions";
 import { ephemeral, invalidSignature, NO_TOKEN, NOT_MEMBER, parseJson, safeMessage, signedBody, uuidFrom } from "@/lib/slack-request";
 import { RUNS_ON_LABELS } from "@/lib/ticket-overrides";
@@ -39,7 +39,6 @@ export const USAGE = [
 export const newJobRequestId = (viewId: string) => uuidFrom(`slack:new_job:${viewId}`);
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
-const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 const decodeEntities = (text: string) => text.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
 
@@ -317,11 +316,11 @@ async function fileJob(deps: InteractionDeps, input: NewJob, meta: Meta) {
   await notify(
     deps,
     meta,
-    `Filed *${escape(identifier)}* · ${escape(input.title)}\nThe factory picks it up within a few seconds. <${url}|Open the issue> · <${deps.panelUrl}/|Open the board>`,
+    `Filed *${escapeMrkdwn(identifier)}* · ${escapeMrkdwn(input.title)}\nThe factory picks it up within a few seconds. <${url}|Open the issue> · <${deps.panelUrl}/|Open the board>`,
   );
   if (!meta.channel || !meta.threadTs || !deps.slack) return;
   try {
-    await deps.slack.postMessage(meta.channel, message(`Filed as <${url}|${escape(identifier)}>`), meta.threadTs);
+    await deps.slack.postMessage(meta.channel, message(`Filed as <${url}|${escapeMrkdwn(identifier)}>`), meta.threadTs);
   } catch (error) {
     console.error(`slack: thread reply for ${identifier} failed: ${safeMessage(deps.secrets, error)}`);
   }

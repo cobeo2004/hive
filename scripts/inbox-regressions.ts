@@ -614,6 +614,7 @@ try {
       headers: {
         "x-github-event": "pull_request_review",
         "x-github-delivery": delivery,
+        // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- test fixture key.
         "x-hub-signature-256": `sha256=${createHmac("sha256", SECRET).update(raw).digest("hex")}`,
       },
       body: raw,

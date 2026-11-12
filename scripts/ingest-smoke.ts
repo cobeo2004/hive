@@ -24,7 +24,7 @@ const batch = [
 
 for (const attempt of [1, 2]) {
   const res = await post(batch);
-  console.log(`batch attempt ${attempt}:`, res.status, await res.text());
+  console.log("batch attempt", attempt, res.status, await res.text());
 }
 
 // agent_stop and agent_launched arrive before agent_start / session_start of a second agent.

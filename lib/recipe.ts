@@ -207,7 +207,11 @@ export function parseCheckResults(text: string | null, recipe: Recipe) {
  */
 export function redact(text: string, envNames: readonly string[] = [], maxLines = 25) {
   let out = text;
-  for (const name of envNames) out = out.replace(new RegExp(`(${name}\\s*[=:]\\s*)("[^"]*"|'[^']*'|\\S+)`, "g"), "$1[redacted]");
+  for (const name of envNames) {
+    const literal = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the name is escaped on the line above.
+    out = out.replace(new RegExp(`(${literal}\\s*[=:]\\s*)("[^"]*"|'[^']*'|\\S+)`, "g"), "$1[redacted]");
+  }
   out = out
     .replace(/((?:bearer|basic|token)\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "$1[redacted]")
     .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1[redacted]@")

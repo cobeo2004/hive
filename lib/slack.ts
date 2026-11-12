@@ -242,8 +242,9 @@ export function redact(text: string, secrets: readonly string[] = []) {
 }
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
-/** Slack mrkdwn treats these three as control characters. */
-const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+/** Slack mrkdwn treats these three as control characters; `&` goes first so the others are not double-escaped. */
+// nosemgrep: javascript.audit.detect-replaceall-sanitization.detect-replaceall-sanitization -- Slack mrkdwn escaping, not HTML sanitization.
+export const escapeMrkdwn = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 const HEADER_MAX = 150;
 const REASON_MAX = 300;
@@ -293,7 +294,7 @@ function actionButton(action: InboxAction, kind: NotifyKind, job: NotifyJob): Ac
       text: {
         type: "mrkdwn",
         text: clip(
-          `The factory merges ${escape(job.key)} into ${escape(job.repo)} the way it merges on its own, then watches main. A newer push, a red or running check, a conflict, or GitHub refusing the merge still stops it.`,
+          `The factory merges ${escapeMrkdwn(job.key)} into ${escapeMrkdwn(job.repo)} the way it merges on its own, then watches main. A newer push, a red or running check, a conflict, or GitHub refusing the merge still stops it.`,
           TEXT_MAX,
         ),
       },
@@ -318,7 +319,7 @@ export function renderMessage(
   const title = clean(job.title);
   const reason = clip(clean(event.reason), REASON_MAX);
   const status = resolved ?? pending;
-  const line = status ? `*${escape(status)}* · ${LABELS[kind]}` : `*${LABELS[kind]}:* ${escape(reason)}`;
+  const line = status ? `*${escapeMrkdwn(status)}* · ${LABELS[kind]}` : `*${LABELS[kind]}:* ${escapeMrkdwn(reason)}`;
   const actions: readonly InboxAction[] = !status && isInboxKind(kind) ? INBOX_ACTIONS[kind] : [];
   const meta = [job.repo, ...(job.provider ? [harnessLabel(job.provider)] : []), ...(facts.spend ? [usd(facts.spend)] : [])];
   const source = sourceLink(job);
@@ -348,7 +349,7 @@ export function renderMessage(
     blocks: [
       { type: "header", text: { type: "plain_text", text: clip(`${EMOJI[kind]} ${job.key} · ${title}`, HEADER_MAX), emoji: true } },
       { type: "section", text: { type: "mrkdwn", text: line } },
-      { type: "context", elements: [{ type: "mrkdwn", text: escape(meta.join(" · ")) }] },
+      { type: "context", elements: [{ type: "mrkdwn", text: escapeMrkdwn(meta.join(" · ")) }] },
       { type: "actions", block_id: `${ITEM_BLOCK_PREFIX}${event.id}`.slice(0, 255), elements: [...actions.map((a) => actionButton(a, kind, job)), ...links] },
     ],
   };
@@ -357,5 +358,5 @@ export function renderMessage(
 /** The message Settings' "Send test message" posts. */
 export function renderTest(actor: string): SlackMessage {
   const text = `👋 Test from the marshal factory, sent by ${actor}. Notifications reach this conversation.`;
-  return { text, blocks: [{ type: "section", text: { type: "mrkdwn", text: escape(text) } }] };
+  return { text, blocks: [{ type: "section", text: { type: "mrkdwn", text: escapeMrkdwn(text) } }] };
 }

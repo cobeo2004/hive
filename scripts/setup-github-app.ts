@@ -61,6 +61,7 @@ const html = (body: string, status = 200) =>
   });
 
 const manifestPage = () =>
+  // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- every interpolation goes through escapeHtml; the script is a constant.
   html(`<form id="manifest" method="post" action="${escapeHtml(`${GITHUB}/settings/apps/new?state=${state}`)}">
 <input type="hidden" name="manifest" value="${escapeHtml(JSON.stringify(manifest))}">
 <p>Sending the app manifest to GitHub. Click <b>Create GitHub App</b> there, then <b>Install</b>.</p>

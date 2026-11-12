@@ -29,6 +29,7 @@ import {
   SLACK_ACTION_IDS,
   type MessageFacts,
   type NotifyEvent,
+  escapeMrkdwn,
 } from "@/lib/slack";
 import type { SlackClient } from "@/lib/slack-api";
 import { NEW_JOB_CALLBACK_ID, newJobSubmitted, sendToFactory, shortcutSchema } from "@/lib/slack-new-job";
@@ -192,7 +193,6 @@ export function renderModal(action: ModalAction, item: Item, facts: MessageFacts
   const { job, event } = item;
   const copy = modalCopy(action, job);
   const clean = (text: string) => redact(text, facts.secrets).replace(/\s+/g, " ").trim().slice(0, 2000);
-  const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
   const initial = action === "follow_up" ? followUpHint(job, mergeDecisionSchema.safeParse(job.merge_decision).data ?? null) : undefined;
   return {
     type: "modal",
@@ -202,7 +202,10 @@ export function renderModal(action: ModalAction, item: Item, facts: MessageFacts
     submit: { type: "plain_text", text: copy.submit },
     close: { type: "plain_text", text: "Cancel" },
     blocks: [
-      { type: "section", text: { type: "mrkdwn", text: `*${escape(job.key)} · ${escape(clean(job.title))}*\n${escape(clean(event.reason))}` } },
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: `*${escapeMrkdwn(job.key)} · ${escapeMrkdwn(clean(job.title))}*\n${escapeMrkdwn(clean(event.reason))}` },
+      },
       {
         type: "input",
         block_id: TEXT_BLOCK,

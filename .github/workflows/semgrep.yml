@@ -16,7 +16,7 @@ permissions:
   security-events: write
 
 env:
-  SEMGREP: pipx run semgrep==1.185.0 scan --config p/default --config p/typescript --config p/github-actions --metrics=off --sarif-output=semgrep.sarif
+  SEMGREP: pipx run semgrep==1.185.0 scan --config p/default --config p/typescript --config p/github-actions --config .semgrep --metrics=off --error --sarif-output=semgrep.sarif
 
 jobs:
   semgrep:
@@ -24,16 +24,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          fetch-depth: 0
-      # ponytail: PRs fail only on findings they introduce; main/weekly scans report the existing backlog without failing.
-      - if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: $SEMGREP --error --baseline-commit "$BASE_SHA"
-      - if: github.event_name != 'pull_request'
-        run: $SEMGREP
-      # Results land in the Security tab next to CodeQL; runs even when the PR scan fails.
+      # The backlog is zero: every event fails on any finding. Justify a false positive inline with `// nosemgrep: <rule> -- <reason>`.
+      - run: $SEMGREP
+      # Results land in the Security tab next to CodeQL; runs even when the scan fails.
       - if: always() && hashFiles('semgrep.sarif') != ''
         uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:

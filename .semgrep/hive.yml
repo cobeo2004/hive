@@ -1,0 +1,30 @@
+# Hive's own Semgrep rules, run next to the registry packs by .github/workflows/semgrep.yml.
+rules:
+  - id: hive-sql-raw-interpolation
+    languages: [typescript]
+    severity: ERROR
+    message: >-
+      sql.raw() sends its string to Postgres unescaped. Build the query with the sql`` tag, or
+      add `// nosemgrep: hive-sql-raw-interpolation -- <why the value is trusted>`.
+    patterns:
+      - pattern: sql.raw(`...${$X}...`)
+  - id: hive-secret-compare-not-timing-safe
+    languages: [typescript]
+    severity: ERROR
+    message: >-
+      Comparing a secret or signature with ===/!== leaks its contents through timing. Use
+      crypto.timingSafeEqual, as lib/webhooks.ts does.
+    patterns:
+      - pattern-either:
+          - pattern: $A === $B
+          - pattern: $A !== $B
+          - pattern: $B === $A
+          - pattern: $B !== $A
+      - metavariable-regex:
+          metavariable: $A
+          regex: (?i)^[\w.]*(secret|signature|hmac|digest)\w*$
+  - id: hive-no-dangerously-set-inner-html
+    languages: [typescript]
+    severity: ERROR
+    message: The panel renders agent and Linear text; dangerouslySetInnerHTML would run it as HTML. Render it as text.
+    pattern: <$EL dangerouslySetInnerHTML={...} />
