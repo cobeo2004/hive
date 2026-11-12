@@ -571,8 +571,11 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
         return false;
       }
       if (codex === "wait") return releaseLaunch(key, marker).then(() => poolWait(key));
-      // An account is leased like a slot, so one Codex account runs in one job anywhere, local or here.
-      const codexSlot = !needsCodexSlot(choice.provider) ? null : await leaseCodexSlot(key, marker, codex ? [`account:${codex.id}`] : usableSlots(limits));
+      // A subscription is leased like a slot, so it runs in one job anywhere, local or here (Codex rotates its refresh token). A pool API key never rotates: any number of sandboxes share it.
+      const codexSlot =
+        !needsCodexSlot(choice.provider) || codex?.kind === "api_key"
+          ? null
+          : await leaseCodexSlot(key, marker, codex ? [`account:${codex.id}`] : usableSlots(limits));
       if (codexSlot === undefined) {
         await releaseLaunch(key, marker);
         runtime.log("sandbox:no-slot", { key, slots: limits.codexSlots.length });

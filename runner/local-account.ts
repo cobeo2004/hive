@@ -110,7 +110,9 @@ export function localAccounts(rt: LocalRuntime) {
       const pool = await db
         .select()
         .from(agentAccounts)
-        .where(and(isNull(agentAccounts.owner_id), eq(agentAccounts.provider, "codex"), isNull(agentAccounts.disconnected_at)));
+        .where(
+          and(isNull(agentAccounts.owner_id), eq(agentAccounts.provider, "codex"), eq(agentAccounts.kind, "api_key"), isNull(agentAccounts.disconnected_at)),
+        );
       for (const row of pool) {
         if (!(await rt.lease(key, marker, `${LOCAL_SLOT}${row.id}`))) continue;
         // A pool account is an API key; Codex reads it from auth.json.
@@ -136,37 +138,39 @@ export function localAccounts(rt: LocalRuntime) {
   };
 }
 
+/** Seals a Codex login Codex refreshed into its subscription account when it changed. A pool API key never changes and a disconnected account has nothing to seal into. */
+export async function resealAccount(id: string, text: string, env: Record<string, string | undefined> = process.env) {
+  const [row] = await db
+    .select({ sealed: agentAccounts.sealed, disconnected: agentAccounts.disconnected_at, kind: agentAccounts.kind })
+    .from(agentAccounts)
+    .where(eq(agentAccounts.id, id));
+  if (!row || row.disconnected) return "gone";
+  if (row.kind === "api_key") return "static";
+  if (typeof JSON.parse(text) !== "object") throw new Error("the refreshed Codex login is not a JSON object");
+  const key = privateKey(env);
+  if (unseal(row.sealed, key) === text) return "unchanged";
+  const publicKey = createPublicKey(createPrivateKey(key.replace(/\\n/g, "\n")))
+    .export({ type: "spki", format: "pem" })
+    .toString();
+  await db
+    .update(agentAccounts)
+    .set({ sealed: seal(text, publicKey) })
+    .where(eq(agentAccounts.id, id));
+  return "resealed";
+}
+
 /**
- * Seals the auth.json Codex refreshed during a job back into its account, then deletes the plaintext
- * copy. Throws, and keeps the lease, when it cannot: the old refresh token no longer works, so the
- * refreshed file must not be lost.
+ * Seals the auth.json Codex refreshed during a local job back into its account, then deletes the
+ * plaintext copy. Throws, and keeps the lease, when it cannot: the old refresh token no longer
+ * works, so the refreshed file must not be lost.
  */
 export async function resealLocal(slot: string, env: Record<string, string | undefined> = process.env) {
   const id = slot.slice(LOCAL_SLOT.length);
-  const [row] = await db
-    .select({ owner: agentAccounts.owner_id, sealed: agentAccounts.sealed, disconnected: agentAccounts.disconnected_at, kind: agentAccounts.kind })
-    .from(agentAccounts)
-    .where(eq(agentAccounts.id, id));
+  const [row] = await db.select({ owner: agentAccounts.owner_id }).from(agentAccounts).where(eq(agentAccounts.id, id));
   const file = join(credsDir(row?.owner ?? `pool-${id}`, "codex"), "auth.json");
   const text = existsSync(file) ? readFileSync(file, "utf8") : "";
   if (!text) return "missing";
-  // A pool API key never changes, and a disconnected account has nothing to seal into.
-  if (!row || row.disconnected || row.kind === "api_key") {
-    rmSync(file, { force: true });
-    return row?.kind === "api_key" ? "static" : "gone";
-  }
-  if (typeof JSON.parse(text) !== "object") throw new Error("the refreshed Codex login is not a JSON object");
-  const key = privateKey(env);
-  const changed = unseal(row.sealed, key) !== text;
-  if (changed) {
-    const publicKey = createPublicKey(createPrivateKey(key.replace(/\\n/g, "\n")))
-      .export({ type: "spki", format: "pem" })
-      .toString();
-    await db
-      .update(agentAccounts)
-      .set({ sealed: seal(text, publicKey) })
-      .where(eq(agentAccounts.id, id));
-  }
+  const result = await resealAccount(id, text, env);
   rmSync(file, { force: true });
-  return changed ? "resealed" : "unchanged";
+  return result;
 }

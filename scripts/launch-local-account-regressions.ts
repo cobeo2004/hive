@@ -18,6 +18,7 @@ const { credsDir, localAccounts, materialize, sweepLogins } = await import("../r
 const { thisMachine } = await import("../runner/heartbeat");
 const { reap, teardownSandbox } = await import("../runner/lifecycle");
 const { leaseCodexSlot } = await import("../runner/ops");
+const { sandboxRuntime } = await import("../runner/sandbox");
 const { linearJob } = await import("./fixtures");
 
 modal.api = fakeModal;
@@ -25,13 +26,14 @@ const pair = newKeyPair();
 process.env.HIVE_CREDS_PRIVATE_KEY = pair.privateKey; // what the runner reads
 const stamp = Date.now();
 const [U, V] = [`local-acct-${stamp}`, `local-acct-v-${stamp}`];
-const keys = { one: `LAC${stamp}-1`, two: `LAC${stamp}-2`, dead: `LAC${stamp}-3` };
+const keys = { one: `LAC${stamp}-1`, two: `LAC${stamp}-2`, brief: `LAC${stamp}-3`, over: `LAC${stamp}-4`, dead: `LAC${stamp}-5` };
 const AUTH = '{"tokens":{"refresh_token":"r-1"}}';
 const REFRESHED = '{"tokens":{"refresh_token":"r-2"}}';
 const settingsFile = join(home, ".t3", "userdata", "settings.json");
 const settings = () => JSON.parse(readFileSync(settingsFile, "utf8"));
 const logs: string[] = [];
 const log = (event: string, detail: Record<string, unknown>) => logs.push(`${event} ${JSON.stringify(detail)}`);
+sandboxRuntime.log = log; // lifecycle logs here
 const real = () => localAccounts({ lease: (key, marker, slot) => leaseCodexSlot(key, marker, [slot]), log });
 const entry = (key: string, provider: string, owner = U) => ({ key, owner, harness: { provider, model: "m" } });
 const slotOf = async (key: string) => (await db.select().from(jobs).where(eq(jobs.key, key)))[0]!.codex_slot;
@@ -88,7 +90,7 @@ try {
   assert.equal(await second.pick(entry(keys.two, "codex")), true);
   assert.equal(await second.lease(keys.two, "pending:two"), false, "the account is leased to the first job and no pool account exists");
   assert.equal(await slotOf(keys.one), `account:${U}-codex`);
-  await db.insert(agentAccounts).values(poolCodex);
+  await db.insert(agentAccounts).values([{ ...account(`${U}-pool-sub`, "codex", "not-a-key", true), kind: "subscription" as const }, poolCodex]);
   assert.equal(await second.pick(entry(keys.two, "codex")), true);
   assert.equal(await second.lease(keys.two, "pending:two"), true, "a free pool account beats waiting");
   second.harness(entry(keys.two, "codex"));
@@ -133,10 +135,22 @@ try {
   second.harness(entry(keys.two, "codex"));
   assert.equal(readFileSync(codexFile, "utf8"), REFRESHED, "and starts from the refreshed login");
 
-  // A lease held by a machine that stopped reporting is freed by reap; a disconnected account drops its instance (and token) from T3's settings.
-  await db.insert(machines).values({ id: `${U}-dead`, name: "dead", last_seen_at: new Date(Date.now() - 3_600_000), heartbeat: {} });
-  await db.insert(jobs).values(linearJob(keys.dead, keys.dead, { owner_id: U, machine_id: `${U}-dead`, codex_slot: `account:${U}-gone` }));
-  assert.ok((await reap()).freed.includes(keys.dead) && (await slotOf(keys.dead)) === null, "a silent machine's account lease is freed");
+  // A machine that stopped reporting keeps its job's account lease (a Mac that sleeps resumes) until the job is over or hours pass; a disconnected account drops its instance (and token) from T3's settings.
+  const silent = (name: string, minutes: number) => ({ id: `${U}-${name}`, name, last_seen_at: new Date(Date.now() - minutes * 60_000), heartbeat: {} });
+  await db.insert(machines).values([silent("brief", 10), silent("dead", 7 * 60)]);
+  const held = (key: string, machine: string, extra = {}) =>
+    linearJob(key, key, { owner_id: U, machine_id: `${U}-${machine}`, codex_slot: `account:${U}-${key}`, ...extra });
+  await db.insert(jobs).values([held(keys.brief, "brief"), held(keys.over, "brief", { stage: "merged" }), held(keys.dead, "dead")]);
+  const { freed } = await reap();
+  assert.equal(await slotOf(keys.brief), `account:${U}-${keys.brief}`, "ten silent minutes keep the lease");
+  assert.ok(
+    [keys.over, keys.dead].every((k) => freed.includes(k)),
+    "a finished job's lease, and one silent for hours, are freed",
+  );
+  assert.ok(
+    logs.some((line) => line.startsWith("local:lease-freed") && line.includes("reconnecting")),
+    "and the log says the account may need reconnecting",
+  );
   await db
     .update(agentAccounts)
     .set({ disconnected_at: new Date() })

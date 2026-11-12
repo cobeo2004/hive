@@ -9,7 +9,7 @@ import { fake, fakeModal, FakeSandbox, sandboxes, type Reply } from "./fake-moda
 
 const { db } = await import("../db/client");
 const { agentAccounts, jobs, runs, settings, user } = await import("../db/schema");
-const { newKeyPair, seal } = await import("../lib/creds");
+const { newKeyPair, seal, unseal } = await import("../lib/creds");
 const { linearJob } = await import("./fixtures");
 const { jobId } = await import("../lib/sources/shapes");
 const { TEST_MACHINE_ID } = await import("../lib/config");
@@ -19,6 +19,7 @@ const { enabledPstack, imageProblem, parseVersion, browserServer, pinnedVersions
 const { config, launchSettings, threads } = await import("../runner/ops");
 const { launchInSandboxes, maybeStarted, recoverPending } = await import("../runner/launch");
 const { sandboxRuntime } = await import("../runner/sandbox");
+const { teardownSandbox } = await import("../runner/lifecycle");
 const { readSettings, SETTINGS_ID, writeSettings } = await import("../lib/settings");
 
 modal.api = fakeModal;
@@ -100,7 +101,7 @@ assert.match(sandboxName("weird key/ü", 1), /^[A-Za-z0-9._-]+$/);
 
 // The launch path.
 const stamp = Date.now();
-const keys = ["A", "B", "C", "D", "E", "F", "G", "H"].map((k) => `SBX${k}-${stamp % 100000}`);
+const keys = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"].map((k) => `SBX${k}-${stamp % 100000}`);
 const slotA = `/tmp/slot-a-${stamp}`;
 const slot = { id: TEST_MACHINE_ID, repos: ["ski043/factory-demo"], maxInFlight: 1000 };
 const events: { event: string; detail: Record<string, unknown> }[] = [];
@@ -393,7 +394,27 @@ try {
     "the account takes its own lease, not a login slot, and the Claude row does not block",
   );
   assert.equal(sandboxes.get(codexOwned.sandbox_id!)!.files.get("/root/.codex/auth.json"), '{"auth":"of-c"}', "the owner's Codex account is the login");
-  await db.update(jobs).set({ machine_id: null }).where(eq(jobs.key, keys[7]!)); // out of the maxParallel count below
+  // Its refreshed login is sealed back when the sandbox ends, so the next job starts from the live refresh token.
+  sandboxes.get(codexOwned.sandbox_id!)!.files.set("/root/.codex/auth.json", '{"auth":"of-c-refreshed"}');
+  await teardownSandbox(await row(keys[7]!));
+  const [resealed] = await db.select().from(agentAccounts).where(eq(agentAccounts.id, "sbx-acct-c"));
+  assert.equal(unseal(resealed!.sealed, pair.privateKey), '{"auth":"of-c-refreshed"}', "the refreshed Codex login is sealed again");
+  assert.equal((await row(keys[7]!)).codex_slot, null, "and the account is free");
+
+  // A pool API key never rotates: two sandboxes share it, with no lease and no waiting.
+  await db.insert(agentAccounts).values({ id: "sbx-acct-key", owner_id: null, provider: "codex", kind: "api_key", label: "key", sealed: sealedFor("sk-pool") });
+  const codex = { provider: "codex", model: "gpt-6-astra" };
+  config.factory.sandbox.maxParallel += 2; // the earlier jobs still hold sandboxes
+  await launchInSandboxes([entry(keys[8]!, codex), entry(keys[9]!, codex)], slot);
+  config.factory.sandbox.maxParallel -= 2;
+  const [pooled, shared] = [await row(keys[8]!), await row(keys[9]!)];
+  assert.deepEqual([pooled.codex_slot, shared.codex_slot, Boolean(pooled.sandbox_id && shared.sandbox_id)], [null, null, true], "both run on the one pool key");
+  assert.equal(sandboxes.get(shared.sandbox_id!)!.files.get("/root/.codex/auth.json"), "sk-pool");
+  await db
+    .update(jobs)
+    .set({ machine_id: null })
+    .where(inArray(jobs.key, [keys[8]!, keys[9]!])); // out of the maxParallel count below
+  await db.delete(agentAccounts).where(eq(agentAccounts.id, "sbx-acct-key"));
   await db.delete(agentAccounts).where(eq(agentAccounts.id, "sbx-acct-pool"));
 
   // maxParallel counts working jobs with a sandbox, slot or not.
@@ -505,7 +526,7 @@ try {
   if (savedKey === undefined) delete process.env.HIVE_CREDS_PRIVATE_KEY;
   else process.env.HIVE_CREDS_PRIVATE_KEY = savedKey;
   await db.delete(runs).where(eq(runs.session_id, `sbx-run-${stamp}`));
-  await db.delete(agentAccounts).where(eq(agentAccounts.id, "sbx-acct-pool"));
+  await db.delete(agentAccounts).where(inArray(agentAccounts.id, ["sbx-acct-pool", "sbx-acct-key"]));
   await db.delete(user).where(inArray(user.id, ["sbx-owner-a", "sbx-owner-b", "sbx-owner-c"]));
   await db.delete(jobs).where(
     inArray(
