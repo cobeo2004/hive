@@ -9,7 +9,7 @@ import { HostGoneError, hosts, isHibernated, WakeDeferredError, type HostedJob, 
 import { deleteSnapshot, isModalGone, modal, modalHost, snapshotSandbox, terminateSandbox, tunnelUrl } from "../lib/modal-host";
 import { scrubbed } from "../lib/modal-secrets";
 import { modalSecretName, parseDetail } from "../lib/onboarding";
-import { CODEX_AUTH, T3_PORT } from "../lib/sandbox";
+import { CODEX_AUTH, CODEX_HOME, T3_PORT } from "../lib/sandbox";
 import { readSettings, resolveExecution } from "../lib/settings";
 import type { JobId } from "../lib/sources/shapes";
 import { parseStop } from "../lib/stop";
@@ -19,7 +19,7 @@ import { recordJobCodexUsage } from "./codex-usage";
 import { config } from "./config";
 import { thisMachine } from "./heartbeat";
 import { flushSandboxOutbox } from "./outbox";
-import { LOCAL_SLOT, resealAccount, resealLocal } from "./local-account";
+import { INSTALLED, LOCAL_SLOT, resealAccount, resealLocal } from "./local-account";
 import { isolated } from "./reconcile";
 import {
   CodexLoginError,
@@ -202,7 +202,8 @@ export async function writeBackLogin(key: string, sandboxId: string, slot: strin
   if (text === null || !isJsonObject(text)) return "missing";
   // An account's refreshed login goes back into its sealed copy, so the next job (local or here) starts from the live refresh token.
   if (slot.startsWith(LOCAL_SLOT)) {
-    const result = await resealAccount(slot.slice(LOCAL_SLOT.length), text);
+    const base = await modalHost(sandboxId).readFile(`${CODEX_HOME}/${INSTALLED}`);
+    const result = await resealAccount(slot.slice(LOCAL_SLOT.length), text, base);
     log("sandbox:login-resealed", { key, slot, result });
     return result;
   }
@@ -370,10 +371,11 @@ export async function hibernateIdle(now = Date.now()) {
     }
     // Reconcile skips a hibernated job, so its usage so far is recorded while the sandbox runs.
     await recordJobCodexUsage(row.key, host);
-    await writeBackLogin(row.key, sandboxId, row.codex_slot);
+    // T3 stops first, so Codex cannot rewrite auth.json after it is read back.
     await stopT3(host);
     let imageId: string;
     try {
+      await writeBackLogin(row.key, sandboxId, row.codex_slot);
       imageId = await snapshotSandbox(sandboxId, config.factory.sandbox.snapshotTtlDays * 86_400_000);
     } catch (error) {
       if (!(error instanceof HostGoneError)) await startT3(host).catch(() => {});

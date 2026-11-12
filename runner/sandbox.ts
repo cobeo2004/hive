@@ -36,6 +36,7 @@ import { PAIRING_TTL_MINUTES, pairingSchema, type T3Pairing } from "../lib/t3-pa
 import { codexReportEnv } from "../lib/report-identity";
 import { inTestMode } from "../lib/test-mode";
 import { json, reportServer, wiredRoots, withHooks, withServer, type Json } from "../lib/target-wiring";
+import { INSTALLED, revOf } from "./local-account";
 
 // A job's Modal sandbox: what it is created with and how it is set up before its thread starts.
 
@@ -188,6 +189,8 @@ export async function installCodexLogin(host: JobHost, slot: string, auth: strin
   await host.run("mkdir", ["-p", CODEX_HOME], { timeoutMs: 30_000 });
   await host.run("chmod", ["700", CODEX_HOME], { timeoutMs: 30_000 });
   await writeSecretFile(host, CODEX_AUTH, auth);
+  // What an account's login was installed from, so the reseal at the end can tell whether the account moved on meanwhile.
+  if (slot.startsWith("account:")) await writeSecretFile(host, `${CODEX_HOME}/${INSTALLED}`, revOf(auth));
   if (!(await loggedIn(host, "codex", ["login", "status"]))) throw new CodexLoginError(slot);
 }
 

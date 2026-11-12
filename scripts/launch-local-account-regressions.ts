@@ -134,6 +134,20 @@ try {
   assert.equal(await second.lease(keys.two, "pending:two"), true, "the next job gets the owner's account again");
   second.harness(entry(keys.two, "codex"));
   assert.equal(readFileSync(codexFile, "utf8"), REFRESHED, "and starts from the refreshed login");
+  // The owner reconnects while it runs: the job's login grew from an older seal, so it cannot overwrite the new one.
+  const RECONNECTED = '{"tokens":{"refresh_token":"r-3"}}';
+  await db
+    .update(agentAccounts)
+    .set({ sealed: seal(RECONNECTED, pair.publicKey) })
+    .where(eq(agentAccounts.id, `${U}-codex`));
+  writeFileSync(codexFile, '{"tokens":{"refresh_token":"r-4"}}');
+  await teardownSandbox((await db.select().from(jobs).where(eq(jobs.key, keys.two)))[0]!);
+  const [kept] = await db
+    .select()
+    .from(agentAccounts)
+    .where(eq(agentAccounts.id, `${U}-codex`));
+  assert.equal(unseal(kept!.sealed, pair.privateKey), RECONNECTED, "the reconnected login survives");
+  assert.equal(existsSync(codexFile), false, "and the stale plaintext is deleted");
 
   // A machine that stopped reporting keeps its job's account lease (a Mac that sleeps resumes) until the job is over or hours pass; a disconnected account drops its instance (and token) from T3's settings.
   const silent = (name: string, minutes: number) => ({ id: `${U}-${name}`, name, last_seen_at: new Date(Date.now() - minutes * 60_000), heartbeat: {} });

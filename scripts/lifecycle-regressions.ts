@@ -7,7 +7,7 @@ import { eq, inArray, like, sql } from "drizzle-orm";
 import { fake, fakeModal, FakeSandbox, sandboxes } from "./fake-modal";
 
 const { db } = await import("../db/client");
-const { auditLog, jobs, runs } = await import("../db/schema");
+const { agentAccounts, auditLog, jobs, runs, user } = await import("../db/schema");
 const { linearJob } = await import("./fixtures");
 const { jobId } = await import("../lib/sources/shapes");
 const { SOURCES } = await import("../lib/sources");
@@ -24,6 +24,8 @@ const { checkPullRequests, config, deliverStops, IN_FLIGHT, ingestClient, reconc
 );
 const { hibernateIdle, reap, refreshTokens, sandboxesInFlight, teardownFinished, tickSandboxes, TOKEN_REFRESH_MS } = await import("../runner/lifecycle");
 const { launchInSandboxes } = await import("../runner/launch");
+const { newKeyPair, seal, unseal } = await import("../lib/creds");
+const { INSTALLED, revOf } = await import("../runner/local-account");
 const { CodexLoginError, sandboxRuntime, usableSlots } = await import("../runner/sandbox");
 
 modal.api = fakeModal;
@@ -578,6 +580,65 @@ try {
     limits.maxParallel = maxParallel;
     sandboxRuntime.githubToken = githubToken;
   }
+
+  // An owner's Codex account: hibernate stops T3 and then seals the refreshed login; a wake installs the sealed copy, however newer it is than the snapshot's; and a wake that fails after its sandbox exists cannot seal the snapshot's old login over a newer one.
+  const pair = newKeyPair();
+  process.env.HIVE_CREDS_PRIVATE_KEY = pair.privateKey;
+  const [owner, acct, INSTALLED_AT] = [`lc-owner-${stamp}`, `lc-acct-${stamp}`, `/root/.codex/${INSTALLED}`];
+  await db.insert(user).values({ id: owner, name: owner, email: `${owner}@example.com` });
+  await db
+    .insert(agentAccounts)
+    .values({ id: acct, owner_id: owner, provider: "codex", kind: "subscription", label: "c", sealed: seal('{"v":1}', pair.publicKey) });
+  const sealedNow = async () => unseal((await db.select().from(agentAccounts).where(eq(agentAccounts.id, acct)))[0]!.sealed, pair.privateKey);
+  const setSeal = (text: string) =>
+    db
+      .update(agentAccounts)
+      .set({ sealed: seal(text, pair.publicKey) })
+      .where(eq(agentAccounts.id, acct));
+  let atStop: string | null = null;
+  let breakInstall = false;
+  const answer = fake.answer;
+  fake.answer = async (sandbox, argv) => {
+    if (argv.join(" ").includes("[t]3 serve")) atStop = await sealedNow();
+    return breakInstall && argv[0] === "chmod" ? { code: 1 } : answer(sandbox, argv);
+  };
+  limits.maxParallel += 3; // the earlier sandboxes still run
+  const sbAcct = await sandboxFor(key("ACCT"));
+  sbAcct.files.set(CODEX_AUTH, '{"v":2}');
+  sbAcct.files.set(INSTALLED_AT, revOf('{"v":1}'));
+  const ACCT = await insert("ACCT", { stage: "pr", t3_thread_id: "thread-ACCT", sandbox_id: sbAcct.sandboxId, codex_slot: `account:${acct}`, owner_id: owner });
+  assert.deepEqual(await hibernateIdle(), [`${ACCT}:hibernated`]);
+  assert.equal(await sealedNow(), '{"v":2}', "the refreshed login is sealed when the sandbox sleeps");
+  assert.equal(atStop, '{"v":1}', "after T3 stopped, not before");
+  await setSeal('{"v":3}'); // a local job refreshed it while the sandbox slept
+  await ensureAwake(await row(ACCT));
+  const sbWoken = sandboxes.get((await row(ACCT)).sandbox_id!)!;
+  assert.deepEqual(
+    [sbWoken.files.get(CODEX_AUTH), sbWoken.files.get(INSTALLED_AT)],
+    ['{"v":3}', revOf('{"v":3}')],
+    "the wake installs the sealed copy, not the snapshot's",
+  );
+  await db.update(jobs).set({ stage: "merged" }).where(eq(jobs.key, ACCT));
+  await teardownFinished();
+  fake.images.set(
+    "im-snap-acct",
+    new Map([
+      [CODEX_AUTH, '{"v":2}'],
+      [INSTALLED_AT, revOf('{"v":1}')],
+    ]),
+  );
+  const STALE = await insert("STALE", { stage: "waiting", t3_thread_id: "thread-STALE", sandbox_snapshot: "im-snap-acct", provider: "codex", owner_id: owner });
+  breakInstall = true;
+  await assert.rejects(ensureAwake(await row(STALE)));
+  breakInstall = false;
+  assert.equal(await sealedNow(), '{"v":3}', "the snapshot's old login does not overwrite the newer seal");
+  assert.ok(
+    events.some((e) => e.event === "sandbox:login-resealed" && e.detail.result === "stale"),
+    "the skipped reseal is logged",
+  );
+  limits.maxParallel -= 3;
+  await db.delete(agentAccounts).where(eq(agentAccounts.id, acct));
+  await db.delete(user).where(eq(user.id, owner));
 
   // The timer's pass runs every step.
   const ticked = await tickSandboxes();
