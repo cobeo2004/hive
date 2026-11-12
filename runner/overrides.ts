@@ -18,7 +18,7 @@ import { needsCodexSlot, sandboxHarness, sandboxRuntime, usableSlots } from "./s
 // A label that cannot apply on this runner falls back, and the issue is told once per attempt.
 
 /** What this runner can launch on right now. */
-export type Capabilities = {
+type Capabilities = {
   /** This machine's T3 server is up. */
   local: boolean;
   /** This machine has a checkout of the job's repo; a local launch needs one. */
@@ -131,7 +131,7 @@ export function capabilities(): Omit<Capabilities, "checkout"> {
   };
 }
 
-export const fallbackNoteKey = (attempt: number) => `ticket-overrides:${attempt}`;
+const fallbackNoteKey = (attempt: number) => `ticket-overrides:${attempt}`;
 
 export const fallbackComment = (notes: readonly string[]) =>
   ["Hive could not apply this issue's override labels as they are:", "", ...notes.map((n) => `- ${n}`)].join("\n");

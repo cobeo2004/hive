@@ -27,7 +27,7 @@ export async function sourcesOn(db: Db, env: Env = process.env) {
   return { linear: choice !== "github", github: choice !== "linear" || env.FACTORY_GITHUB_ISSUES === "on" };
 }
 
-export type SourceSaveOutcome = { ok: true } | { ok: false; status: 400 | 403 | 502; message: string };
+type SourceSaveOutcome = { ok: true } | { ok: false; status: 400 | 403 | 502; message: string };
 
 /** Saves the choice into the Linear settings row, creating it from the env defaults if there is none; the other keys are kept. */
 export async function saveSourceChoice(

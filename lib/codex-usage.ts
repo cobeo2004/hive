@@ -168,7 +168,7 @@ export function parseRollout(text: string): Rollout | undefined {
 /** A thread may start before its first report opens the run. */
 export const ROLLOUT_SLACK_MS = 60 * 60_000;
 
-export type CodexRun = { cwd: string | null; branch: string | null; startedAt: number };
+type CodexRun = { cwd: string | null; branch: string | null; startedAt: number };
 
 /**
  * The rollouts that are the run's: a root thread started at most ROLLOUT_SLACK_MS before the run
@@ -192,7 +192,7 @@ export function matchRollouts(rollouts: readonly Rollout[], run: CodexRun): Roll
   return [...byThread.values()].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0) || a.threadId.localeCompare(b.threadId));
 }
 
-export type CodexUsage = {
+type CodexUsage = {
   /** The newest root thread: the run's own usage. */
   main: Rollout;
   /** Every other thread of the run, older roots and subagents, each priced on its own model. */

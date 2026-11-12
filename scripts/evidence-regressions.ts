@@ -118,7 +118,7 @@ assert.equal(
 assert.deepEqual(planChecks({ recipe: null, packageJson: "{not json", files: [] }).source, "none", "a broken package.json defines nothing");
 assert.deepEqual(planChecks({ recipe: null, packageJson: null, files: [] }).checks, [], "no recipe, no package.json: no checks");
 const hiveVerify = ["bun run lint", "bunx next typegen && bunx tsc --noEmit", "bun run format:check"];
-const repoVerify = ["bun install --frozen-lockfile", ...hiveVerify]; // .sstack/project.toml installs first (lesson L19)
+const repoVerify = ["bun install --frozen-lockfile", "bun run lint", "bun run lint:unused", ...hiveVerify.slice(1)]; // .sstack/project.toml installs first (lesson L19)
 assert.deepEqual(
   planChecks({ verify: hiveVerify, recipe, packageJson: JSON.stringify({ scripts: { test: "vitest" } }), files: ["bun.lock"] }),
   {

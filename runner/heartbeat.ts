@@ -18,7 +18,7 @@ const run = promisify(execFile);
 const RUNNER_DIR = join(import.meta.dirname, "..");
 const text = async (cmd: string, args: string[], cwd?: string) => (await run(cmd, args, { cwd, timeout: 5_000, maxBuffer: 1024 * 1024 })).stdout;
 
-export type Machine = { id: string; name: string; idFrom: "config" | "ioreg" | "hostname" };
+type Machine = { id: string; name: string; idFrom: "config" | "ioreg" | "hostname" };
 
 /** Falls back to the host name when ioreg fails, so the runner starts instead of crash-looping under launchd. */
 export async function identify(override?: string): Promise<Machine> {
@@ -63,8 +63,8 @@ export function parseDf(output: string) {
   return { freeBytes: freeKb * 1024, totalBytes: totalKb * 1024 };
 }
 
-export type HeartbeatCollectors = { [K in keyof Heartbeat]: () => Promise<Heartbeat[K]> };
-export type InventoryCollectors = { [K in keyof Inventory]-?: () => Promise<Inventory[K]> };
+type HeartbeatCollectors = { [K in keyof Heartbeat]: () => Promise<Heartbeat[K]> };
+type InventoryCollectors = { [K in keyof Inventory]-?: () => Promise<Inventory[K]> };
 
 const settle = <T>(collect: () => Promise<T>) => collect().catch((): typeof UNKNOWN => UNKNOWN);
 
@@ -119,7 +119,7 @@ export function inventoryCollectors(): InventoryCollectors {
   };
 }
 
-export async function collectInventory(collectors: InventoryCollectors): Promise<Inventory> {
+async function collectInventory(collectors: InventoryCollectors): Promise<Inventory> {
   const [runnerSha, t3, connect, projects, repos, harnesses, sandbox, slack] = await Promise.all([
     settle(collectors.runnerSha),
     settle(collectors.t3),

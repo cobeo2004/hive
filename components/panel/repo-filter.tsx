@@ -8,7 +8,7 @@ import { ALL_REPOS, REPO_FILTER_COOKIE } from "@/lib/repo-filter";
 import { displayName, repoName } from "@/lib/repo-name";
 
 /** A repo the filter offers: every registered one, and any other a loaded job ran in. */
-export type RepoOption = { repo: string; name: string; jobs: number };
+type RepoOption = { repo: string; name: string; jobs: number };
 
 export function repoOptions(registry: readonly Pick<RepoSettingsRow, "repo" | "display_name">[], jobs: readonly Pick<JobRow, "repo">[]): RepoOption[] {
   const count = (repo: string) => jobs.filter((j) => j.repo === repo).length;

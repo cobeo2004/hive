@@ -1,6 +1,6 @@
-export type Listening = { close(): void };
+type Listening = { close(): void };
 
-export type KeepListeningDeps = {
+type KeepListeningDeps = {
   /** Connects and LISTENs; `onClose` runs when that connection errors or ends. */
   listen: (onClose: (reason: string) => void) => Promise<Listening>;
   log: (detail: Record<string, unknown>) => void;

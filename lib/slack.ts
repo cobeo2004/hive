@@ -89,7 +89,7 @@ export const slackAction = (actionId: string): InboxAction | null =>
   (Object.entries(SLACK_ACTION_IDS).find(([, id]) => id === actionId)?.[0] as InboxAction | undefined) ?? null;
 
 /** The button each inbox action gets; the panel's labels. */
-export const ACTION_LABELS: Record<InboxAction, string> = {
+const ACTION_LABELS: Record<InboxAction, string> = {
   answer: "Answer",
   approve: "Approve and merge",
   request_changes: "Request changes",

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "runner/index.ts",
+    "scripts/*.ts",
+    "hooks/*.ts",
+    "mcp/*.ts"
+  ],
+  "project": [
+    "**/*.{ts,tsx}"
+  ],
+  "ignore": [
+    "components/ui/**"
+  ],
+  "ignoreDependencies": [
+    "tailwindcss",
+    "@tailwindcss/turbopack",
+    "shadcn"
+  ]
+}

@@ -212,7 +212,7 @@ export async function decideMerges({ now = Date.now(), only }: { now?: number; o
   return errors.length > 0 ? { changed, errors } : changed;
 }
 
-export type Approval = { merged: string } | { blocked: string } | { refused: string };
+type Approval = { merged: string } | { blocked: string } | { refused: string };
 
 const APPROVED_IN = { inbox: "the inbox", run_detail: "run detail" } as const satisfies Record<ApproveDetail["via"], string>;
 

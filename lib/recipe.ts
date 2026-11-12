@@ -14,7 +14,7 @@ export const RECIPE_PATH = ".factory/setup.json";
 export const UNMERGED_RECIPE_PATH = "/root/.config/marshal-factory/recipe.json";
 
 /** Changes to these invalidate a warm image when the recipe names no warmKey of its own. */
-export const DEFAULT_WARM_KEY = [
+const DEFAULT_WARM_KEY = [
   "**/bun.lock",
   "**/bun.lockb",
   "**/package-lock.json",
@@ -36,14 +36,13 @@ const version = z
   .regex(/^\d+(\.\d+){0,2}$/, "Pin a runtime as a version number such as 22 or 1.4.4.");
 
 export const CHECKS = ["test", "lint", "typecheck", "build"] as const;
-export type CheckName = (typeof CHECKS)[number];
+type CheckName = (typeof CHECKS)[number];
 
-export const envVarSchema = z.object({
+const envVarSchema = z.object({
   name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "Name an env var with letters, digits and underscores."),
   purpose: z.string().trim().max(300),
   required: z.boolean(),
 });
-export type EnvVar = z.infer<typeof envVarSchema>;
 
 export const recipeSchema = z
   .object({
@@ -62,7 +61,7 @@ export const recipeSchema = z
   .strict();
 export type Recipe = z.infer<typeof recipeSchema>;
 
-export type RecipeParse = { ok: true; recipe: Recipe } | { ok: false; error: string };
+type RecipeParse = { ok: true; recipe: Recipe } | { ok: false; error: string };
 
 /** The recipe in a setup.json's text, or why it is not one. Services are not supported yet. */
 export function parseRecipe(text: string): RecipeParse {
@@ -103,7 +102,7 @@ const canonical = (value: unknown): unknown =>
 /** The same text for recipes that mean the same, whatever their key order; lib/recipe-hash.ts hashes it. */
 export const canonicalRecipe = (recipe: Recipe) => JSON.stringify(canonical(recipe));
 
-export const requiredEnv = (recipe: Recipe | undefined) => (recipe?.env ?? []).filter((e) => e.required).map((e) => e.name);
+const requiredEnv = (recipe: Recipe | undefined) => (recipe?.env ?? []).filter((e) => e.required).map((e) => e.name);
 
 /** The required env names no secret has been saved for yet. */
 export const missingEnv = (recipe: Recipe | undefined, set: readonly string[]) => requiredEnv(recipe).filter((name) => !set.includes(name));
@@ -142,7 +141,7 @@ const UV_PYTHON_DIR = "/opt/uv-python";
 const pythonIs = (pin: string) => `grep -q '^Python ${pin.replaceAll(".", "\\.")}\\(\\.\\|$\\)'`;
 
 /** Fails the build when python3 on PATH is not the pinned version, whatever the install did. */
-export const pythonPinCheck = (pin: string) =>
+const pythonPinCheck = (pin: string) =>
   `python3 --version 2>&1 | ${pythonIs(pin)} || { echo "python3 is $(python3 --version 2>&1), not the pinned ${pin}"; exit 13; }`;
 
 /** Where the build script keeps its log, exit code and check results in the sandbox. */

@@ -63,7 +63,7 @@ const NEEDS_RECONNECT = "the account changed while the job ran, so this refresh 
 /** How long a local job's machine may stay silent before its account lease is freed anyway: a sleeping Mac keeps it. */
 const LEASE_SILENT_MS = 6 * 3_600_000;
 export const TOKEN_REFRESH_MS = 40 * 60_000;
-export const REAP_EVERY_MS = 5 * 60_000;
+const REAP_EVERY_MS = 5 * 60_000;
 
 const log = (event: string, detail: Record<string, unknown>) => sandboxRuntime.log(event, detail);
 const message = (error: unknown) => (error instanceof Error ? error.message.split("\n")[0] : String(error));
@@ -317,7 +317,7 @@ export async function teardownFinished() {
 }
 
 /** A hibernate or wake that a crash cut short: the snapshot is kept and the sandbox ends. */
-export async function settleInterrupted() {
+async function settleInterrupted() {
   const rows = await db
     .select()
     .from(jobs)

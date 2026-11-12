@@ -42,7 +42,7 @@ export const stopDeliverable = (i: Row) => stopOwed(i) && bindingOf(i.t3_thread_
 
 export const stopping = (i: StopRow) => isStopPending(parseStop(i.stop));
 
-export const stopHeld = (i: StopRow) => stopNeedsOwner(i.stop, i.dismissed_at);
+const stopHeld = (i: StopRow) => stopNeedsOwner(i.stop, i.dismissed_at);
 
 const holdsSandbox = (i: ReclaimRow) => Boolean(i.sandbox_id || i.sandbox_snapshot || i.codex_slot);
 
@@ -60,10 +60,10 @@ const pendingStates = sql.join(
   sql`, `,
 );
 
-export const stopOwedSql = sql`(${stoppedSql} and (${pendingSql} or (${boundSql} and ${unsentSql})))`;
+const stopOwedSql = sql`(${stoppedSql} and (${pendingSql} or (${boundSql} and ${unsentSql})))`;
 export const stopDeliverableSql = and(stoppedSql, boundSql, unsentSql);
 export const stoppingSql = sql`coalesce(${jobs.stop}->>'state' in (${pendingStates}), false)`;
-export const stopHeldSql = sql`coalesce(${jobs.stop}->>'state' = 'unconfirmed' and (${jobs.dismissed_at} is null or ${jobs.dismissed_at} < coalesce(${jobs.stop}->>'settledAt', ${jobs.stop}->>'requestedAt')::timestamptz), false)`;
+const stopHeldSql = sql`coalesce(${jobs.stop}->>'state' = 'unconfirmed' and (${jobs.dismissed_at} is null or ${jobs.dismissed_at} < coalesce(${jobs.stop}->>'settledAt', ${jobs.stop}->>'requestedAt')::timestamptz), false)`;
 const holdsSandboxSql = sql`(${jobs.sandbox_id} is not null or ${jobs.sandbox_snapshot} is not null or ${jobs.codex_slot} is not null)`;
 export const canReclaimSql = sql`(${jobs.stage} = 'failed' and (${jobs.t3_thread_id} is null or not ${pendingSql}) and not coalesce(${stopOwedSql}, false) and not ${holdsSandboxSql} and not ${stoppingSql} and not ${stopHeldSql})`;
 

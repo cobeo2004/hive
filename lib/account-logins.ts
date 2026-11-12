@@ -8,7 +8,7 @@ import * as schema from "../db/schema";
 type Db = NodePgDatabase<typeof schema>;
 const { accountLogins, intents } = schema;
 
-export const LOGIN_TTL_MS = 10 * 60_000;
+const LOGIN_TTL_MS = 10 * 60_000;
 
 const intent = (detail: object, at: Date) => ({
   id: `panel:account_login:${randomUUID()}`,

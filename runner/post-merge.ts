@@ -51,7 +51,7 @@ const firstLine = (error: unknown) => (error instanceof Error ? error.message : 
 type Reverted = { ok: true; url: string } | { ok: false; reason: string; url: string | null };
 
 /** Reverts the merge on its base branch with a factory PR that merges at once; idempotent for a merged revert. */
-export async function revertMerge(prUrl: string, merged: FactoryMerge, failed: readonly string[]): Promise<Reverted> {
+async function revertMerge(prUrl: string, merged: FactoryMerge, failed: readonly string[]): Promise<Reverted> {
   const { repo, number } = parsePullUrl(prUrl);
   const branch = `${BRANCH_PREFIX}revert-${number}`;
   const existing = await github.pullRequestForBranch(repo, branch);

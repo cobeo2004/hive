@@ -1,7 +1,7 @@
 import { Client } from "pg";
 
 /** The channel drizzle/0040_live_notify.sql's triggers notify, with the changed table's name. */
-export const LIVE_CHANNEL = "hive_changes";
+const LIVE_CHANNEL = "hive_changes";
 
 /**
  * Opens a dedicated connection that LISTENs for table changes. The pooler can't hold a LISTEN, so it

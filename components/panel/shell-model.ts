@@ -5,7 +5,7 @@ import { inboxItems, ownedBy, type Viewer } from "@/lib/inbox";
 // What the sidebar and the breadcrumb bar show, as pure rules so the regressions cover them.
 
 /** The stages where an agent is at work: not queued (not started) and not waiting (that is "Waiting on you"). */
-export const RUNNING: ReadonlySet<string> = new Set(["triage", "investigating", "planning", "implementing", "verifying", "pr"]);
+const RUNNING: ReadonlySet<string> = new Set(["triage", "investigating", "planning", "implementing", "verifying", "pr"]);
 
 type ShellJob = ArchiveJob & Pick<JobRow, "owner_id" | "claimed_at">;
 

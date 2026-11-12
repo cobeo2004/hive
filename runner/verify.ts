@@ -16,9 +16,9 @@ import { REPO_DIR } from "../lib/sandbox";
 // at a time. A hibernated sandbox is woken for it.
 // Runs happen in the background; the decision stays pending until the evidence lands.
 
-export const MAX_RUNNER_VERIFICATIONS = 2;
+const MAX_RUNNER_VERIFICATIONS = 2;
 /** A run recorded on the decision that this runner doesn't know of (it restarted) is retried after this. */
-export const VERIFY_RETRY_MS = 10 * 60_000;
+const VERIFY_RETRY_MS = 10 * 60_000;
 
 /** Where the sandbox keeps the repo and the verification worktrees; regressions point them at temp dirs. */
 export const verifyRuntime = { repoDir: REPO_DIR, workDir: "/work/verify" };

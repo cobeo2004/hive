@@ -43,7 +43,7 @@ import { branchCosts } from "@/lib/spend";
 // The "Send to factory" shortcut and the New job modal it opens are lib/slack-new-job.ts's.
 // Slack wants an answer within 3 seconds, so the route acks and the work runs after it.
 
-export { MAX_SKEW_SECONDS, NOT_MEMBER, verifySignature } from "@/lib/slack-request";
+export { MAX_SKEW_SECONDS, NOT_MEMBER } from "@/lib/slack-request";
 
 export const ALREADY_RESOLVED = "This is already resolved; nothing was done.";
 
@@ -178,7 +178,7 @@ function modalCopy(action: ModalAction, job: JobRow): ModalCopy {
 const metadataSchema = z.object({ event: z.string(), responseUrl: z.string() });
 
 /** A modal with only a note and no submit: what the click opens at once, and what it becomes if there is nothing to fill in. */
-export function noteModal(action: ModalAction, text: string) {
+function noteModal(action: ModalAction, text: string) {
   return {
     type: "modal",
     callback_id: SLACK_ACTION_IDS[action],
@@ -189,7 +189,7 @@ export function noteModal(action: ModalAction, text: string) {
 }
 export const LOADING = "Loading…";
 
-export function renderModal(action: ModalAction, item: Item, facts: MessageFacts, responseUrl: string) {
+function renderModal(action: ModalAction, item: Item, facts: MessageFacts, responseUrl: string) {
   const { job, event } = item;
   const copy = modalCopy(action, job);
   const clean = (text: string) => redact(text, facts.secrets).replace(/\s+/g, " ").trim().slice(0, 2000);

@@ -14,13 +14,12 @@ import { z } from "zod";
 // While a stop is requested, delivered or escalated the job keeps its launch capacity and its
 // source hears nothing; confirmed and unconfirmed free both.
 
-export const STOP_STATES = ["requested", "delivered", "escalated", "confirmed", "unconfirmed"] as const;
-export type StopState = (typeof STOP_STATES)[number];
+const STOP_STATES = ["requested", "delivered", "escalated", "confirmed", "unconfirmed"] as const;
+type StopState = (typeof STOP_STATES)[number];
 export const PENDING_STOP_STATES = ["requested", "delivered", "escalated"] as const satisfies readonly StopState[];
 
 /** How the stop last reached the work: the polite message, T3's interrupt, or ending the sandbox. */
-export const STOP_HOWS = ["message", "interrupt", "terminate"] as const;
-export type StopHow = (typeof STOP_HOWS)[number];
+const STOP_HOWS = ["message", "interrupt", "terminate"] as const;
 
 const at = z.string();
 

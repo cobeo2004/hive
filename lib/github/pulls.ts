@@ -5,15 +5,15 @@ import { GITHUB_API, GitHubError, githubRequest, installationTokens, type RepoNa
 
 export type PullState = "open" | "closed" | "merged";
 export type Mergeable = "mergeable" | "conflicting" | "unknown";
-export type PullRequest = { state: PullState; mergeable: Mergeable; headSha: string; title: string };
-export type HeadPull = { state: PullState; headSha: string; mergedAt: Date | null; closedAt: Date | null };
+type PullRequest = { state: PullState; mergeable: Mergeable; headSha: string; title: string };
+type HeadPull = { state: PullState; headSha: string; mergedAt: Date | null; closedAt: Date | null };
 export type BranchPull = { url: string; state: "open" | "merged" };
-export type MergeResult =
+type MergeResult =
   | { kind: "merged"; sha: string }
   | { kind: "not_mergeable"; message: string }
   | { kind: "head_moved"; message: string }
   | { kind: "forbidden"; message: string };
-export type MergeOptions = { method?: MergeMethod; title?: string; message?: string };
+type MergeOptions = { method?: MergeMethod; title?: string; message?: string };
 /** What the factory's merge needs to know about the PR right before it merges. */
 export type MergeCandidate = {
   state: PullState;
@@ -26,8 +26,8 @@ export type MergeCandidate = {
   /** A GitHub App merged it; the factory's own merges are its App's. */
   mergedByBot: boolean;
 };
-export type RepoMerging = { method: MergeMethod; canPush: boolean };
-export type CommentWrite = "created" | "updated" | "unchanged";
+type RepoMerging = { method: MergeMethod; canPush: boolean };
+type CommentWrite = "created" | "updated" | "unchanged";
 
 const PULL_URL = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)(?:[/?#].*)?$/;
 
@@ -51,7 +51,7 @@ const mergeableOf = (mergeable: boolean | null): Mergeable => (mergeable === nul
 
 const messageOf = (json: unknown) => z.object({ message: z.string() }).safeParse(json).data?.message ?? "";
 
-export type PullDetail = { state: PullState; mergeable: Mergeable; headSha: string; baseRef: string };
+type PullDetail = { state: PullState; mergeable: Mergeable; headSha: string; baseRef: string };
 
 const fileSchema = z.object({
   filename: z.string(),
@@ -85,7 +85,7 @@ function bugbotReviewOf(runs: readonly CheckRun[]): BugbotReview {
  * What tells a commit nothing reported on from one whose CI has not started yet: when it was pushed,
  * the checks its base branch requires, and how long CI may take to show up.
  */
-export type NoCiFacts = { pushedAt: number; now: number; graceMs: number; required: readonly string[] };
+type NoCiFacts = { pushedAt: number; now: number; graceMs: number; required: readonly string[] };
 
 /**
  * Every check run and commit status on a commit, Bugbot's run aside. A commit nothing reported on
@@ -132,7 +132,7 @@ const branchRulesSchema = z.array(
 );
 
 /** The status checks a branch's protection and its rulesets require, from what the App may read. */
-export function requiredChecksOf(protection: unknown, rules: unknown): string[] {
+function requiredChecksOf(protection: unknown, rules: unknown): string[] {
   const required = branchProtectionSchema.safeParse(protection).data?.protection?.required_status_checks;
   const fromRules = (branchRulesSchema.safeParse(rules).data ?? [])
     .filter((r) => r.type === "required_status_checks")
@@ -141,7 +141,7 @@ export function requiredChecksOf(protection: unknown, rules: unknown): string[] 
 }
 
 /** How checkState tells a repo without CI from CI that has not started; `seenAt` is when the factory first saw the head. Without `baseRef` it never says none. */
-export type CheckStateOptions = { baseRef?: string; seenAt?: number; graceMs?: number; now?: number };
+type CheckStateOptions = { baseRef?: string; seenAt?: number; graceMs?: number; now?: number };
 
 const statusesSchema = combinedStatusSchema.extend({ statuses: z.array(z.object({ context: z.string(), state: z.string() })).default([]) });
 

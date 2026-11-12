@@ -22,7 +22,7 @@ const subscribe = (listener: () => void) => {
   return () => void listeners.delete(listener);
 };
 
-export const useLiveStatus = () =>
+const useLiveStatus = () =>
   useSyncExternalStore(
     subscribe,
     () => status,

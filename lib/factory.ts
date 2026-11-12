@@ -13,7 +13,7 @@ export const BRANCH_PREFIX = "hive/";
 const KEY = "[A-Za-z][A-Za-z0-9]*(?:-[a-z0-9]+)*-\\d+";
 const KEY_PATTERN = new RegExp(`^${KEY}$`);
 const BRANCH_PATTERN = new RegExp(`^${BRANCH_PREFIX}(${KEY})(?:-a(\\d+))?$`);
-export const MAX_KEY_LENGTH = 64;
+const MAX_KEY_LENGTH = 64;
 
 export const isJobKey = (value: string) => value.length <= MAX_KEY_LENGTH && KEY_PATTERN.test(value);
 

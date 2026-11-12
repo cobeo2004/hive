@@ -11,7 +11,7 @@ const WORKFLOWS = [".github/workflows/**"];
 const PACKAGE_JSON = "package.json";
 const ROOT_CONFIG = [".npmrc", "bunfig.toml"];
 
-export type Scripts = Readonly<Record<string, string>>;
+type Scripts = Readonly<Record<string, string>>;
 
 /** The `scripts` of a package.json text; null when it isn't JSON, is ambiguous or holds anything but string scripts. */
 export function scriptsOf(packageJson: string | null): Scripts | null {

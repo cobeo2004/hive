@@ -13,7 +13,7 @@ export type NodeData = {
   badge?: string;
   label?: string; // members only
 };
-export type FlowNode = {
+type FlowNode = {
   id: string;
   type: "step" | "member";
   position: { x: number; y: number };
@@ -23,7 +23,7 @@ export type FlowNode = {
   selectable?: boolean;
   focusable?: boolean;
 };
-export type FlowEdge = {
+type FlowEdge = {
   id: string;
   source: string;
   target: string;

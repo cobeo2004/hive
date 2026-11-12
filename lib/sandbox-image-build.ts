@@ -58,10 +58,10 @@ exec bun ${FACTORY_ROOT}/hooks/verify.ts "$@"
 export type BuildLimits = Pick<SandboxLimits, "appName" | "t3Version" | "claudeCodeVersion" | "codexVersion" | "playwrightMcpVersion" | "pstack">;
 type Log = (message: string) => void;
 /** Starts the build sandbox from the base layers; regressions pass a fake one. */
-export type OpenBuildSandbox = (limits: BuildLimits, log: Log) => Promise<SandboxHandle>;
+type OpenBuildSandbox = (limits: BuildLimits, log: Log) => Promise<SandboxHandle>;
 
 /** The Dockerfile commands for the base layers, at the pinned versions. */
-export const baseLayers = (limits: BuildLimits) => [
+const baseLayers = (limits: BuildLimits) => [
   "RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates procps unzip && rm -rf /var/lib/apt/lists/*",
   "RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg" +
     ' && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list' +
@@ -83,7 +83,7 @@ export const baseLayers = (limits: BuildLimits) => [
     " && git config --global credential.https://github.com.helper factory && git config --global init.defaultBranch main",
 ];
 
-export const openModalBuildSandbox: OpenBuildSandbox = async (limits, log) => {
+const openModalBuildSandbox: OpenBuildSandbox = async (limits, log) => {
   forbidInTest("Modal");
   const modal = new ModalClient();
   try {

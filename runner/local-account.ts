@@ -73,7 +73,7 @@ export function sweepLogins() {
 
 type Held = { driver: string; id: string; scope: string; secret: string };
 
-export type LocalRuntime = {
+type LocalRuntime = {
   lease: (key: string, marker: string, slot: string) => Promise<string | undefined>;
   log: (event: string, detail: Record<string, unknown>) => void;
 };

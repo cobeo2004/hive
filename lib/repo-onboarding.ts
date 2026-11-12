@@ -30,7 +30,7 @@ const repoInput = z.object({ repo: z.string().regex(REPO_NAME, "Name the repo as
 
 export type AddableOutcome = { ok: true; repos: Installable["repos"]; manageUrl: string } | { ok: false; status: number; message: string };
 
-export type AddRepositoryDeps = {
+type AddRepositoryDeps = {
   user: () => Promise<SessionUser | null | undefined>;
   registry: () => Promise<Registry>;
   installable: () => Promise<Installable>;
@@ -52,7 +52,7 @@ export async function listAddable(deps: Pick<AddRepositoryDeps, "user" | "regist
   }
 }
 
-export type AddOutcome = { ok: true; labelNote?: string } | { ok: false; status: number; message: string };
+type AddOutcome = { ok: true; labelNote?: string } | { ok: false; status: number; message: string };
 
 /**
  * Registers a repo the App reaches, enabled and not the default, and asks a runner to onboard it.
@@ -115,7 +115,7 @@ export const secretsInputSchema = z.object({
 });
 export type SecretsInput = z.input<typeof secretsInputSchema>;
 
-export type SecretsDeps = {
+type SecretsDeps = {
   user: () => Promise<SessionUser | null | undefined>;
   registry: () => Promise<Registry>;
   /** Whether this server holds a Modal token; without one the owner uses the CLI. */
@@ -125,7 +125,7 @@ export type SecretsDeps = {
   recordNames: (repo: string, names: string[]) => Promise<void>;
 };
 
-export const secretCommand = (repo: string, name: string) => `bun scripts/repo-secret.ts ${repo} ${name}`;
+const secretCommand = (repo: string, name: string) => `bun scripts/repo-secret.ts ${repo} ${name}`;
 
 /**
  * Puts the pasted values in the repo's Modal secret, then records their names. The values exist
@@ -189,7 +189,7 @@ export async function recordSecretNames(database: Db, repo: string, names: reado
   });
 }
 
-export type RepoActionDeps = {
+type RepoActionDeps = {
   user: () => Promise<SessionUser | null | undefined>;
   registry: () => Promise<Registry>;
   request: (kind: "onboard_repo" | "rebuild_repo_image", repo: string) => Promise<void>;
@@ -212,7 +212,7 @@ export async function retryOnboarding(deps: RepoActionDeps, input: unknown): Pro
   }
 }
 
-export type RebuildDeps = RepoActionDeps & {
+type RebuildDeps = RepoActionDeps & {
   /** The default branch's .sstack/project.toml text; null when it has none. */
   projectToml: (repo: string) => Promise<string | null>;
   saveVerify: (repo: string, verify: string[] | null) => Promise<void>;

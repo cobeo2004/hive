@@ -87,7 +87,7 @@ async function sizeKb(host: JobHost, path: string) {
   return Number((await sh(host, "du", ["-sk", path])).split(/\s/)[0]) || 0;
 }
 
-export type CleanupReport = {
+type CleanupReport = {
   removed: { key: string; worktree: string | null; freedKb: number; salvagedTo?: string }[];
   held: { key: string; reason: string }[];
   /** Threads whose worktree and branch are gone; the intake pass archives them in T3. */
