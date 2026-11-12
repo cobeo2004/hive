@@ -32,6 +32,9 @@ assert.equal(ref("https://github.com/cobeo2004/hive-sandbox/issues/1"), "hive-sa
 assert.equal(ref("https://linear.app/unibuz/issue/UNI-142/sort-the-list"), "UNI-142");
 assert.equal(ref("https://example.com/ticket/9"), KEY, "an unknown tracker keeps the key");
 assert.equal(ref(null), KEY);
+assert.equal(ref("https://github.com/cobeo2004/hive-sandbox/issues/1/"), "hive-sandbox #1", "a trailing slash still names the issue");
+for (const href of ["https://github.com/cobeo2004/hive-sandbox/issues/new", "https://github.com/cobeo2004/hive-sandbox/pull/2"])
+  assert.equal(ref(href), KEY, `${href} is not an issue`);
 assert.deepEqual([shortDuration(45_000), shortDuration(5 * 60_000 + 10_000), shortDuration(125 * 60_000)], ["45s", "5m", "2h 5m"]);
 
 // A pending decision says what it waits on.

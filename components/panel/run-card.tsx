@@ -42,7 +42,7 @@ export function issueRef(card: Pick<BoardCard, "sourceLink" | "jobKey" | "id">) 
   if (href && URL.canParse(href)) {
     const url = new URL(href);
     const [owner, repo, kind, n] = url.pathname.split("/").filter(Boolean);
-    if (url.hostname === "github.com" && owner && repo && kind === "issues" && n) return `${repo} #${n}`;
+    if (url.hostname === "github.com" && owner && repo && kind === "issues" && n && /^\d+$/.test(n)) return `${repo} #${n}`;
     if (url.hostname === "linear.app" && repo === "issue" && kind) return kind;
   }
   return card.jobKey ?? card.id.slice(0, 8);
@@ -198,7 +198,13 @@ export function StageCard({
         <span className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground" title={card.jobKey ?? undefined}>
           {latest?.status === "active" && <Spinner className="size-2.5 shrink-0" aria-label="Working" />}
           {card.sourceLink ? (
-            <a href={card.sourceLink.href} target="_blank" rel="noreferrer" className="relative truncate underline-offset-2 hover:underline">
+            <a
+              href={card.sourceLink.href}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`${ref} (opens in a new tab)`}
+              className="relative truncate underline-offset-2 hover:underline"
+            >
               {ref}
             </a>
           ) : (
