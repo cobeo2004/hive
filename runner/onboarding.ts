@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -8,6 +7,7 @@ import { repoSettings, type RepoSettingsRow } from "../db/schema";
 import { BRANCH_PREFIX } from "../lib/factory";
 import type { RepoName } from "../lib/github/app";
 import { fileOnDefaultBranch } from "../lib/github/installation";
+import { showThread } from "../lib/t3-client";
 import { github } from "../lib/github/pulls";
 import { HostGoneError, localHost, type JobHost } from "../lib/host";
 import { createSandbox, deleteSnapshot, modal, modalHost, rememberSandbox, terminateSandbox } from "../lib/modal-host";
@@ -87,6 +87,9 @@ export const onboardingRuntime = {
   bugbotRan: (prUrl: string): Promise<boolean> => github.bugbotRan(prUrl),
   playbook: () => readFileSync(PLAYBOOK, "utf8"),
   checkouts: (): Promise<ReadonlyMap<string, string>> => factoryCheckouts(),
+  /** The worktree T3 made for a local thread, or null. */
+  worktreeOf: async (threadId: string) =>
+    z.object({ thread: z.object({ worktreePath: z.string().nullish() }) }).parse(await showThread(localHost, threadId)).thread.worktreePath ?? null,
   startLocalThread: (checkout: string, branch: string, title: string, text: string, harness: HarnessChoice) =>
     startThread(localHost, checkout, branch, title, text, harness),
   now: () => new Date(),
@@ -100,8 +103,8 @@ const resultSchema = z.union([
 type Change = { state?: OnboardingState | null; detail: OnboardingDetail };
 type StartedRun = OnboardingRun & { sandboxId: string };
 const hasSandbox = (run: OnboardingRun): run is StartedRun => run.sandboxId !== undefined;
-/** Where a local agent writes its result: outside the worktree, in the temp dir T3's agents may write to. */
-export const localResult = (repo: string) => join(tmpdir(), `hive-onboarding-${encodeURIComponent(repo)}.json`);
+/** Where a local agent writes its result: in its own worktree, which every harness may write to; never committed. */
+export const LOCAL_RESULT = ".hive-onboarding.json";
 /** Each local run works on its own branch, since the checkout keeps the last one's; it pushes to ONBOARDING_BRANCH. */
 const localBranch = (run: OnboardingRun) => `${ONBOARDING_BRANCH}-${Date.parse(run.startedAt)}`;
 /** Stops a local agent's thread, so a run given up on does not go on working, spending and pushing on the owner's machine. */
@@ -142,7 +145,6 @@ async function fail(repo: string, reason: string, logText?: string) {
 /** Ends the run's sandbox, handing an agent's login back to its slot first, and clears the run. */
 async function endRun(repo: string, run: OnboardingRun) {
   if (!hasSandbox(run)) {
-    await localHost.remove(localResult(repo));
     await update(repo, (_row, detail) => (sameLocal(detail.run, run) ? { detail: { ...detail, run: undefined } } : null));
     return;
   }
@@ -248,7 +250,8 @@ function agentMessage(repo: string, detail: OnboardingDetail, committedError: st
           `This is an unattended onboarding run on the owner's own machine, not a sandbox. Follow the playbook below, with these changes.`,
           `- Your worktree is on branch ${local.branch}. Push it with \`git push --force-with-lease origin HEAD:${ONBOARDING_BRANCH}\` and open or update the pull request from ${ONBOARDING_BRANCH}.`,
           `- In "Prove it", skip the \`system\` installs: install nothing system-wide on this machine. Run the \`setup\` commands and the checks in your worktree only. Still list the \`system\` packages and \`runtimes\` a fresh Linux sandbox would need.`,
-          `- Write the result to ${localResult(repo)} last, then end the turn.`,
+          `- Before pushing, run \`git fetch --prune origin\`, so the lease is checked against the remote as it is now.`,
+          `- Write the result to \`${LOCAL_RESULT}\` at the root of your worktree, not the path the playbook names, and never commit it. Write it last, then end the turn.`,
         ].join("\n")
       : `This is an unattended onboarding run. Follow the playbook below. The repo is cloned at ${REPO_DIR}; your worktree is on branch ${ONBOARDING_BRANCH}. Write the result to ${ONBOARDING_RESULT} last, then end the turn.`,
     ...(committedError ? ["", `main already has a ${RECIPE_PATH}, but the factory cannot use it: ${committedError} Fix it in your recipe.`] : []),
@@ -297,7 +300,6 @@ async function startLocalAgent(repo: string, committedError: string | undefined)
   starting.add(repo);
   let threadId: string | undefined;
   try {
-    await localHost.remove(localResult(repo));
     const [row] = await db.select().from(repoSettings).where(eq(repoSettings.repo, repo));
     const { harness } = await launchSettings();
     const branch = localBranch(run);
@@ -400,7 +402,14 @@ async function advanceAgent(row: RepoSettingsRow, run: OnboardingRun) {
   }
   let text: string | null = null;
   try {
-    text = await host.readFile(hasSandbox(run) ? ONBOARDING_RESULT : localResult(row.repo));
+    if (hasSandbox(run)) text = await host.readFile(ONBOARDING_RESULT);
+    else {
+      // A thread T3 no longer shows has no result to read; the run fails below for want of one.
+      const worktree = await onboardingRuntime.worktreeOf(run.threadId!).catch(() => null);
+      const path = worktree && join(worktree, LOCAL_RESULT);
+      text = path ? await localHost.readFile(path) : null;
+      if (path) await localHost.remove(path);
+    }
   } catch (error) {
     if (!(error instanceof HostGoneError)) throw error;
   }

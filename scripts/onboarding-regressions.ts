@@ -363,6 +363,9 @@ try {
   // No recipe on main: the agent runs on this machine, in its checkout, and its result is read from there.
   const LOCAL_AGENT = `${NS}/local-agent`;
   const realCheckouts = runner.onboardingRuntime.checkouts;
+  const realWorktree = runner.onboardingRuntime.worktreeOf;
+  const localTree = mkdtempSync(join(tmpdir(), "onb-local-tree-"));
+  runner.onboardingRuntime.worktreeOf = async () => localTree;
   const realStart = runner.onboardingRuntime.startLocalThread;
   const realInterrupt = threads.interrupt;
   const started: { checkout: string; branch: string; text: string }[] = [];
@@ -399,12 +402,13 @@ try {
       assert.match(started[0]!.text, /not a sandbox/);
       assert.match(started[0]!.text, /skip the `system` installs/, "and overrides the playbook's system installs");
       assert.ok(started[0]!.text.includes(`HEAD:hive/onboarding`), "it pushes to the one onboarding branch");
-      assert.ok(started[0]!.text.includes(runner.localResult(LOCAL_AGENT)), "and names where to write the result");
+      assert.ok(started[0]!.text.includes(runner.LOCAL_RESULT), "and names where in its worktree to write the result");
+      assert.match(started[0]!.text, /git fetch --prune origin/, "and to fetch before the lease is checked");
       await runner.advanceOnboarding({ only: [LOCAL_AGENT] });
       assert.equal((await detail(LOCAL_AGENT)).run?.threadId, "thread-local-1", "a running thread is left alone");
       threadState = "stopped";
       writeFileSync(
-        runner.localResult(LOCAL_AGENT),
+        join(localTree, runner.LOCAL_RESULT),
         JSON.stringify({ recipe: valid, prUrl: `https://github.com/${LOCAL_AGENT}/pull/3`, summary: "Installs with bun." }),
       );
       await runner.advanceOnboarding({ only: [LOCAL_AGENT] });
@@ -413,7 +417,7 @@ try {
         [(await row(LOCAL_AGENT)).onboarding_state, ld.recipeSource, ld.recipePr, ld.summary, ld.run],
         ["ready", "agent", `https://github.com/${LOCAL_AGENT}/pull/3`, "Installs with bun.", undefined],
       );
-      assert.equal(existsSync(runner.localResult(LOCAL_AGENT)), false, "the result file is cleaned up");
+      assert.equal(existsSync(join(localTree, runner.LOCAL_RESULT)), false, "the result file is cleaned up");
       threadState = "running";
 
       // A second run on the same checkout works on a branch of its own.
@@ -460,6 +464,7 @@ try {
     assert.deepEqual([(await row(NO_CHECKOUT)).onboarding_state, (await detail(NO_CHECKOUT)).failure?.reason.includes("no checkout")], ["failed", true]);
   } finally {
     runner.onboardingRuntime.checkouts = realCheckouts;
+    runner.onboardingRuntime.worktreeOf = realWorktree;
     runner.onboardingRuntime.startLocalThread = realStart;
     threads.interrupt = realInterrupt;
   }
