@@ -27,6 +27,7 @@ export const INTENT_ROUTES = {
   retry_stop: "owner",
   retry_job: "any",
   slack_test: "slack",
+  account_login: "any",
 } as const satisfies Record<IntentKind, "any" | "owner" | "broadcast" | "slack">;
 
 /**
@@ -55,6 +56,8 @@ export const INTENT_ATTEMPTS = {
   retry_job: 3,
   // The owner watches Settings for the outcome and can send another.
   slack_test: 1,
+  // The user is watching the panel for the code; a failed login shows its error and they start another.
+  account_login: 1,
 } as const satisfies Record<IntentKind, number>;
 
 /** An intent's result as the runner logs it: a pairing link only ever goes to the intent row. */

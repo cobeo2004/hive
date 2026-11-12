@@ -1,0 +1,1 @@
+ALTER TYPE "public"."intent_kind" ADD VALUE 'account_login';
