@@ -261,9 +261,16 @@ const row = async (repo: string) => (await db.select().from(repoSettings).where(
 const detail = async (repo: string) => onboarding.parseDetail((await row(repo)).onboarding_detail);
 const sandboxOf = (id: string | undefined) => sandboxes.get(id!) as FakeSandbox;
 const insert = (repo: string, state: RepoRow["onboarding_state"], d: OnboardingDetail = {}) =>
-  db
-    .insert(repoSettings)
-    .values({ repo, enabled: true, onboarding_state: state, onboarding_detail: d, onboarding_at: new Date(), updated_at: new Date(), updated_by: "test" });
+  db.insert(repoSettings).values({
+    repo,
+    enabled: true,
+    execution: "modal",
+    onboarding_state: state,
+    onboarding_detail: d,
+    onboarding_at: new Date(),
+    updated_at: new Date(),
+    updated_by: "test",
+  });
 const finishBuild = (repo: string, code: number, log = "") =>
   detail(repo).then((d) => {
     const box = sandboxOf(d.run?.sandboxId);
@@ -326,6 +333,15 @@ try {
 
   // A committed recipe skips the agent: the build validates it and its checks run.
   committed[COMMITTED] = JSON.stringify(valid);
+  // A repo that runs on a machine needs no image: no sandbox, no failure, the row untouched.
+  const LOCAL = `${NS}/local`;
+  await insert(LOCAL, "analyzing");
+  await db.update(repoSettings).set({ execution: "local" }).where(eq(repoSettings.repo, LOCAL));
+  const sandboxesBefore = sandboxes.size;
+  assert.deepEqual(await runner.onboardRepo(LOCAL), { repo: LOCAL, skipped: "runs locally" });
+  assert.equal(sandboxes.size, sandboxesBefore, "no sandbox is created for a local repo");
+  assert.deepEqual([(await row(LOCAL)).onboarding_state, (await detail(LOCAL)).failure], ["analyzing", undefined]);
+
   await insert(COMMITTED, "analyzing");
   const begun = await runner.onboardRepo(COMMITTED);
   assert.equal((begun as { recipe?: string }).recipe, "committed", JSON.stringify(begun));

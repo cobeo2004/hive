@@ -20,7 +20,7 @@ import { EXECUTIONS, type Execution } from "@/lib/execution";
 import type { Harness } from "@/lib/harness";
 import { parseInventory, rebuildText, reportedDrift, reportedHarnesses, reportedSandbox, sandboxLogin, UNKNOWN } from "@/lib/machine";
 import { AUTONOMY_LABELS, AUTONOMY_LEVELS, type Autonomy } from "@/lib/merge-decision";
-import { repoImage } from "@/lib/onboarding";
+import { repoImage, runsLocally } from "@/lib/onboarding";
 import { displayName } from "@/lib/repo-name";
 import type { RepoStats } from "@/lib/repositories";
 import { RUNS_ON_LABELS } from "@/lib/ticket-overrides";
@@ -86,7 +86,7 @@ function placesLine({ modal, modalNote, machines, rebuild }: Places) {
   return parts.length > 0 ? parts.join(" · ") : "Neither a cloud sandbox image nor a local checkout";
 }
 
-type Entry = { row: RepoSettingsRow; stats: RepoStats | undefined; places: Places };
+type Entry = { row: RepoSettingsRow; stats: RepoStats | undefined; places: Places; local: boolean };
 
 function Row({ entry, open, cursor, onFocus }: { entry: Entry; open: boolean; cursor: boolean; onFocus: () => void }) {
   const { row, stats, places } = entry;
@@ -125,7 +125,7 @@ function Row({ entry, open, cursor, onFocus }: { entry: Entry; open: boolean; cu
             Disabled
           </Badge>
         )}
-        {row.onboarding_state && <OnboardingBadge state={row.onboarding_state} />}
+        {!entry.local && row.onboarding_state && <OnboardingBadge state={row.onboarding_state} />}
         <a
           href={githubUrl(row.repo)}
           target="_blank"
@@ -143,10 +143,10 @@ function Row({ entry, open, cursor, onFocus }: { entry: Entry; open: boolean; cu
       <span
         className={cn(
           "hidden w-72 shrink-0 truncate text-xs @3xl:block",
-          nowhere || row.onboarding_state === "failed" || row.onboarding_state === "needs_input" ? "text-warning" : "text-muted-foreground",
+          nowhere || (!entry.local && (row.onboarding_state === "failed" || row.onboarding_state === "needs_input")) ? "text-warning" : "text-muted-foreground",
         )}
       >
-        {row.onboarding_state && row.onboarding_state !== "ready" ? onboardingLine(row) : placesLine(places)}
+        {!entry.local && row.onboarding_state && row.onboarding_state !== "ready" ? onboardingLine(row) : placesLine(places)}
       </span>
       <span className="hidden w-36 shrink-0 truncate text-xs text-muted-foreground @2xl:block">Merging · {AUTONOMY_LABELS[row.autonomy]}</span>
     </div>
@@ -155,7 +155,7 @@ function Row({ entry, open, cursor, onFocus }: { entry: Entry; open: boolean; cu
 
 function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harnesses: readonly Harness[]; panelTakesSecrets: boolean }) {
   const router = useRouter();
-  const { row, stats, places } = entry;
+  const { row, stats, places, local } = entry;
   const [name, setName] = useState(displayName(row));
   const [enabled, setEnabled] = useState(row.enabled);
   const [provider, setProvider] = useState(row.provider ?? SETTINGS_DEFAULT);
@@ -234,7 +234,7 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
           <p className={cn("text-sm", !places.modal && places.machines.length === 0 ? "text-warning" : "text-muted-foreground")}>{placesLine(places)}</p>
         </div>
         <Separator />
-        <OnboardingSection key={`${row.onboarding_state}-${row.onboarding_at?.toISOString()}`} row={row} panelTakesSecrets={panelTakesSecrets} />
+        <OnboardingSection key={`${row.onboarding_state}-${row.onboarding_at?.toISOString()}`} row={row} local={local} panelTakesSecrets={panelTakesSecrets} />
         <Separator />
         <div className="flex flex-col gap-5 px-4.5 py-4">
           <Field>
@@ -358,6 +358,7 @@ export function Repositories({
   machines,
   selected,
   panelTakesSecrets,
+  defaultExecution,
 }: {
   registry: readonly RepoSettingsRow[];
   stats: readonly RepoStats[];
@@ -365,14 +366,24 @@ export function Repositories({
   selected: string | undefined;
   /** The panel holds a Modal token, so it takes secret values itself. */
   panelTakesSecrets: boolean;
+  /** Settings' execution, for repos that leave it to Settings. */
+  defaultExecution: Execution;
 }) {
-  useOnboardingRefresh(registry);
+  useOnboardingRefresh(registry.filter((row) => !runsLocally(row.execution, defaultExecution)));
   const { rows, status } = useFeed(machines);
   const now = useNow(CLOCK_TICK_MS) ?? 0;
   const harnesses = useMemo(() => (reportedHarnesses(rows, now) ?? []).filter((h) => h.enabled), [rows, now]);
   const entries = useMemo(
-    () => registry.map((row): Entry => ({ row, stats: stats.find((s) => s.repo === row.repo), places: placesOf(rows, now, row) })),
-    [registry, stats, rows, now],
+    () =>
+      registry.map(
+        (row): Entry => ({
+          row,
+          stats: stats.find((s) => s.repo === row.repo),
+          places: placesOf(rows, now, row),
+          local: runsLocally(row.execution, defaultExecution),
+        }),
+      ),
+    [registry, stats, rows, now, defaultExecution],
   );
   const listRef = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState<string | null>(selected ?? null);

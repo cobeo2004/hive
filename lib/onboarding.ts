@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Execution } from "./execution";
 import { imageDrift, imageVersionsSchema, rebuildText, type ImageVersions } from "./machine";
 import { CHECKS, missingEnv, recipeSchema, type Recipe } from "./recipe";
 
@@ -121,6 +122,10 @@ export function imageOutdated(image: RepoImage, base: BaseImage | null) {
   if (image.base.builtAt !== base.builtAt) return "the base image was rebuilt since";
   return undefined;
 }
+
+/** A repo whose jobs run on a machine needs no sandbox image, so it is never onboarded. */
+export const runsLocally = (repoExecution: Execution | null, settingsExecution: Execution) => (repoExecution ?? settingsExecution) === "local";
+export const LOCAL_LINE = "Runs locally, no sandbox image needed";
 
 export type RepoImageChoice = { kind: "warm"; imageId: string } | { kind: "base"; outdated?: string } | { kind: "blocked"; reason: string };
 

@@ -17,6 +17,7 @@ import {
   imageOutdated,
   modalSecretName,
   parseDetail,
+  runsLocally,
   type BaseImage,
   type CheckResult,
   type OnboardingDetail,
@@ -41,6 +42,7 @@ import { recipeHash, sha256 } from "../lib/recipe-hash";
 import { builtVersions, GITHUB_TOKEN_PATH, imageProblem, REPO_DIR, type SandboxImage } from "../lib/sandbox";
 import { matchesAny } from "../lib/globs";
 import type { RepoPushDetail } from "../lib/webhooks";
+import { readSettings, resolveExecution } from "../lib/settings";
 import { config } from "./config";
 import { thisMachine } from "./heartbeat";
 import { startThread } from "./launch";
@@ -236,6 +238,8 @@ function agentMessage(repo: string, detail: OnboardingDetail, committedError: st
 export async function onboardRepo(repo: string) {
   const [row] = await db.select().from(repoSettings).where(eq(repoSettings.repo, repo));
   if (!row) return { repo, skipped: "not registered" };
+  // Switching the repo to cloud and pressing Retry onboards it then.
+  if (runsLocally(row.execution, resolveExecution(await readSettings(db)))) return { repo, skipped: "runs locally" };
   const detail = parseDetail(row.onboarding_detail);
   if (detail.run && !(leftBehind(repo, detail.run, (await thisMachine()).id) && (await clearLeasing(repo, detail.run)))) {
     return { repo, skipped: `${detail.run.kind === "agent" ? "an agent" : "a build"} run is in flight` };
