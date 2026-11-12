@@ -15,6 +15,7 @@ const { intents, jobs } = await import("../db/schema");
 const ops = await import("./ops");
 const { createBeat, inventoryCollectors, systemCollectors, thisMachine } = await import("./heartbeat");
 const { closeBroadcast, deliveryFor, expirePairings, INTENT_ATTEMPTS, leaseIntent, loggable, receiptIntent, recordReceipt } = await import("./intents");
+const { expireLogins, handleAccountLogin } = await import("./account-login");
 const { launchQueued } = await import("./launch");
 const { openT3, tickSandboxes } = await import("./lifecycle");
 const { recheckScheduler } = await import("./recheck");
@@ -120,9 +121,8 @@ async function handle(intent: IntentRow) {
     }
     case "slack_test":
       return sendSlackTest(JSON.parse(intent.detail ?? "null"));
-    // No handler yet: the login relay lands in the next change, and until then the intent fails closed.
     case "account_login":
-      return { error: "no runner handles account_login yet" };
+      return handleAccountLogin(intent);
     default: {
       const unhandled: never = intent.kind;
       throw new Error(`no handler for intent ${String(unhandled)}`);
@@ -233,6 +233,7 @@ async function tick() {
     // After teardown, which records a stopped sandbox's end; a confirmed stop frees its capacity before this tick's launches.
     stopsConfirmed: await isolated(() => confirmStops()),
     pairingsExpired: await isolated(expirePairings),
+    loginsExpired: await isolated(expireLogins),
     synced: await isolated(writeBackPass),
     // After the write-back, so retryJob's sync gate usually passes on the same tick.
     rateLimited: await isolated(() => relaunchRateLimited()),
