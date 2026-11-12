@@ -120,6 +120,9 @@ async function handle(intent: IntentRow) {
     }
     case "slack_test":
       return sendSlackTest(JSON.parse(intent.detail ?? "null"));
+    // No handler yet: the login relay lands in the next change, and until then the intent fails closed.
+    case "account_login":
+      return { error: "no runner handles account_login yet" };
     default: {
       const unhandled: never = intent.kind;
       throw new Error(`no handler for intent ${String(unhandled)}`);
