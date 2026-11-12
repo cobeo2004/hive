@@ -1,0 +1,1 @@
+No UI surface to capture: runner/*.ts and scripts only. sstack-gate's path heuristic (sstack_route._kind) classes runner/*.ts as frontend, so it asks for a screenshot there is nothing to take. The before/after Mermaid diagrams in media/*.mmd are the evidence.
