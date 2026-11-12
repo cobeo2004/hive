@@ -28,11 +28,14 @@ export async function writeLogin(database: Db, userId: string, provider: "claude
   return id;
 }
 
+/** An authorization code is URL-safe text (letters, digits, and `-._~#%+/=`), and short. */
+const CODE = /^[\w.~#%+/=-]{1,512}$/;
+
 /** Hands the code a user pasted back to the runner, through an intent. Only the login's own user, while it waits for one. */
 export async function writeCode(database: Db, userId: string, loginId: string, code: string, at = new Date()) {
   const [login] = await database.select().from(accountLogins).where(eq(accountLogins.id, loginId));
   const waiting = login?.user_id === userId && login.provider === "claude" && login.status === "waiting_code" && login.expires_at > at;
-  if (!waiting || !code.trim()) return false;
+  if (!waiting || !CODE.test(code.trim())) return false;
   await database.insert(intents).values(intent({ loginId, code: code.trim() }, at));
   return true;
 }

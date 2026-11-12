@@ -8,7 +8,7 @@ try {
 } catch {
   // A shell that already exports DATABASE_URL
 }
-const { and, eq, sql } = await import("drizzle-orm");
+const { and, eq, isNull, sql } = await import("drizzle-orm");
 const { db } = await import("../db/client");
 const { agentAccounts, user } = await import("../db/schema");
 const { readLogin, writeCode, writeLogin } = await import("../lib/account-logins");
@@ -26,6 +26,9 @@ if (!values.user || (provider !== "claude" && provider !== "codex"))
 const [member] = await db.select({ id: user.id }).from(user).where(sql`lower(${user.email}) = ${values.user!.toLowerCase()}`);
 if (!member) fail(`no Hive user with the email ${values.user}`);
 
+// The row may already exist (a reconnect updates it in place), so "connected" is a sealed value that differs from this one.
+const mine = and(eq(agentAccounts.owner_id, member!.id), eq(agentAccounts.provider, provider), isNull(agentAccounts.disconnected_at));
+const before = (await db.select({ sealed: agentAccounts.sealed }).from(agentAccounts).where(mine))[0]?.sealed;
 const loginId = await writeLogin(db, member!.id, provider);
 console.log("Login recorded; a runner starts it within a few seconds (10 minutes in all).");
 let shown = false;
@@ -33,8 +36,8 @@ for (;;) {
   await new Promise((resolve) => setTimeout(resolve, 1_000));
   const login = await readLogin(db, member!.id, loginId);
   if (!login) {
-    const connected = await db.$count(agentAccounts, and(eq(agentAccounts.owner_id, member!.id), eq(agentAccounts.provider, provider)));
-    if (!connected) fail("The login ended without connecting (cancelled or expired).");
+    const [now] = await db.select({ sealed: agentAccounts.sealed }).from(agentAccounts).where(mine);
+    if (!now || (before && now.sealed.equals(before))) fail("The login ended without connecting (cancelled or expired).");
     console.log(`Connected: ${provider} account sealed for ${values.user}.`);
     process.exit(0);
   }

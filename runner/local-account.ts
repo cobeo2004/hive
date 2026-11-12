@@ -110,7 +110,9 @@ export function localAccounts(rt: LocalRuntime) {
       const pool = await db
         .select()
         .from(agentAccounts)
-        .where(and(isNull(agentAccounts.owner_id), eq(agentAccounts.provider, "codex"), isNull(agentAccounts.disconnected_at)));
+        .where(
+          and(isNull(agentAccounts.owner_id), eq(agentAccounts.provider, "codex"), eq(agentAccounts.kind, "api_key"), isNull(agentAccounts.disconnected_at)),
+        );
       for (const row of pool) {
         if (!(await rt.lease(key, marker, `${LOCAL_SLOT}${row.id}`))) continue;
         // A pool account is an API key; Codex reads it from auth.json.

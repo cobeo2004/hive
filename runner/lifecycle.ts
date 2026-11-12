@@ -57,6 +57,8 @@ import { verifyingKeys } from "./verify";
 
 const HIBERNATE_STAGES = ["pr", "waiting"] as const;
 const TERMINAL_STAGES = ["merged", "failed"] as const;
+/** How long a local job's machine may stay silent before its account lease is freed anyway: a sleeping Mac keeps it. */
+const LEASE_SILENT_MS = 6 * 3_600_000;
 export const TOKEN_REFRESH_MS = 40 * 60_000;
 export const REAP_EVERY_MS = 5 * 60_000;
 
@@ -425,7 +427,9 @@ async function wakeInRoom(row: JobRow, snapshot: string, asleep: SQL | undefined
   // Like a launch: the owner's or pool's Codex account replaces a slot (errors carry an id or fixed text, never a secret).
   const codex = needsCodexSlot(row.provider) ? await sandboxRuntime.account(row.key, "codex", undefined) : null;
   if (codex === "wait") throw new WakeDeferredError(`${row.key} waits to wake: the team pool is at its threshold`);
-  const slot = needsCodexSlot(row.provider) ? await leaseSlot(asleep, codex ? [`account:${codex.id}`] : usableSlots(limits)) : null;
+  // Only a subscription is leased: a pool API key never rotates and stays shareable.
+  const leased = needsCodexSlot(row.provider) && codex?.kind !== "api_key";
+  const slot = leased ? await leaseSlot(asleep, codex ? [`account:${codex.id}`] : usableSlots(limits)) : null;
   if (slot === undefined) throw new WakeDeferredError(`no free Codex login slot to wake ${row.key}`);
   let sandboxId: string | undefined;
   let claude: Account | null = null;
@@ -582,13 +586,21 @@ export async function reap() {
     if (cleared) freed.push(`${holder.key}:${holder.codex_slot}`);
   }
   suspects.slots = new Set(idle.map((h) => `${h.key}:${h.codex_slot}`).filter((id) => !freed.includes(id)));
-  // A local job's account lease on a machine that stopped reporting: nothing there will free it.
-  const silent = sql`${jobs.machine_id} in (select id from machines where last_seen_at < now() - make_interval(secs => ${ONLINE_WINDOW_MS / 1000}))`;
+  // A local job's account lease on a machine that stopped reporting. A Mac that merely slept keeps it (the job resumes); it is freed once the job is over, or after hours of silence.
+  const silentFor = (ms: number) => sql`${jobs.machine_id} in (select id from machines where last_seen_at < now() - make_interval(secs => ${ms / 1000}))`;
   const gone = await db
     .update(jobs)
     .set({ codex_slot: null })
-    .where(and(isNull(jobs.sandbox_id), sql`${jobs.codex_slot} like ${`${LOCAL_SLOT}%`}`, silent))
-    .returning({ key: jobs.key, slot: jobs.codex_slot });
+    .where(
+      and(
+        isNull(jobs.sandbox_id),
+        sql`${jobs.codex_slot} like ${`${LOCAL_SLOT}%`}`,
+        or(and(silentFor(ONLINE_WINDOW_MS), inArray(jobs.stage, [...TERMINAL_STAGES])), silentFor(LEASE_SILENT_MS)),
+      ),
+    )
+    .returning({ key: jobs.key });
+  // The refreshed login is still on that machine; until it is back the account may need reconnecting.
+  for (const { key } of gone) log("local:lease-freed", { key, reason: "its machine stopped reporting; the account may need reconnecting" });
   freed.push(...gone.map((j) => j.key));
   if (terminated.length > 0 || freed.length > 0) log("sandbox:reaped", { terminated, freed });
   return { terminated, freed, suspects: suspects.sandboxes.size + suspects.slots.size };

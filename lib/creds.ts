@@ -67,15 +67,15 @@ export const credsProvider = (harnessProvider: string): CredsProvider => (harnes
 export type AccountRow = Pick<typeof agentAccounts.$inferSelect, "id" | "owner_id" | "provider" | "sealed" | "disconnected_at" | "created_at">;
 
 /** R10a: the owner's account under 95% of its 5h window, else the lowest-use pool account, else "wait" (pool full, pauseInstead on). No pool row: undefined (Q17). */
-export function pickAccount(
-  rows: readonly AccountRow[],
+export function pickAccount<R extends AccountRow>(
+  rows: readonly R[],
   ownerId: string | null,
   provider: CredsProvider,
   usage: ReadonlyMap<string, number> = new Map(),
   pool: { threshold: number; pauseInstead: boolean } = { threshold: 90, pauseInstead: false },
   exclude: ReadonlySet<string> = new Set(),
-): AccountRow | "wait" | undefined {
-  const pct = (r: AccountRow) => usage.get(r.id) ?? 0;
+): R | "wait" | undefined {
+  const pct = (r: R) => usage.get(r.id) ?? 0;
   const live = rows
     .filter((r) => r.provider === provider && !r.disconnected_at && !exclude.has(r.id))
     .sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
@@ -90,7 +90,7 @@ export function pickAccount(
 export const RATE_LIMITED = "the provider rate-limited its account";
 
 /** An unsealed account; id null is the runner's own default login. */
-export type Account = { id: string | null; secret: string };
+export type Account = { id: string | null; secret: string; kind?: "api_key" };
 
 /** The runner's own Claude token: the only read of this variable in runner/ and lib/. */
 export const runnerDefaultClaudeToken = (env: Env = process.env) => env.CLAUDE_CODE_OAUTH_TOKEN || undefined;
@@ -100,7 +100,12 @@ export const runnerDefaultClaudeToken = (env: Env = process.env) => env.CLAUDE_C
  * After a rate limit it skips accounts earlier attempts ran on in the last 5h; an attempt keeps its account across wakes.
  * The DB client and config load here, not at import, so the panel can import this file.
  */
-export async function accountFor(jobKey: string, provider: CredsProvider, runnerDefault: string | undefined, env: Env = process.env) {
+export async function accountFor(
+  jobKey: string,
+  provider: CredsProvider,
+  runnerDefault: string | undefined,
+  env: Env = process.env,
+): Promise<Account | "wait" | null> {
   const { db } = await import("../db/client");
   const { accountUsage, agentAccounts, jobs, runs } = await import("../db/schema");
   const { config } = await import("../runner/config");
@@ -135,7 +140,7 @@ export async function accountFor(jobKey: string, provider: CredsProvider, runner
   if (row === "wait") return row;
   if (!row) return runnerDefault ? { id: null, secret: runnerDefault } : null;
   if (!env.HIVE_CREDS_PRIVATE_KEY) throw new Error(`HIVE_CREDS_PRIVATE_KEY is not set; cannot open account ${row.id}`);
-  return { id: row.id, secret: unseal(row.sealed, env.HIVE_CREDS_PRIVATE_KEY) };
+  return { id: row.id, secret: unseal(row.sealed, env.HIVE_CREDS_PRIVATE_KEY), ...(row.kind === "api_key" && { kind: row.kind }) };
 }
 
 /** Stamps the account on the job's run rows for this thread that have none yet; the default (null) stamps nothing. */

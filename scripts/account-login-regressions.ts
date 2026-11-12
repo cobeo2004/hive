@@ -96,6 +96,8 @@ try {
     "https://claude.example/oauth/authorize?code=true&client_id=abc&redirect_uri=https%3A%2F%2Fclaude.example%2Fcb&state=xyz",
   );
   assert.equal(await writeCode(db, B, claude.id, "pasted-code"), false, "another user cannot answer it");
+  for (const bad of ["", "two words", "x".repeat(513), "a\nb"])
+    assert.equal(await writeCode(db, A, claude.id, bad), false, "a code of the wrong shape is refused");
   assert.equal(await writeCode(db, A, claude.id, "pasted-code"), true);
   const codeIntent = (await db.select().from(intents).where(eq(intents.kind, "account_login"))).find((i) => i.detail?.includes("pasted-code"))!;
   assert.deepEqual(await handleAccountLogin(codeIntent, rt), { code: "stored" });

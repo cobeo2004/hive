@@ -100,7 +100,7 @@ assert.match(sandboxName("weird key/ü", 1), /^[A-Za-z0-9._-]+$/);
 
 // The launch path.
 const stamp = Date.now();
-const keys = ["A", "B", "C", "D", "E", "F", "G", "H"].map((k) => `SBX${k}-${stamp % 100000}`);
+const keys = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"].map((k) => `SBX${k}-${stamp % 100000}`);
 const slotA = `/tmp/slot-a-${stamp}`;
 const slot = { id: TEST_MACHINE_ID, repos: ["ski043/factory-demo"], maxInFlight: 1000 };
 const events: { event: string; detail: Record<string, unknown> }[] = [];
@@ -394,6 +394,21 @@ try {
   );
   assert.equal(sandboxes.get(codexOwned.sandbox_id!)!.files.get("/root/.codex/auth.json"), '{"auth":"of-c"}', "the owner's Codex account is the login");
   await db.update(jobs).set({ machine_id: null }).where(eq(jobs.key, keys[7]!)); // out of the maxParallel count below
+
+  // A pool API key never rotates: two sandboxes share it, with no lease and no waiting.
+  await db.insert(agentAccounts).values({ id: "sbx-acct-key", owner_id: null, provider: "codex", kind: "api_key", label: "key", sealed: sealedFor("sk-pool") });
+  const codex = { provider: "codex", model: "gpt-6-astra" };
+  config.factory.sandbox.maxParallel += 2; // the earlier jobs still hold sandboxes
+  await launchInSandboxes([entry(keys[8]!, codex), entry(keys[9]!, codex)], slot);
+  config.factory.sandbox.maxParallel -= 2;
+  const [pooled, shared] = [await row(keys[8]!), await row(keys[9]!)];
+  assert.deepEqual([pooled.codex_slot, shared.codex_slot, Boolean(pooled.sandbox_id && shared.sandbox_id)], [null, null, true], "both run on the one pool key");
+  assert.equal(sandboxes.get(shared.sandbox_id!)!.files.get("/root/.codex/auth.json"), "sk-pool");
+  await db
+    .update(jobs)
+    .set({ machine_id: null })
+    .where(inArray(jobs.key, [keys[8]!, keys[9]!])); // out of the maxParallel count below
+  await db.delete(agentAccounts).where(eq(agentAccounts.id, "sbx-acct-key"));
   await db.delete(agentAccounts).where(eq(agentAccounts.id, "sbx-acct-pool"));
 
   // maxParallel counts working jobs with a sandbox, slot or not.
@@ -505,7 +520,7 @@ try {
   if (savedKey === undefined) delete process.env.HIVE_CREDS_PRIVATE_KEY;
   else process.env.HIVE_CREDS_PRIVATE_KEY = savedKey;
   await db.delete(runs).where(eq(runs.session_id, `sbx-run-${stamp}`));
-  await db.delete(agentAccounts).where(eq(agentAccounts.id, "sbx-acct-pool"));
+  await db.delete(agentAccounts).where(inArray(agentAccounts.id, ["sbx-acct-pool", "sbx-acct-key"]));
   await db.delete(user).where(inArray(user.id, ["sbx-owner-a", "sbx-owner-b", "sbx-owner-c"]));
   await db.delete(jobs).where(
     inArray(
