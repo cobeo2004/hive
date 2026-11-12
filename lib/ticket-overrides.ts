@@ -17,7 +17,7 @@ const RUNS_ON_ALIASES: Record<Execution, readonly string[]> = { local: [], modal
 export type SourceOverrides = { [F in keyof typeof OVERRIDE_GROUPS]: string[] };
 export const NO_OVERRIDES: SourceOverrides = { harness: [], runsOn: [], repository: [] };
 
-export type TicketOverrides = { provider?: string; execution?: Execution; problems: string[] };
+type TicketOverrides = { provider?: string; execution?: Execution; problems: string[] };
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const quoted = (names: readonly string[]) => names.map((name) => `"${name}"`).join(", ");

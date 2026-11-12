@@ -62,7 +62,7 @@ export function componentName(component: ImageComponent) {
   }
 }
 
-export type ImageDrift = { component: ImageComponent; built: string | undefined; pinned: string };
+type ImageDrift = { component: ImageComponent; built: string | undefined; pinned: string };
 
 /** Each pinned component the image holds another version of, or none at all. */
 export const imageDrift = (built: ImageVersions, pinned: ImageVersions): ImageDrift[] =>

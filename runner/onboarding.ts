@@ -66,7 +66,7 @@ import { threads } from "./threads";
 // One build at a time per machine. A push that touches the recipe or its warmKey, a base image
 // rebuilt or re-pinned, or the owner's Rebuild image starts another; the old image serves meanwhile.
 
-export const ONBOARDING_BRANCH = `${BRANCH_PREFIX}onboarding`;
+const ONBOARDING_BRANCH = `${BRANCH_PREFIX}onboarding`;
 export const ONBOARDING_RESULT = `${BUILD_DIR}/result.json`;
 const AGENT_GIVE_UP_MS = 90 * 60_000;
 /** An agent run on another machine still without a sandbox after this died before creating it. */
@@ -141,7 +141,7 @@ function launchable(): { image: SandboxImage } | { problem: string } {
 const sandboxNameFor = (repo: string, kind: OnboardingRun["kind"], at: number) =>
   `onboard-${kind}-${repo.replace("/", "-")}-${at}`.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 63);
 
-export const ONBOARDING_TAGS = (machine: string) => ({ purpose: "onboarding", factory: config.factory.label, machine });
+const ONBOARDING_TAGS = (machine: string) => ({ purpose: "onboarding", factory: config.factory.label, machine });
 
 /** A sandbox for one onboarding step, tagged so the onboarding reap can find it; never one the job reap touches. */
 async function onboardingSandbox(repo: string, kind: OnboardingRun["kind"], imageId: string, namedSecrets: string[]) {
@@ -375,7 +375,7 @@ export async function startImageBuild(
   );
 }
 
-export type BuildStatus = { done: false } | { done: true; code: number; log: string };
+type BuildStatus = { done: false } | { done: true; code: number; log: string };
 
 export async function imageBuildStatus(host: JobHost): Promise<BuildStatus> {
   const code = await host.readFile(BUILD_FILES.code);
@@ -537,7 +537,7 @@ export async function repoPushed(push: RepoPushDetail) {
  * The next build this machine may start, one at a time: a repo waiting for its first or a wanted
  * image, else, lazily, a ready repo whose image no longer fits the base image.
  */
-export async function startBuilds({ only }: { only?: readonly string[] } = {}) {
+async function startBuilds({ only }: { only?: readonly string[] } = {}) {
   const machine = await thisMachine();
   const rows = await db.select().from(repoSettings).where(onlyRepos(only)).orderBy(asc(repoSettings.onboarding_at));
   if (rows.some((r) => parseDetail(r.onboarding_detail).run?.kind === "build" && parseDetail(r.onboarding_detail).run?.machine === machine.id))

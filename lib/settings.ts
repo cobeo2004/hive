@@ -26,7 +26,7 @@ export type SettingsInput = z.input<typeof settingsInputSchema>;
 export type HarnessChoice = { provider: string; model: string };
 /** Where the harness came from: the panel's Settings, the runner config, or the job's repo default. */
 export type EffectiveHarness = HarnessChoice & { from: "settings" | "config" | "repo" };
-export type SettingsChoice = HarnessChoice & { execution?: Execution };
+type SettingsChoice = HarnessChoice & { execution?: Execution };
 
 export async function readSettings(database: Db): Promise<SettingsRow | null> {
   const [row] = await database.select().from(settings).where(eq(settings.id, SETTINGS_ID));
@@ -52,7 +52,7 @@ export const resolveHarness = (saved: SettingsRow | null, fallback: HarnessChoic
 
 export const resolveExecution = (saved: SettingsRow | null): Execution => saved?.execution ?? DEFAULT_EXECUTION;
 
-export type SettingsDeps = {
+type SettingsDeps = {
   user: () => Promise<SessionUser | null | undefined>;
   /** What the machines report; null when none has reported its harnesses yet. */
   harnesses: () => Promise<Harness[] | null>;

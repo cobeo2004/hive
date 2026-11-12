@@ -24,7 +24,7 @@ const timeSchema = z
   .regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, "Use a time like 22:00.")
   .transform((time) => time.slice(0, 5));
 
-export const validTimeZone = (zone: string) => {
+const validTimeZone = (zone: string) => {
   try {
     new Intl.DateTimeFormat("en-GB", { timeZone: zone });
     return true;
@@ -33,15 +33,15 @@ export const validTimeZone = (zone: string) => {
   }
 };
 
-export const quietHoursSchema = z.object({
+const quietHoursSchema = z.object({
   start: timeSchema,
   end: timeSchema,
   timeZone: z.string().trim().refine(validTimeZone, "Unknown time zone."),
 });
-export type QuietHours = z.infer<typeof quietHoursSchema>;
+type QuietHours = z.infer<typeof quietHoursSchema>;
 
 /** A Slack channel id: public channels start with C, private ones with G or C. */
-export const CHANNEL_ID = /^[CG][A-Z0-9]{6,}$/;
+const CHANNEL_ID = /^[CG][A-Z0-9]{6,}$/;
 
 const eventsSchema = z
   .object({
@@ -102,7 +102,7 @@ export type NotificationDeps = {
   now?: () => Date;
 };
 
-export type NotificationOutcome = { ok: true; message?: string } | { ok: false; message: string };
+type NotificationOutcome = { ok: true; message?: string } | { ok: false; message: string };
 
 const OWNER_ONLY = "Only an admin can change notifications.";
 
@@ -141,7 +141,7 @@ export async function requestSlackTest(deps: NotificationDeps, requestId: string
 
 const testResultSchema = z.object({ error: z.string().optional(), sent: z.object({ to: z.enum(["owner", "channel"]), channel: z.string() }).optional() });
 
-export type SlackTestOutcome = { status: "pending" } | { status: "done"; message: string } | { status: "failed"; message: string };
+type SlackTestOutcome = { status: "pending" } | { status: "done"; message: string } | { status: "failed"; message: string };
 
 export async function slackTestOutcome(deps: Pick<NotificationDeps, "db" | "user">, intentId: string): Promise<SlackTestOutcome> {
   if (!isAdmin(await deps.user())) return { status: "failed", message: OWNER_ONLY };

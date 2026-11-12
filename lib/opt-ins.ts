@@ -10,7 +10,7 @@ import { forbidInTest } from "@/lib/test-mode";
 // /setup's Linear step (R28): the signed-in user's Linear opt-ins, and whether Linear knows their email.
 
 export type OptIns = { assigned: boolean; plan_approval: boolean };
-export const NO_OPT_INS: OptIns = { assigned: false, plan_approval: false };
+const NO_OPT_INS: OptIns = { assigned: false, plan_approval: false };
 type Refused = { ok: false; status: 400 | 403; message: string };
 
 const optInsSchema = z.object({ assigned: z.boolean(), plan_approval: z.boolean() });
@@ -54,8 +54,8 @@ export async function saveOptIns(deps: MembersDeps, input: unknown): Promise<{ o
   return { ok: true, optIns: { assigned, plan_approval } };
 }
 
-export type LinearUsers = { userByEmail: (email: string) => Promise<{ id: string } | null> };
-export type LinearMatch = "matched" | "no-match" | "not-connected";
+type LinearUsers = { userByEmail: (email: string) => Promise<{ id: string } | null> };
+type LinearMatch = "matched" | "no-match" | "not-connected";
 
 /** Like Slack's lookup, an outage only shows the no-match note. */
 export async function linearMatch(email: string, users: LinearUsers | null): Promise<LinearMatch> {

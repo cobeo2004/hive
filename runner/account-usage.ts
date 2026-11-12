@@ -23,7 +23,7 @@ const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const log = (event: string, detail: Record<string, unknown>) => console.log(JSON.stringify({ at: new Date().toISOString(), event, ...detail }));
 
 /** One row per window present; an older reading never replaces a newer row. */
-export async function upsertUsage(accountId: string, limits: Limits, now = new Date()) {
+async function upsertUsage(accountId: string, limits: Limits, now = new Date()) {
   for (const [window, w] of Object.entries(limits) as [keyof Limits, NonNullable<Limits[keyof Limits]>][]) {
     const used_pct = Math.min(100, Math.max(0, w.usedPct));
     const resets_at = w.resetsAt === null ? null : new Date(w.resetsAt * 1000);

@@ -10,7 +10,7 @@ type Reader = Pick<NodePgDatabase<typeof schema>, "select">;
  * What one attempt spent. `known` is false when no usage was recorded for it, or some of its
  * tokens are on a model without a price; `usd` then counts only what could be priced.
  */
-export type BranchCost = { usd: number; known: boolean };
+type BranchCost = { usd: number; known: boolean };
 
 /**
  * Cost per factory branch: every run on it, main session plus subagents. Each attempt at a job

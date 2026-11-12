@@ -74,7 +74,7 @@ function unreachableHost(error: () => Error): JobHost {
 }
 
 /** The host of a job whose machine is gone for good, such as a snapshot that expired. */
-export const goneHost = (key: string) => unreachableHost(() => new HostGoneError(`${key}'s sandbox is gone`));
+const goneHost = (key: string) => unreachableHost(() => new HostGoneError(`${key}'s sandbox is gone`));
 
 /**
  * Resolves the host per job: a job with a sandbox runs there, a hibernated one has none until

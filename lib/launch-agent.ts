@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 // The LaunchAgent plumbing the runner and panel installers share (R2): the plist for one label, and
 // the bootout, bootstrap and "unchanged" rules that keep a reinstall from restarting a healthy service.
 
-export type LaunchAgent = {
+type LaunchAgent = {
   label: string;
   /** argv[0] is the program; the rest are its arguments, run without a shell. */
   programArguments: readonly string[];
@@ -36,7 +36,7 @@ export const which = (bin: string) => execFileSync("/usr/bin/which", [bin], { en
 export const pathWith = (...tools: readonly string[]) =>
   [...new Set([...tools.map((tool) => dirname(which(tool))), "/usr/bin", "/bin", "/usr/sbin", "/sbin"])].join(":");
 
-export function plistFor(agent: LaunchAgent): string {
+function plistFor(agent: LaunchAgent): string {
   const env = Object.entries(agent.environment ?? {});
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

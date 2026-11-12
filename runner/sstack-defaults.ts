@@ -33,7 +33,7 @@ const sstackDir = () => join(defaultsDeps.home, ".sstack");
 const sstackRoot = async () => (await missing(realpath(sstackDir()))) ?? sstackDir();
 
 type Files = Record<string, string>;
-export type DefaultsStatus = { sha: string } | { error: string };
+type DefaultsStatus = { sha: string } | { error: string };
 let status: DefaultsStatus | undefined;
 /** The sha whose last apply failed here: not retried every tick, a new sha is. */
 let failedSha: string | undefined;

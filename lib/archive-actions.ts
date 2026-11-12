@@ -10,8 +10,8 @@ import type { JobId } from "@/lib/sources/shapes";
 // change per job; nothing else changes, so the runner, the source and GitHub never see it. Both are
 // idempotent: a job already in the asked state is left alone and not audited again.
 
-export type ArchiveDeps = Pick<InboxDeps, "db" | "user" | "now">;
-export type ArchiveOutcome = { ok: true; message: string } | { ok: false; message: string };
+type ArchiveDeps = Pick<InboxDeps, "db" | "user" | "now">;
+type ArchiveOutcome = { ok: true; message: string } | { ok: false; message: string };
 
 const OWNER_ONLY = "Sign in to Hive to archive jobs.";
 /** The jobs feed's limit; the panel never shows more to pick from. */

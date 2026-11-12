@@ -64,7 +64,7 @@ export type CredsProvider = "claude" | "codex";
 /** The account provider for a T3 harness: Claude Code's driver is `claudeAgent`, anything else runs on Codex. */
 export const credsProvider = (harnessProvider: string): CredsProvider => (harnessProvider === "claudeAgent" ? "claude" : "codex");
 
-export type AccountRow = Pick<typeof agentAccounts.$inferSelect, "id" | "owner_id" | "provider" | "sealed" | "disconnected_at" | "created_at">;
+type AccountRow = Pick<typeof agentAccounts.$inferSelect, "id" | "owner_id" | "provider" | "sealed" | "disconnected_at" | "created_at">;
 
 /** R10a: the owner's account under 95% of its 5h window, else the lowest-use pool account, else "wait" (pool full, pauseInstead on). No pool row: undefined (Q17). */
 export function pickAccount<R extends AccountRow>(

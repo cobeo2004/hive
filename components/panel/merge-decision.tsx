@@ -10,7 +10,7 @@ export const parseDecision = (value: unknown): MergeDecision | null => mergeDeci
 
 const READY = "Ready for your review";
 
-export type DecisionLine = { text: string; tone: string; link?: { href: string; label: string } };
+type DecisionLine = { text: string; tone: string; link?: { href: string; label: string } };
 
 function mergedLine(watch: MergeWatch | undefined): DecisionLine {
   const merged = { text: "Merged by the factory", tone: "text-success" };

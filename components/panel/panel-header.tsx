@@ -20,7 +20,7 @@ const JOB_VIEWS: readonly { value: JobView; label: string }[] = [
 ];
 
 /** A segmented switch: its label names the group for screen readers and keeps each group's marker apart. */
-export type SwitchProps<T extends string> = { label: string; options: readonly { value: T; label: string }[]; current: T; onChange: (value: T) => void };
+type SwitchProps<T extends string> = { label: string; options: readonly { value: T; label: string }[]; current: T; onChange: (value: T) => void };
 
 function ViewSwitch<T extends string>({ label: group, options, current, onChange }: SwitchProps<T>) {
   return (

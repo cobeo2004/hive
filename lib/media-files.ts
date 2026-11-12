@@ -5,7 +5,7 @@ import { MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, mediaKind, RUNS_DIR, sniffType, type 
 
 // The reporter's side of lib/media.ts: reading the attached files on the agent's machine.
 
-export type ReadMedia = { ok: true; bytes: Buffer; contentType: MediaType } | { ok: false; reason: string };
+type ReadMedia = { ok: true; bytes: Buffer; contentType: MediaType } | { ok: false; reason: string };
 
 /** The folder holding the repo's runs: under the git toplevel of `cwd`, or `cwd` itself outside a repo. */
 export function runsRoot(cwd: string): string {
@@ -25,7 +25,7 @@ const inside = (root: string, path: string) => {
 };
 
 /** The newest `<root>/<run>/media/<file>` whose real path stays inside its own media folder; null when there is none. */
-export function findMedia(file: string, root: string): string | null {
+function findMedia(file: string, root: string): string | null {
   let runs: string[];
   try {
     runs = readdirSync(root);

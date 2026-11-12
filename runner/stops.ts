@@ -22,7 +22,7 @@ import { ACTIVE_RUN_STATUSES, threads, type InterruptOutcome, type SubagentThrea
 //                   confirms the stop (runner/lifecycle.ts)
 //   no thread       nothing ran; confirmed at once
 
-export const stopTimings = (): StopTimings => ({
+const stopTimings = (): StopTimings => ({
   checkMs: config.factory.stop.checkSeconds * 1000,
   settleMs: config.factory.stop.settleSeconds * 1000,
   interruptAfterMs: config.factory.stop.interruptAfterSeconds * 1000,
@@ -213,7 +213,7 @@ export async function confirmStops({ only, now = Date.now(), timings = stopTimin
   return errors.length > 0 ? { done, errors } : done;
 }
 
-export type RetryStopResult = { retried: string } | { refused: string };
+type RetryStopResult = { retried: string } | { refused: string };
 
 /** The owner's Retry stop on an unconfirmed stop: interrupt again at once and give it a fresh timeout. */
 export async function retryStop(id: JobId, now = Date.now()): Promise<RetryStopResult> {

@@ -72,7 +72,7 @@ async function toolUseIdFrom(metaPath: string, host: JobHost) {
   }
 }
 
-export type SubagentTranscript = { agentId: string; toolUseId: string | undefined; usage: Usage };
+type SubagentTranscript = { agentId: string; toolUseId: string | undefined; usage: Usage };
 
 /**
  * Claude Code writes each subagent's transcript to <session dir>/<session id>/subagents/agent-<id>.jsonl

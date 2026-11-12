@@ -34,7 +34,7 @@ export type CheckResult = z.infer<typeof checkResultSchema>;
 const baseSchema = z.object({ versions: imageVersionsSchema, builtAt: z.string() });
 export type BaseImage = z.infer<typeof baseSchema>;
 
-export const repoImageSchema = z.object({
+const repoImageSchema = z.object({
   id: z.string(),
   builtAt: z.string(),
   /** origin/main when it was built. */
@@ -44,7 +44,7 @@ export const repoImageSchema = z.object({
   /** Of the files the recipe's warmKey matched at that commit. */
   warmKeyHash: z.string(),
 });
-export type RepoImage = z.infer<typeof repoImageSchema>;
+type RepoImage = z.infer<typeof repoImageSchema>;
 
 /** What a runner has going for the repo: an agent writing the recipe, or a warm image build. */
 export const runSchema = z.object({
@@ -122,7 +122,7 @@ export function imageOutdated(image: RepoImage, base: BaseImage | null) {
   return undefined;
 }
 
-export type RepoImageChoice = { kind: "warm"; imageId: string } | { kind: "base"; outdated?: string } | { kind: "blocked"; reason: string };
+type RepoImageChoice = { kind: "warm"; imageId: string } | { kind: "base"; outdated?: string } | { kind: "blocked"; reason: string };
 
 type OnboardingRow = { repo: string; onboarding_state: OnboardingState | null; onboarding_detail: unknown };
 

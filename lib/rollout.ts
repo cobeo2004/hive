@@ -9,8 +9,8 @@ import { CONFIG_PATH } from "./config";
 /** The last commit a rollout finished with, next to the config. */
 export const ROLLOUT_PATH = join(dirname(CONFIG_PATH), "rollout.json");
 
-export const rolloutSchema = z.object({ commit: z.string().min(1), at: z.string() });
-export type Rollout = z.infer<typeof rolloutSchema>;
+const rolloutSchema = z.object({ commit: z.string().min(1), at: z.string() });
+type Rollout = z.infer<typeof rolloutSchema>;
 
 /** The recorded rollout, or null when none finished yet or the record is unreadable. */
 export function readRollout(path = ROLLOUT_PATH): Rollout | null {
@@ -32,7 +32,7 @@ export function touchedInputs(changed: readonly string[], inputs: readonly strin
   return changed.filter((p) => watched.has(p));
 }
 
-export type StartupVerdict = { state: "waiting" } | { state: "clean"; at: string } | { state: "failed"; why: string };
+type StartupVerdict = { state: "waiting" } | { state: "clean"; at: string } | { state: "failed"; why: string };
 
 const logLineSchema = z.object({ at: z.string(), event: z.string(), result: z.unknown().optional() }).loose();
 

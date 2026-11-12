@@ -5,7 +5,7 @@ import { forbidInTest } from "./test-mode";
 // straight to Modal: they are never stored, logged or put in an intent, and an error that would
 // quote one is replaced by one that does not.
 
-export type SecretStore = {
+type SecretStore = {
   /** Sets these keys in the named secret, creating it if missing; keys it already holds stay. */
   upsert(name: string, entries: Record<string, string>): Promise<void>;
 };

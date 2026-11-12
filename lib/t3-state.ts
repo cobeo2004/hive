@@ -15,9 +15,9 @@ const run = promisify(execFile);
 const T3 = () => process.env.T3CODE_CLI_PATH ?? "t3";
 const CLI_TIMEOUT_MS = 5_000;
 
-export const t3Home = () => process.env.T3CODE_HOME ?? join(homedir(), ".t3");
-export const t3UserdataDir = () => join(t3Home(), "userdata");
-export const defaultStatePath = () => join(t3UserdataDir(), "statev2.sqlite");
+const t3Home = () => process.env.T3CODE_HOME ?? join(homedir(), ".t3");
+const t3UserdataDir = () => join(t3Home(), "userdata");
+const defaultStatePath = () => join(t3UserdataDir(), "statev2.sqlite");
 
 const projectRow = z.object({ project_id: z.string(), title: z.string(), workspace_root: z.string() });
 
@@ -34,7 +34,7 @@ function readProjectsFromSqlite(statePath: string): T3Project[] {
   }
 }
 
-export async function probeProject(path: string) {
+async function probeProject(path: string) {
   forbidInTest("t3 thread list");
   await run(T3(), ["thread", "list", "--project", path, "--json"], { timeout: CLI_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
 }

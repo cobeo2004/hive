@@ -9,7 +9,7 @@ export type InstallableRepo = { repo: string; private: boolean; description: str
 export type Installable = { repos: InstallableRepo[]; manageUrl: string };
 
 /** Where the owner picks which repositories the app can reach. */
-export const INSTALLATIONS_URL = "https://github.com/settings/installations";
+const INSTALLATIONS_URL = "https://github.com/settings/installations";
 
 const installationsSchema = z.array(z.object({ id: z.number().int(), html_url: z.string().optional() }));
 const tokenSchema = z.object({ token: z.string() });

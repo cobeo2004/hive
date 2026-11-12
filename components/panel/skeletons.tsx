@@ -43,7 +43,7 @@ function CardSkeleton() {
 }
 
 /** The board's real columns, each with a card or two still loading. */
-export function BoardSkeleton() {
+function BoardSkeleton() {
   return (
     <>
       <StatsSkeleton />

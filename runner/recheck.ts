@@ -4,7 +4,7 @@
  * factory PRs have settled or the deadline passes, then runs the conflict check once. Requests
  * that arrive while one is pending only extend its deadline, so a burst of pushes runs one check.
  */
-export type RecheckDeps = {
+type RecheckDeps = {
   /** True when no open factory PR is still UNKNOWN. One short GitHub round. */
   settled: () => Promise<boolean>;
   /** The idempotent conflict check. */

@@ -19,20 +19,26 @@ async function member() {
   return user.id;
 }
 
+/** @public The account login UI (m3-09) calls this; nothing imports it yet. */
 export async function startAccountLogin(provider: "claude" | "codex") {
   if (provider !== "claude" && provider !== "codex") throw new Error("A provider is claude or codex.");
   return { loginId: await writeLogin(db, await member(), provider) };
 }
 
+/** @public The account login UI (m3-09) calls this; nothing imports it yet. */
 export async function accountLogin(loginId: string) {
   return readLogin(db, await member(), loginId);
 }
 
-/** Claude only: the code the user pasted back after signing in. False when the login is not waiting for one. */
+/**
+ * Claude only: the code the user pasted back after signing in. False when the login is not waiting for one.
+ * @public The account login UI (m3-09) calls this; nothing imports it yet.
+ */
 export async function submitLoginCode(loginId: string, code: string) {
   return writeCode(db, await member(), loginId, code);
 }
 
+/** @public The account login UI (m3-09) calls this; nothing imports it yet. */
 export async function cancelAccountLogin(loginId: string) {
   await cancelLogin(db, await member(), loginId);
 }

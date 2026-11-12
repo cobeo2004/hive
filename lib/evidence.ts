@@ -16,14 +16,14 @@ export type Producer = (typeof PRODUCERS)[number];
 export const CHECK_SOURCES = ["project.toml", "recipe", "package", "none"] as const;
 export type CheckSource = (typeof CHECK_SOURCES)[number];
 
-export const OUTPUT_TAIL_LINES = 40;
-export const OUTPUT_TAIL_CHARS = 4000;
+const OUTPUT_TAIL_LINES = 40;
+const OUTPUT_TAIL_CHARS = 4000;
 /** The most output a check keeps in memory before the tail is cut. */
 export const OUTPUT_KEEP_CHARS = 64_000;
-export const MAX_EVIDENCE_CHECKS = 20;
+const MAX_EVIDENCE_CHECKS = 20;
 export const CHECK_TIMEOUT_MS = 20 * 60_000;
 
-export const SHA = /^[0-9a-f]{40}$/;
+const SHA = /^[0-9a-f]{40}$/;
 export const shortSha = (sha: string) => sha.slice(0, 7);
 
 export const evidenceCheckSchema = z.object({
@@ -52,8 +52,7 @@ export const evidenceShape = {
   source: z.enum(CHECK_SOURCES),
   checks: z.array(evidenceCheckSchema).max(MAX_EVIDENCE_CHECKS),
 };
-export const evidencePayloadSchema = z.object(evidenceShape);
-export type EvidencePayload = z.infer<typeof evidencePayloadSchema>;
+type EvidencePayload = z.infer<z.ZodObject<typeof evidenceShape>>;
 
 /** One check as a card and the inbox show it, without its output. */
 const checkSummarySchema = evidenceCheckSchema.pick({ name: true, passed: true, exitCode: true, durationMs: true });
@@ -85,7 +84,7 @@ export const parseSummary = (value: unknown): EvidenceSummary | null => evidence
 // --- what to run
 
 export type PlannedCheck = { name: EvidenceCheckName; command: string };
-export type CheckPlan = {
+type CheckPlan = {
   source: CheckSource;
   /** What a fresh checkout runs before the checks; the agent's own worktree has it done already. */
   setup: string[];
@@ -272,10 +271,6 @@ export function headEvidence(
   if (failed.length > 0) return { state: "failed", sha: headSha, failed: [...new Set(failed)], passed, total: atHead.checks.length };
   return { state: "verified", sha: headSha, passed, total: atHead.checks.length, producer: atHead.producer };
 }
-
-/** Evidence that leaves the head unproven, but that a fresh run of the checks could settle. */
-export const unproven = (e: HeadEvidence): e is Extract<HeadEvidence, { state: "missing" | "stale" | "dirty" | "incomplete" | "untrusted" }> =>
-  e.state === "missing" || e.state === "stale" || e.state === "dirty" || e.state === "incomplete" || e.state === "untrusted";
 
 /** Why an unproven head is unproven, as a clause. */
 export function notVerifiedWhy(e: Extract<HeadEvidence, { state: "missing" | "stale" | "dirty" | "incomplete" | "untrusted" }>) {

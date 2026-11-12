@@ -339,7 +339,7 @@ export async function intentOutcome(deps: Pick<InboxDeps, "db" | "user">, intent
   return describeOutcome(intent.kind as (typeof INBOX_INTENTS)[number], intent.result);
 }
 
-export type ReviewDeps = Pick<InboxDeps, "db" | "user"> & { pulls: Pick<PullsClient, "pullDetail" | "pullFiles" | "checkState" | "bugbotFindings"> };
+type ReviewDeps = Pick<InboxDeps, "db" | "user"> & { pulls: Pick<PullsClient, "pullDetail" | "pullFiles" | "checkState" | "bugbotFindings"> };
 
 /**
  * The changed files and Bugbot's findings the inbox shows: what the runner stored with its decision

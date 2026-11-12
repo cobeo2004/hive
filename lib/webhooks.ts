@@ -48,10 +48,10 @@ const githubPushSchema = z.object({
 });
 
 /** GitHub may list only this many of a push's commits, so a push with that many may have changed paths it does not name. */
-export const PUSH_COMMITS_LISTED = 20;
+const PUSH_COMMITS_LISTED = 20;
 
 /** At most this many changed paths go in a push's intent; a push with more counts as touching everything. */
-export const PUSH_FILES_MAX = 2000;
+const PUSH_FILES_MAX = 2000;
 
 export const repoPushDetailSchema = z.object({
   repo: z.string(),
