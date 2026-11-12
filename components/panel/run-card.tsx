@@ -36,6 +36,29 @@ export function prNumber(url: string | null) {
   return n !== "" && [...n].every((c) => c >= "0" && c <= "9") ? `#${n}` : null;
 }
 
+/** `hive-sandbox #1` for a GitHub issue, `UNI-142` for a Linear one, else the job key: the ticket, not the factory's internal key. */
+export function issueRef(card: Pick<BoardCard, "sourceLink" | "jobKey" | "id">) {
+  const href = card.sourceLink?.href;
+  if (href && URL.canParse(href)) {
+    const url = new URL(href);
+    const [owner, repo, kind, n] = url.pathname.split("/").filter(Boolean);
+    if (url.hostname === "github.com" && owner && repo && kind === "issues" && n && /^\d+$/.test(n)) return `${repo} #${n}`;
+    if (url.hostname === "linear.app" && repo === "issue" && kind) return kind;
+  }
+  return card.jobKey ?? card.id.slice(0, 8);
+}
+
+/** `45s`, `12m`, `2h 5m`: how long the attempt has been going, for the card's footer. */
+export function shortDuration(ms: number) {
+  const m = Math.floor(ms / 60_000);
+  if (m < 1) return `${Math.max(0, Math.round(ms / 1000))}s`;
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+/** From the attempt's first run starting to its last event. */
+const attemptSpan = (runs: readonly RunRow[]) =>
+  runs.length === 0 ? null : Math.max(...runs.map((r) => r.last_event_at.getTime())) - Math.min(...runs.map((r) => r.started_at.getTime()));
+
 /** What the given runs cost, their subagents included. */
 const attemptCost = (runs: readonly RunRow[], agents: readonly AgentRow[]) =>
   runs.reduce(
@@ -158,6 +181,9 @@ export function StageCard({
   const where = card.runsOn && whereLine(card.runsOn, machineName);
   const sandbox = card.runsOn?.kind === "modal" ? card.runsOn.sandbox : null;
   const pr = prNumber(card.prUrl);
+  const ref = issueRef(card);
+  const span = attemptSpan(card.attemptRuns);
+  const status = showsDecision(card) || card.evidence || card.stop || card.nudgedAt;
   return (
     <div data-card={card.id} className={cardClass(selected)}>
       {latest && (
@@ -169,15 +195,28 @@ export function StageCard({
         />
       )}
       <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">
+        <span className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground" title={card.jobKey ?? undefined}>
           {latest?.status === "active" && <Spinner className="size-2.5 shrink-0" aria-label="Working" />}
-          <span className="truncate">{card.jobKey ?? card.id.slice(0, 8)}</span>
+          {card.sourceLink ? (
+            <a
+              href={card.sourceLink.href}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`${ref} (opens in a new tab)`}
+              className="relative truncate underline-offset-2 hover:underline"
+            >
+              {ref}
+            </a>
+          ) : (
+            <span className="truncate">{ref}</span>
+          )}
         </span>
         <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
           {isPrReady(card) && <span className="rounded-full bg-(--lime) px-2 text-[11.5px] font-medium text-(--on-lime)">PR ready</span>}
           {pr && card.prUrl && (
-            <a href={card.prUrl} target="_blank" rel="noreferrer" className="relative underline-offset-2 hover:underline">
+            <a href={card.prUrl} target="_blank" rel="noreferrer" className="relative inline-flex items-center gap-0.5 underline-offset-2 hover:underline">
               PR {pr}
+              <ExternalLinkIcon className="size-3" />
             </a>
           )}
         </span>
@@ -188,13 +227,17 @@ export function StageCard({
       ) : (
         card.summary && <p className="line-clamp-2 text-xs leading-[17px] text-(--ink-2)">{card.summary}</p>
       )}
-      {showsDecision(card) && <MergeLine decision={card.mergeDecision} />}
-      {card.evidence && <EvidenceLine line={card.evidence} />}
-      {card.stop && <StopLine view={card.stop.view} t3Href={t3Href} />}
-      {card.nudgedAt && (
-        <p className="text-xs text-warning">
-          Stuck · nudged <Time date={card.nudgedAt} />
-        </p>
+      {status && (
+        <div className="grid gap-1 border-t border-dashed pt-2">
+          {card.evidence && <EvidenceLine line={card.evidence} />}
+          {showsDecision(card) && <MergeLine decision={card.mergeDecision} />}
+          {card.stop && <StopLine view={card.stop.view} t3Href={t3Href} />}
+          {card.nudgedAt && (
+            <p className="text-xs text-warning">
+              Stuck · nudged <Time date={card.nudgedAt} />
+            </p>
+          )}
+        </div>
       )}
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <ModelChip model={latest?.model ?? null} />
@@ -202,7 +245,8 @@ export function StageCard({
         <span className="ms-auto flex shrink-0 items-center gap-2">
           {where && (
             <span title={sandbox ? `${where} · ${sandbox}` : where} className="flex items-center gap-1">
-              {card.runsOn?.kind === "modal" ? <CloudIcon className="size-3.5" aria-label={where} /> : <MonitorIcon className="size-3.5" aria-label={where} />}
+              {card.runsOn?.kind === "modal" ? <CloudIcon className="size-3.5" aria-hidden /> : <MonitorIcon className="size-3.5" aria-hidden />}
+              {card.runsOn?.kind === "modal" ? "cloud" : "local"}
               {sandbox === "hibernated" && <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-label="hibernated" />}
             </span>
           )}
@@ -213,6 +257,11 @@ export function StageCard({
             </span>
           ) : (
             <span title={TRACKING_HINT[card.harness.tracking]}>{card.harness.tracking === "stages" ? "cost unknown" : "not tracked"}</span>
+          )}
+          {span !== null && (
+            <span className="font-mono" title="From the attempt's start to its latest event">
+              {shortDuration(span)}
+            </span>
           )}
         </span>
       </div>

@@ -74,6 +74,8 @@ export const onboardingDetailSchema = z.object({
   verify: z.array(z.string()).optional(),
   /** The recipe PR the factory watches for a Bugbot check run, from when it was recorded, until require_bugbot is set from it. */
   bugbotProbe: z.object({ pr: z.string(), since: z.string() }).optional(),
+  /** Bugbot is off until a job PR shows its check run; then require_bugbot turns on. An admin's own choice ends the watch. */
+  bugbotWatch: z.literal(true).optional(),
   summary: z.string().optional(),
   checks: z.array(checkResultSchema).optional(),
   missingSecrets: z.array(z.string()).optional(),
