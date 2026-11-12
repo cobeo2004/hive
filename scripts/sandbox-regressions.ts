@@ -410,6 +410,7 @@ try {
   const [pooled, shared] = [await row(keys[8]!), await row(keys[9]!)];
   assert.deepEqual([pooled.codex_slot, shared.codex_slot, Boolean(pooled.sandbox_id && shared.sandbox_id)], [null, null, true], "both run on the one pool key");
   assert.equal(sandboxes.get(shared.sandbox_id!)!.files.get("/root/.codex/auth.json"), '{"OPENAI_API_KEY":"sk-pool"}', "a pool key goes in as Codex reads it");
+  assert.equal(sandboxes.get(shared.sandbox_id!)!.files.has("/root/.codex/.hive-installed"), false, "and is never resealed, so it has no marker");
   await db
     .update(jobs)
     .set({ machine_id: null })

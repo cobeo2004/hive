@@ -25,6 +25,7 @@ import {
   CodexLoginError,
   createJobSandbox,
   installCodexLogin,
+  markInstalled,
   markSlotUnusable,
   needsCodexSlot,
   pairT3,
@@ -57,6 +58,8 @@ import { verifyingKeys } from "./verify";
 
 const HIBERNATE_STAGES = ["pr", "waiting"] as const;
 const TERMINAL_STAGES = ["merged", "failed"] as const;
+/** Logged with a login that was dropped because its account changed while the job ran. */
+const NEEDS_RECONNECT = "the account changed while the job ran, so this refresh was dropped; it may need reconnecting";
 /** How long a local job's machine may stay silent before its account lease is freed anyway: a sleeping Mac keeps it. */
 const LEASE_SILENT_MS = 6 * 3_600_000;
 export const TOKEN_REFRESH_MS = 40 * 60_000;
@@ -204,7 +207,9 @@ export async function writeBackLogin(key: string, sandboxId: string, slot: strin
   if (slot.startsWith(LOCAL_SLOT)) {
     const base = await modalHost(sandboxId).readFile(`${CODEX_HOME}/${INSTALLED}`);
     const result = await resealAccount(slot.slice(LOCAL_SLOT.length), text, base);
-    log("sandbox:login-resealed", { key, slot, result });
+    // A running sandbox goes on from the login just sealed, so its next refresh is judged against that one.
+    if (result === "resealed") await markInstalled(modalHost(sandboxId), text);
+    log("sandbox:login-resealed", { key, slot, result, ...(result === "stale" && { note: NEEDS_RECONNECT }) });
     return result;
   }
   let current: string | null = null;
@@ -274,7 +279,10 @@ export async function teardownSandbox(row: SandboxRow) {
     await retireSandbox(row.key, row.sandbox_id, row.codex_slot);
   }
   // A local Codex job's refreshed login is sealed again before its account is free for the next job (R9b); a throw keeps the lease.
-  if (!row.sandbox_id && row.codex_slot?.startsWith(LOCAL_SLOT)) log("local:login-resealed", { key: row.key, result: await resealLocal(row.codex_slot) });
+  if (!row.sandbox_id && row.codex_slot?.startsWith(LOCAL_SLOT)) {
+    const result = await resealLocal(row.codex_slot);
+    log("local:login-resealed", { key: row.key, result, ...(result === "stale" && { note: NEEDS_RECONNECT }) });
+  }
   const stop = stopping(row) ? parseStop(row.stop) : null;
   if (row.sandbox_id && stop) await verifyGone(row.sandbox_id);
   if (row.sandbox_snapshot) await deleteSnapshot(row.sandbox_snapshot);
@@ -463,7 +471,7 @@ async function wakeInRoom(row: JobRow, snapshot: string, asleep: SQL | undefined
     const [recorded] = await db.update(jobs).set({ sandbox_id: sandboxId }).where(asleep).returning({ key: jobs.key });
     if (!recorded) throw new Error(`${row.key} changed while it was being woken`);
     // An account's sealed copy is current: it was resealed when this sandbox slept, and a local job may have refreshed it since.
-    if (codex) await installCodexLogin(created.host, `account:${codex.id}`, codex.secret);
+    if (codex) await installCodexLogin(created.host, `account:${codex.id}`, codex.secret, codex.kind !== "api_key");
     else if (slot) await installCodexLogin(created.host, slot, sandboxRuntime.slotAuth(slot));
     await writeGithubToken(created.host, await sandboxRuntime.githubToken(row.repo as RepoName));
     noteTokenWritten(sandboxId);
