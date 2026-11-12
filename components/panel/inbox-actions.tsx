@@ -34,6 +34,7 @@ import type { JobRow } from "@/db/schema";
 import { followUpHint, INBOX_ACTIONS, MAX_FEEDBACK_CHARS, MAX_FOLLOW_UP_CHARS, MAX_RETRY_NOTE_CHARS, type InboxAction, type InboxKind } from "@/lib/inbox";
 import type { InboxOutcome, IntentOutcome } from "@/lib/inbox-actions";
 import type { MergeDecision } from "@/lib/merge-decision";
+import { requestId } from "@/lib/request-id";
 import { canRequestChanges, retryLabel } from "./inbox-model";
 
 const POLL_MS = 1_500;
@@ -310,7 +311,7 @@ function AnswerBox({ job, disabled, loading, run }: { job: JobRow; disabled: boo
       icon={<SendIcon data-icon="inline-start" />}
       disabled={disabled}
       loading={loading}
-      onSend={(text, clear) => void run("answer", () => answerQuestion(job.id, crypto.randomUUID(), text, asked), "Answer sent.", clear)}
+      onSend={(text, clear) => void run("answer", () => answerQuestion(job.id, requestId(), text, asked), "Answer sent.", clear)}
     />
   );
 }
@@ -333,7 +334,6 @@ export function InboxActions({
   const has = (a: InboxAction) => actions.includes(a);
   const disabled = busy !== null;
   const loading = (a: InboxAction) => busy?.action === a;
-  const requestId = () => crypto.randomUUID();
 
   const buttons = (
     <div className="flex flex-wrap items-center gap-2">

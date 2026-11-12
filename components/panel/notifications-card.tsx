@@ -16,6 +16,7 @@ import type { NotificationSettingsRow } from "@/db/schema";
 import type { SlackReadiness } from "@/lib/machine";
 import { parseNotificationConfig, SLACK_TARGETS, TARGET_LABELS, type NotificationConfig, type SlackTarget } from "@/lib/notifications";
 import { NOTIFY_TOGGLES, TOGGLE_LABELS, type NotifyToggle } from "@/lib/slack";
+import { requestId } from "@/lib/request-id";
 import { SettingsSection } from "./settings-section";
 import { useAfterHydration } from "./time";
 
@@ -105,7 +106,7 @@ export function NotificationsCard({ saved, slack }: { saved: NotificationSetting
     setFailure(null);
     setTesting(true);
     try {
-      const sent = await sendSlackTest(crypto.randomUUID());
+      const sent = await sendSlackTest(requestId());
       if (!sent.ok) return setFailure(sent.message);
       const started = Date.now();
       while (Date.now() - started < GIVE_UP_MS) {

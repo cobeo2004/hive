@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import type { MergeTarget } from "@/lib/inbox-actions";
 import type { JobId } from "@/lib/sources/shapes";
+import { requestId } from "@/lib/request-id";
 import { useInboxAction, Waiting } from "./inbox-actions";
 
 type Loaded = { kind: "loading" } | { kind: "ready"; target: MergeTarget } | { kind: "none" };
@@ -48,7 +49,7 @@ export function MergeButton({ jobId, jobKey }: { jobId: JobId; jobKey: string })
     if (!target) return;
     void run(
       "approve",
-      () => approveFromRunDetail(jobId, crypto.randomUUID(), target.headSha),
+      () => approveFromRunDetail(jobId, requestId(), target.headSha),
       "Merged.",
       () => setOpen(false),
     );
