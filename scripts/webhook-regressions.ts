@@ -10,6 +10,7 @@ const headers = (signature: string | null) => new Headers(signature ? { "linear-
 const verifyLinear = (raw: string, signature: string | null, secret: string, at: number) => webhook.verify(raw, headers(signature), secret, at);
 
 const secret = "s3cret";
+// nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- test fixture key.
 const sign = (body: string) => createHmac("sha256", secret).update(body).digest("hex");
 const now = 1_800_000_000_000;
 
@@ -21,6 +22,7 @@ const old = JSON.stringify({ action: "update", type: "Issue", webhookTimestamp: 
 assert.deepEqual(verifyLinear(old, sign(old), secret, now), { ok: false, reason: "stale webhookTimestamp" }, "a replay older than a minute is rejected");
 assert.equal(verifyGithub("{}", `sha256=${sign("{}")}`, secret).ok, true);
 assert.equal(verifyGithub("{}", sign("{}"), secret).ok, false, "GitHub signatures need the sha256= prefix");
+// nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- test fixture key.
 assert.equal(verifyGithub("{}", `sha256=${createHmac("sha256", "").update("{}").digest("hex")}`, "").ok, false, "an empty secret verifies nothing");
 
 const opts = { FACTORY_TEAM_KEY: "FAC", FACTORY_LABEL: "hive" };
@@ -153,6 +155,7 @@ try {
       0,
     );
   }
+  // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- test fixture key.
   const oldSecret = createHmac("sha256", "old-per-repo-secret").update(appBody).digest("hex");
   assert.equal((await postGithub("issues", `${deliveryId}-old`, appBody, oldSecret)).status, 401, "a delivery signed with another secret is refused");
 

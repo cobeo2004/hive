@@ -43,6 +43,7 @@ function usageColumns(usage: Usage) {
 /** "unknown" is what a reader says before it has seen a model; it never replaces one. */
 const knownModel = (model: string | null | undefined) => (model && model !== "unknown" ? model : undefined);
 
+// nosemgrep: hive-sql-raw-interpolation -- column names come from code constants, never from input.
 const keepGreater = (column: { name: string }) => sql.raw(`greatest(runs."${column.name}", excluded."${column.name}")`);
 
 // Session totals only grow, so greatest() makes replays and reordering harmless.
@@ -66,6 +67,7 @@ async function upsertRun(tx: Tx, event: FactoryEvent) {
     ...kindMeta,
     ...(event.transcriptPath ? { transcript_path: event.transcriptPath } : {}),
   };
+  // nosemgrep: hive-sql-raw-interpolation -- column names come from code constants, never from input.
   const keep = (name: string) => sql.raw(`coalesce(excluded."${name}", runs."${name}")`);
 
   await tx
@@ -251,6 +253,7 @@ async function applyAgentStop(tx: Tx, e: Extract<FactoryEvent, { kind: "agent_st
 }
 
 const ifNewerStage = (column: string, value = `excluded."${column}"`) =>
+  // nosemgrep: hive-sql-raw-interpolation -- column names come from code constants, never from input.
   sql.raw(`case when runs."stage_at" is null or excluded."stage_at" >= runs."stage_at" then ${value} else runs."${column}" end`);
 
 /** A stage report that arrives late never overwrites a newer one. */

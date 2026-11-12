@@ -30,6 +30,7 @@
     let v = scope;
     for (const part of path.split(".")) {
       if (v == null) return undefined;
+      // nosemgrep: javascript.lang.security.audit.prototype-pollution.prototype-pollution-loop.prototype-pollution-loop -- reads only; this static mock never assigns.
       v = v[part];
     }
     return v;

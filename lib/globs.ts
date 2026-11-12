@@ -17,6 +17,7 @@ export function globToRegExp(glob: string) {
     else if (c === "?") source += "[^/]";
     else source += escape(c);
   }
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- every literal character is escaped above.
   return new RegExp(`^${source}$`);
 }
 

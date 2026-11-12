@@ -48,6 +48,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "convex/_generated/**",
   ]),
+  // An eslint-disable that no longer suppresses anything fails lint instead of lingering.
+  { linterOptions: { reportUnusedDisableDirectives: "error" } },
   { rules: boundary({ linear: [ANYWHERE], adapters: true, named: true }) },
   { files: ["lib/*.ts"], rules: boundary({ linear: [ANYWHERE, "^\\./linear"], adapters: true, named: true }) },
   { files: ["lib/sources/**/*.ts"], rules: boundary({ linear: [ANYWHERE, "^\\.\\./linear"] }) },
