@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Execution } from "./execution";
 import { imageDrift, imageVersionsSchema, rebuildText, type ImageVersions } from "./machine";
 import { CHECKS, missingEnv, recipeSchema, type Recipe } from "./recipe";
 
@@ -53,6 +54,8 @@ export const runSchema = z.object({
   /** Absent while an agent run holds its slot and its sandbox is being created. */
   sandboxId: z.string().optional(),
   startedAt: z.string(),
+  /** An agent thread on the runner's own machine, in its checkout of the repo: no sandbox, no slot. */
+  local: z.literal(true).optional(),
   /** The Codex login slot an agent run holds. */
   slot: z.string().optional(),
   threadId: z.string().optional(),
@@ -108,9 +111,10 @@ export function bugbotVerdict(ran: boolean, since: string, now: number, graceMs:
   return now - Date.parse(since) >= graceMs ? false : undefined;
 }
 
-/** After a recipe is known: secrets first, then the image. */
-export function afterRecipe(recipe: Recipe, detail: OnboardingDetail): { state: OnboardingState; missingSecrets: string[] } {
+/** After a recipe is known: secrets first, then the image. A local repo is ready: it builds its image once it runs in the cloud. */
+export function afterRecipe(recipe: Recipe, detail: OnboardingDetail, local = false): { state: OnboardingState; missingSecrets: string[] } {
   const missing = missingEnv(recipe, detail.secretsSet ?? []);
+  if (local) return { state: "ready", missingSecrets: missing };
   if (missing.length > 0) return { state: "needs_input", missingSecrets: missing };
   return { state: detail.image ? "rebuilding" : "building", missingSecrets: [] };
 }
@@ -123,6 +127,9 @@ export function imageOutdated(image: RepoImage, base: BaseImage | null) {
   if (image.base.builtAt !== base.builtAt) return "the base image was rebuilt since";
   return undefined;
 }
+
+/** A repo whose jobs run on a machine: it is onboarded there, on the machine's checkout, and needs no warm image. */
+export const runsLocally = (repoExecution: Execution | null, settingsExecution: Execution) => (repoExecution ?? settingsExecution) === "local";
 
 type RepoImageChoice = { kind: "warm"; imageId: string } | { kind: "base"; outdated?: string } | { kind: "blocked"; reason: string };
 
@@ -167,7 +174,7 @@ export function stateLine(state: OnboardingState, detail: OnboardingDetail) {
     case "building":
       return "Building the warm image";
     case "ready":
-      return detail.image ? "Warm image ready" : "Ready";
+      return detail.image ? "Warm image ready" : "Ready; it gets a warm image once it runs in the cloud";
     case "rebuilding": {
       const reason = detail.run?.reason ?? detail.rebuild?.reason;
       return `Rebuilding${reason ? ` because ${reason}` : ""}; the current image serves meanwhile`;
