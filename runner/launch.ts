@@ -2,7 +2,7 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import type { ExecError } from "../lib/exec";
 import type { RepoName } from "../lib/github/app";
-import { recordRunAccount, type Account } from "../lib/creds";
+import { accountFor, recordRunAccount, type Account } from "../lib/creds";
 import { HostGoneError, hosts, localHost, type JobHost } from "../lib/host";
 import { scrubbed } from "../lib/modal-secrets";
 import { terminateSandbox } from "../lib/modal-host";
@@ -41,6 +41,7 @@ import {
   withLocalImages,
   type LaunchSlot,
 } from "./ops";
+import { localAccounts } from "./local-account";
 import { loginFailed, noteTokenWritten, retireSandbox, sandboxesInFlight } from "./lifecycle";
 import { announceFallbacks, capabilities, overrideRuntime, planLaunch, splitByExecution, type LaunchPlan } from "./overrides";
 import {
@@ -378,10 +379,18 @@ async function launchLocal(
     await sh(localHost, "git", ["fetch", "origin", "--prune"], checkout);
     origins.set(repo, await sh(localHost, "git", ["rev-parse", "origin/main"], checkout));
   }
+  // The owner's own login for a Claude or Codex job (R9b); a job with none runs on this Mac's.
+  const accounts = localAccounts({
+    account: (key, provider) => accountFor(key, provider, undefined),
+    lease: (key, marker, slotId) => leaseCodexSlot(key, marker, [slotId]),
+    log: overrideRuntime.log,
+  });
   const launched = await launchEntries(pending, {
     async claim(key, marker) {
       const entry = byKey.get(key)!;
+      if (!(await accounts.pick(entry))) return false;
       if (!(await claimLaunch(key, marker, slot, entry.harness, { execution: "local", ticket: entry.ticket }))) return false;
+      if (!(await accounts.lease(key, marker))) return releaseLaunch(key, marker).then(() => false);
       await claimed(entry);
       return true;
     },
@@ -390,7 +399,11 @@ async function launchLocal(
       const host = hosts.forJob(entry);
       const checkout = checkouts.get(entry.repo)!;
       const message = await withPlaybook(await withLocalImages(entry.source, entry.key, entry.message), "local", host, checkout);
-      return startLead(host, checkout, entry, message, entry.harness, registry, (event, detail) => overrideRuntime.log(event, detail));
+      const threadId = await startLead(host, checkout, entry, message, accounts.harness(entry), registry, (event, detail) =>
+        overrideRuntime.log(event, detail),
+      );
+      await accounts.started(entry.key, threadId).catch(() => {});
+      return threadId;
     },
     bind: bindThread,
     release: releaseLaunch,

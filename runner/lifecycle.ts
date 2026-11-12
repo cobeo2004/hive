@@ -18,6 +18,7 @@ import { recordJobCodexUsage } from "./codex-usage";
 import { config } from "./config";
 import { thisMachine } from "./heartbeat";
 import { flushSandboxOutbox } from "./outbox";
+import { LOCAL_SLOT, resealLocal } from "./local-account";
 import { isolated } from "./reconcile";
 import {
   CodexLoginError,
@@ -262,6 +263,9 @@ export async function teardownSandbox(row: SandboxRow) {
     await recordJobCodexUsage(row.key, modalHost(row.sandbox_id));
     await retireSandbox(row.key, row.sandbox_id, row.codex_slot);
   }
+  // A local Codex job's refreshed login is sealed again before its account is free for the next job (R9b); a throw keeps the lease.
+  if (!row.sandbox_id && row.codex_slot?.startsWith(LOCAL_SLOT))
+    log("local:login-resealed", { key: row.key, result: await resealLocal(row.key, row.codex_slot) });
   const stop = stopping(row) ? parseStop(row.stop) : null;
   if (row.sandbox_id && stop) await verifyGone(row.sandbox_id);
   if (row.sandbox_snapshot) await deleteSnapshot(row.sandbox_snapshot);
@@ -556,7 +560,8 @@ export async function reap() {
   const holders = await db
     .select({ key: jobs.key, sandbox_id: jobs.sandbox_id, codex_slot: jobs.codex_slot })
     .from(jobs)
-    .where(and(eq(jobs.machine_id, machine.id), isNotNull(jobs.codex_slot), notPending));
+    // A local job's account lease has no sandbox to look for; teardownSandbox frees it.
+    .where(and(eq(jobs.machine_id, machine.id), isNotNull(jobs.codex_slot), sql`${jobs.codex_slot} not like ${`${LOCAL_SLOT}%`}`, notPending));
   const idle = holders.filter((h) => !h.sandbox_id || !running.has(h.sandbox_id));
   const freed: string[] = [];
   for (const holder of idle.filter((h) => suspects.slots.has(`${h.key}:${h.codex_slot}`))) {
