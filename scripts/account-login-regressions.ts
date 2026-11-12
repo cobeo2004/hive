@@ -23,7 +23,8 @@ const CLAUDE = [
   "sleep 1",
   String.raw`printf '\033[2mBrowser didn'"'"'t open? Use the url below to sign in\033[0m\n'`,
   String.raw`printf '\033[36m%s\n%s\033[0m\n' 'https://claude.example/oauth/authorize?code=true&client_id=abc&redirect_uri=https%3A%2F%2Fclaude.example' '%2Fcb&state=xyz'`,
-  "printf 'Paste code here if prompted > '",
+  // 2.1.322 draws the prompt's spaces as cursor moves
+  String.raw`printf 'Paste\033[1Ccode\033[1Chere\033[1Cif\033[1Cprompted\033[1C>\033[1C'`,
   'read code; [ "$code" = "pasted-code" ] || exit 2',
   `echo "Your token: ${TOKEN}"`,
 ].join("; ");

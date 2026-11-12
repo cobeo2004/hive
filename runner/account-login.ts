@@ -146,10 +146,11 @@ export async function handleAccountLogin(
     const waiting = () => {
       const text = out.replace(ESCAPES, "").replace(/\r/g, "");
       if (provider === "claude") {
-        // Its link may be wrapped over lines: everything from https:// to the "Paste code" prompt.
+        // Its link may be wrapped over lines: everything from https:// to the "Paste code" prompt. Claude 2.1.322 draws
+        // spaces as cursor moves, which ESCAPES strips, so the prompt can read "Pastecode".
         const from = text.indexOf("https://");
-        const to = text.indexOf("Paste code", from);
-        return from >= 0 && to > from ? { url: text.slice(from, to).replace(/\s+/g, ""), code: null } : undefined;
+        const to = from < 0 ? -1 : text.slice(from).search(/Paste\s*code/);
+        return to > 0 ? { url: text.slice(from, from + to).replace(/\s+/g, ""), code: null } : undefined;
       }
       const url = URL_IN.exec(text)?.[0];
       const device = DEVICE_CODE.exec(text.replace(URL_IN, ""))?.[0];
