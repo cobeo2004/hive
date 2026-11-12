@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, isNotNull, inArray } from "drizzle-orm";
 import { db } from "../db/client";
-import { auditLog, jobEvidence, jobs, type AuditRow, type RepoSettingsRow } from "../db/schema";
+import { auditLog, jobEvidence, jobs, repoSettings, type AuditRow, type RepoSettingsRow } from "../db/schema";
 import { parseAssessment } from "../lib/assessment";
 import { headEvidence, type EvidenceRow, type HeadEvidence, type PlannedCheck } from "../lib/evidence";
 import { parseDetail } from "../lib/onboarding";
@@ -54,6 +54,25 @@ async function prFacts(prUrl: string, repo: RepoName, headSha: string, baseRef: 
     github.bugbotFindings(prUrl),
   ]);
   return { headSha, mergeable, files, checks: state.checks, bugbot: { review: state.bugbot, findings } };
+}
+
+/**
+ * A repo added with Bugbot off unless detected: the first finished Bugbot run on one of its PRs turns
+ * require_bugbot on, for this decision too, so a PR never merges past the review that revealed Bugbot.
+ */
+export async function watchBugbot(repo: string, policy: RepoPolicy, pr: Pick<PrFacts, "bugbot">): Promise<RepoPolicy> {
+  if (policy.requireBugbot || pr.bugbot.review.state === "pending") return policy;
+  const turnedOn = await db.transaction(async (tx) => {
+    const [row] = await tx.select().from(repoSettings).where(eq(repoSettings.repo, repo)).for("update");
+    const detail = parseDetail(row?.onboarding_detail);
+    if (!row || !detail.bugbotWatch) return false;
+    await tx
+      .update(repoSettings)
+      .set({ require_bugbot: true, onboarding_detail: { ...detail, bugbotWatch: undefined } })
+      .where(eq(repoSettings.repo, repo));
+    return true;
+  });
+  return turnedOn ? { ...policy, requireBugbot: true } : policy;
 }
 
 type Evaluated =
@@ -120,7 +139,7 @@ async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | 
     sourceFor(job.source).labels(job),
   ]);
   const decision = decideMerge({
-    policy,
+    policy: await watchBugbot(job.repo, policy, pr),
     assessment: parseAssessment(job.merge_assessment),
     labels,
     pr,

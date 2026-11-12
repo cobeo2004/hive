@@ -600,7 +600,7 @@ async function probeBugbot(rows: readonly RepoSettingsRow[]) {
         if (detail.bugbotProbe?.pr !== probe.pr || detail.bugbotProbe.since !== probe.since) return false;
         await tx
           .update(repoSettings)
-          .set({ require_bugbot: verdict, onboarding_detail: { ...detail, bugbotProbe: undefined } })
+          .set({ require_bugbot: verdict, onboarding_detail: { ...detail, bugbotProbe: undefined, bugbotWatch: undefined } })
           .where(eq(repoSettings.repo, row.repo));
         return true;
       });

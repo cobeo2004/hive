@@ -189,6 +189,8 @@ export async function writeRepository(database: Db, choice: RepositoryChoice, by
       execution: choice.execution,
       autonomy: choice.autonomy,
       require_bugbot: choice.requireBugbot,
+      // Changing Require Bugbot by hand ends the watch for Bugbot's first review.
+      onboarding_detail: sql`case when ${repoSettings.require_bugbot} <> ${choice.requireBugbot} then ${repoSettings.onboarding_detail} - 'bugbotWatch' else ${repoSettings.onboarding_detail} end`,
       updated_at: at,
       updated_by: by,
     })
