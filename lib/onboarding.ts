@@ -125,6 +125,13 @@ export function imageOutdated(image: RepoImage, base: BaseImage | null) {
 
 /** A repo whose jobs run on a machine needs no sandbox image, so it is never onboarded. */
 export const runsLocally = (repoExecution: Execution | null, settingsExecution: Execution) => (repoExecution ?? settingsExecution) === "local";
+/** Saving a repo that moves from local to the cloud before it was onboarded starts onboarding; a repo waiting for secrets or a build keeps its progress. */
+export const startsOnboarding = (
+  before: { execution: Execution | null; onboarding_state: OnboardingState | null },
+  after: Execution | null,
+  fallback: Execution,
+) =>
+  (before.onboarding_state === "analyzing" || before.onboarding_state === "failed") && runsLocally(before.execution, fallback) && !runsLocally(after, fallback);
 export const LOCAL_LINE = "Runs locally, no sandbox image needed";
 
 export type RepoImageChoice = { kind: "warm"; imageId: string } | { kind: "base"; outdated?: string } | { kind: "blocked"; reason: string };

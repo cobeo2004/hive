@@ -9,7 +9,7 @@ import type { OnboardingDetail } from "../lib/onboarding";
 import { fake, fakeModal, sandboxes, type FakeSandbox } from "./fake-modal";
 
 const { db } = await import("../db/client");
-const { codexSlotLeases, intents, jobs, repoSettings } = await import("../db/schema");
+const { codexSlotLeases, intents, jobs, repoSettings, settings } = await import("../db/schema");
 type RepoRow = typeof repoSettings.$inferSelect;
 const { linearJob } = await import("./fixtures");
 const { jobId } = await import("../lib/sources/shapes");
@@ -341,6 +341,27 @@ try {
   assert.deepEqual(await runner.onboardRepo(LOCAL), { repo: LOCAL, skipped: "runs locally" });
   assert.equal(sandboxes.size, sandboxesBefore, "no sandbox is created for a local repo");
   assert.deepEqual([(await row(LOCAL)).onboarding_state, (await detail(LOCAL)).failure], ["analyzing", undefined]);
+  // Local by Settings (the repo leaves it to them) skips too; with Settings on the cloud it would onboard.
+  const [saved] = await db.select().from(settings);
+  if (saved) await db.update(settings).set({ execution: "local" });
+  try {
+    await db.update(repoSettings).set({ execution: null }).where(eq(repoSettings.repo, LOCAL));
+    assert.deepEqual(await runner.onboardRepo(LOCAL), { repo: LOCAL, skipped: "runs locally" }, "local inherited from Settings");
+    // A recipe-holding repo that went local builds nothing; its wanted rebuild waits for the cloud.
+    await db
+      .update(repoSettings)
+      .set({ onboarding_state: "ready", onboarding_detail: { recipe: valid } })
+      .where(eq(repoSettings.repo, LOCAL));
+    await runner.requestRebuild(LOCAL, "dependencies changed on main");
+    assert.deepEqual([sandboxes.size, (await detail(LOCAL)).run], [sandboxesBefore, undefined], "no build sandbox for a local repo");
+  } finally {
+    if (saved) await db.update(settings).set({ execution: saved.execution });
+  }
+  assert.equal(onboarding.startsOnboarding({ execution: "local", onboarding_state: "failed" }, "modal", "local"), true, "local to cloud onboards");
+  assert.equal(onboarding.startsOnboarding({ execution: null, onboarding_state: "analyzing" }, "modal", "local"), true, "Settings' local to cloud onboards");
+  assert.equal(onboarding.startsOnboarding({ execution: "local", onboarding_state: "needs_input" }, "modal", "local"), false, "secrets progress is kept");
+  assert.equal(onboarding.startsOnboarding({ execution: "modal", onboarding_state: "failed" }, "modal", "local"), false, "already cloud");
+  assert.equal(onboarding.startsOnboarding({ execution: "local", onboarding_state: "failed" }, null, "local"), false, "still local");
 
   await insert(COMMITTED, "analyzing");
   const begun = await runner.onboardRepo(COMMITTED);

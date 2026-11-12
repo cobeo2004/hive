@@ -238,7 +238,7 @@ function agentMessage(repo: string, detail: OnboardingDetail, committedError: st
 export async function onboardRepo(repo: string) {
   const [row] = await db.select().from(repoSettings).where(eq(repoSettings.repo, repo));
   if (!row) return { repo, skipped: "not registered" };
-  // Switching the repo to cloud and pressing Retry onboards it then.
+  // Moving the repo to the cloud onboards it then. A run already in flight finishes; the panel hides its result while the repo is local.
   if (runsLocally(row.execution, resolveExecution(await readSettings(db)))) return { repo, skipped: "runs locally" };
   const detail = parseDetail(row.onboarding_detail);
   if (detail.run && !(leftBehind(repo, detail.run, (await thisMachine()).id) && (await clearLeasing(repo, detail.run)))) {
@@ -548,9 +548,11 @@ export async function startBuilds({ only }: { only?: readonly string[] } = {}) {
     return undefined;
   const base = launchable();
   if ("problem" in base) return undefined;
+  const fallback = resolveExecution(await readSettings(db));
+  // A local repo never builds; a rebuild it wants waits until it runs in the cloud again.
   const ready = (r: RepoSettingsRow) => {
     const d = parseDetail(r.onboarding_detail);
-    return r.enabled && d.recipe && !d.run && (d.missingSecrets ?? []).length === 0;
+    return r.enabled && !runsLocally(r.execution, fallback) && d.recipe && !d.run && (d.missingSecrets ?? []).length === 0;
   };
   let next = rows.find((r) => ready(r) && (r.onboarding_state === "building" || r.onboarding_state === "rebuilding"));
   if (!next) {
