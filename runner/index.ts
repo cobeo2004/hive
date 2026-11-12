@@ -17,6 +17,7 @@ const { createBeat, inventoryCollectors, systemCollectors, thisMachine } = await
 const { closeBroadcast, deliveryFor, expirePairings, INTENT_ATTEMPTS, leaseIntent, loggable, receiptIntent, recordReceipt } = await import("./intents");
 const { expireLogins, handleAccountLogin } = await import("./account-login");
 const { launchQueued } = await import("./launch");
+const { sweepLogins } = await import("./local-account");
 const { openT3, tickSandboxes } = await import("./lifecycle");
 const { recheckScheduler } = await import("./recheck");
 const { everyAtMost, serialQueue } = await import("./queue");
@@ -276,6 +277,7 @@ if (process.argv.includes("--once")) {
   process.exit(0);
 }
 
+sweepLogins();
 log("start", { pid: process.pid, tickSeconds: ops.config.factory.tickSeconds, machine });
 await beat({ inventory: false });
 setInterval(() => void beat(), ops.config.factory.tickSeconds * 1000);

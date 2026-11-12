@@ -379,7 +379,7 @@ try {
   );
   assert.ok(![...sandboxes.values()].some((s) => JSON.stringify(s.spec?.secrets ?? {}).includes("of-b")), "B's token reaches no sandbox");
 
-  // A Codex job runs on its owner's sealed Codex account with no slot (the only one is held), and a Claude pool row nobody can open does not block it.
+  // A Codex job runs on its owner's sealed Codex account, leased as `account:<id>` (the only login slot is held), and a Claude pool row nobody can open does not block it.
   await db.update(jobs).set({ owner_id: "sbx-owner-c" }).where(eq(jobs.key, keys[7]!));
   await db.insert(agentAccounts).values([
     { id: "sbx-acct-c", owner_id: "sbx-owner-c", provider: "codex", kind: "subscription", label: "c", sealed: sealedFor('{"auth":"of-c"}') },
@@ -389,8 +389,8 @@ try {
   const codexOwned = await row(keys[7]!);
   assert.deepEqual(
     [codexOwned.provider, codexOwned.codex_slot, Boolean(codexOwned.sandbox_id)],
-    ["codex", null, true],
-    "the account leases no slot and the Claude row does not block",
+    ["codex", "account:sbx-acct-c", true],
+    "the account takes its own lease, not a login slot, and the Claude row does not block",
   );
   assert.equal(sandboxes.get(codexOwned.sandbox_id!)!.files.get("/root/.codex/auth.json"), '{"auth":"of-c"}', "the owner's Codex account is the login");
   await db.update(jobs).set({ machine_id: null }).where(eq(jobs.key, keys[7]!)); // out of the maxParallel count below
