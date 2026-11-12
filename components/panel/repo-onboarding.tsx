@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import type { RepoSettingsRow } from "@/db/schema";
 import { componentName, IMAGE_COMPONENTS } from "@/lib/machine";
-import { LOCAL_LINE, parseDetail, STATE_LABELS, stateLine, type OnboardingState } from "@/lib/onboarding";
+import { parseDetail, STATE_LABELS, stateLine, type OnboardingState } from "@/lib/onboarding";
 import { CHECKS, RECIPE_PATH } from "@/lib/recipe";
 import type { AddableOutcome } from "@/lib/repo-onboarding";
 import { cn } from "@/lib/utils";
@@ -255,7 +255,7 @@ function Secrets({ row, panelTakesSecrets }: { row: RepoSettingsRow; panelTakesS
 }
 
 /** Where onboarding stands, the recipe, the warm image and the secrets, with Retry and Rebuild. */
-export function OnboardingSection({ row, local, panelTakesSecrets }: { row: RepoSettingsRow; local: boolean; panelTakesSecrets: boolean }) {
+export function OnboardingSection({ row, panelTakesSecrets }: { row: RepoSettingsRow; panelTakesSecrets: boolean }) {
   const router = useRouter();
   const detail = parseDetail(row.onboarding_detail);
   const [failure, setFailure] = useState<string | null>(null);
@@ -273,19 +273,6 @@ export function OnboardingSection({ row, local, panelTakesSecrets }: { row: Repo
   const checks = recipe ? CHECKS.filter((name) => recipe.checks[name]) : [];
   const result = (name: string) => detail.checks?.find((c) => c.name === name);
   const versions = detail.image?.base.versions;
-
-  if (local)
-    return (
-      <div className="flex flex-col gap-2 px-4.5 py-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-sm font-medium">Onboarding</h3>
-          <Badge variant="outline" size="sm">
-            Not needed
-          </Badge>
-        </div>
-        <p className="text-sm text-muted-foreground">{LOCAL_LINE}. Set Default runs on to the cloud and onboarding starts.</p>
-      </div>
-    );
 
   return (
     <div className="flex flex-col gap-4 px-4.5 py-4">

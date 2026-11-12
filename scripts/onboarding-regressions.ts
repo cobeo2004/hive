@@ -1,7 +1,7 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, inArray, like, sql } from "drizzle-orm";
@@ -333,35 +333,84 @@ try {
 
   // A committed recipe skips the agent: the build validates it and its checks run.
   committed[COMMITTED] = JSON.stringify(valid);
-  // A repo that runs on a machine needs no image: no sandbox, no failure, the row untouched.
+  // A repo that runs on a machine is onboarded too, on that machine: it learns the recipe and needs no image.
   const LOCAL = `${NS}/local`;
+  committed[LOCAL] = JSON.stringify(valid);
   await insert(LOCAL, "analyzing");
   await db.update(repoSettings).set({ execution: "local" }).where(eq(repoSettings.repo, LOCAL));
   const sandboxesBefore = sandboxes.size;
-  assert.deepEqual(await runner.onboardRepo(LOCAL), { repo: LOCAL, skipped: "runs locally" });
+  await runner.onboardRepo(LOCAL);
+  assert.deepEqual(
+    [(await row(LOCAL)).onboarding_state, (await detail(LOCAL)).recipeSource, (await detail(LOCAL)).recipe?.checks, (await detail(LOCAL)).run],
+    ["ready", "committed", valid.checks, undefined],
+    "main's recipe makes a local repo ready, with its checks for the merge",
+  );
   assert.equal(sandboxes.size, sandboxesBefore, "no sandbox is created for a local repo");
-  assert.deepEqual([(await row(LOCAL)).onboarding_state, (await detail(LOCAL)).failure], ["analyzing", undefined]);
-  // Local by Settings (the repo leaves it to them) skips too; with Settings on the cloud it would onboard.
-  const [saved] = await db.select().from(settings);
-  if (saved) await db.update(settings).set({ execution: "local" });
+  // A rebuild it wants waits on the row; moved to the cloud, it builds its first image.
+  await runner.requestRebuild(LOCAL, "dependencies changed on main");
+  assert.deepEqual(
+    [(await row(LOCAL)).onboarding_state, (await detail(LOCAL)).rebuild?.reason, sandboxes.size],
+    ["ready", "dependencies changed on main", sandboxesBefore],
+  );
+  await db.update(repoSettings).set({ execution: "modal" }).where(eq(repoSettings.repo, LOCAL));
+  await runner.advanceOnboarding({ only: [LOCAL] });
+  assert.deepEqual([(await row(LOCAL)).onboarding_state, (await detail(LOCAL)).run?.kind], ["building", "build"], "in the cloud it builds its image");
+  await db
+    .update(repoSettings)
+    .set({ execution: "local", onboarding_state: "ready", onboarding_detail: { recipe: valid } })
+    .where(eq(repoSettings.repo, LOCAL));
+
+  // No recipe on main: the agent runs on this machine, in its checkout, and its result is read from there.
+  const LOCAL_AGENT = `${NS}/local-agent`;
+  const realCheckouts = runner.onboardingRuntime.checkouts;
+  const realStart = runner.onboardingRuntime.startLocalThread;
+  const started: { checkout: string; text: string }[] = [];
+  runner.onboardingRuntime.checkouts = async () => new Map([[LOCAL_AGENT, "/src/local-agent"]]);
+  runner.onboardingRuntime.startLocalThread = async (checkout, _title, text) => (started.push({ checkout, text }), "thread-local");
   try {
-    await db.update(repoSettings).set({ execution: null }).where(eq(repoSettings.repo, LOCAL));
-    assert.deepEqual(await runner.onboardRepo(LOCAL), { repo: LOCAL, skipped: "runs locally" }, "local inherited from Settings");
-    // A recipe-holding repo that went local builds nothing; its wanted rebuild waits for the cloud.
-    await db
-      .update(repoSettings)
-      .set({ onboarding_state: "ready", onboarding_detail: { recipe: valid } })
-      .where(eq(repoSettings.repo, LOCAL));
-    await runner.requestRebuild(LOCAL, "dependencies changed on main");
-    assert.deepEqual([sandboxes.size, (await detail(LOCAL)).run], [sandboxesBefore, undefined], "no build sandbox for a local repo");
+    // Local by Settings: the repo leaves it to them.
+    const [saved] = await db.select().from(settings);
+    if (saved) await db.update(settings).set({ execution: "local" });
+    else await db.insert(settings).values({ id: "factory", provider: "codex", model: "gpt-5", execution: "local", updated_at: new Date(), updated_by: "test" });
+    try {
+      await insert(LOCAL_AGENT, "analyzing");
+      await db.update(repoSettings).set({ execution: null }).where(eq(repoSettings.repo, LOCAL_AGENT));
+      const beforeAgent = sandboxes.size;
+      await runner.onboardRepo(LOCAL_AGENT);
+      let ld = await detail(LOCAL_AGENT);
+      assert.deepEqual([ld.run?.kind, ld.run?.local, ld.run?.threadId, ld.run?.slot, sandboxes.size], ["agent", true, "thread-local", undefined, beforeAgent]);
+      assert.equal(started[0]?.checkout, "/src/local-agent", "the thread starts in this machine's checkout");
+      assert.match(started[0]!.text, /not a sandbox/);
+      assert.ok(started[0]!.text.includes(runner.localResult(LOCAL_AGENT)), "and names where to write the result");
+      await runner.advanceOnboarding({ only: [LOCAL_AGENT] });
+      assert.equal((await detail(LOCAL_AGENT)).run?.threadId, "thread-local", "a running thread is left alone");
+      threadState = "stopped";
+      writeFileSync(
+        runner.localResult(LOCAL_AGENT),
+        JSON.stringify({ recipe: valid, prUrl: `https://github.com/${LOCAL_AGENT}/pull/3`, summary: "Installs with bun." }),
+      );
+      await runner.advanceOnboarding({ only: [LOCAL_AGENT] });
+      ld = await detail(LOCAL_AGENT);
+      assert.deepEqual(
+        [(await row(LOCAL_AGENT)).onboarding_state, ld.recipeSource, ld.recipePr, ld.summary, ld.run],
+        ["ready", "agent", `https://github.com/${LOCAL_AGENT}/pull/3`, "Installs with bun.", undefined],
+      );
+      assert.equal(existsSync(runner.localResult(LOCAL_AGENT)), false, "the result file is cleaned up");
+    } finally {
+      threadState = "running";
+      if (saved) await db.update(settings).set({ execution: saved.execution });
+      else await db.delete(settings);
+    }
+    // A machine without a checkout of the repo says so.
+    const NO_CHECKOUT = `${NS}/no-checkout`;
+    await insert(NO_CHECKOUT, "analyzing");
+    await db.update(repoSettings).set({ execution: "local" }).where(eq(repoSettings.repo, NO_CHECKOUT));
+    await runner.onboardRepo(NO_CHECKOUT);
+    assert.deepEqual([(await row(NO_CHECKOUT)).onboarding_state, (await detail(NO_CHECKOUT)).failure?.reason.includes("no checkout")], ["failed", true]);
   } finally {
-    if (saved) await db.update(settings).set({ execution: saved.execution });
+    runner.onboardingRuntime.checkouts = realCheckouts;
+    runner.onboardingRuntime.startLocalThread = realStart;
   }
-  assert.equal(onboarding.startsOnboarding({ execution: "local", onboarding_state: "failed" }, "modal", "local"), true, "local to cloud onboards");
-  assert.equal(onboarding.startsOnboarding({ execution: null, onboarding_state: "analyzing" }, "modal", "local"), true, "Settings' local to cloud onboards");
-  assert.equal(onboarding.startsOnboarding({ execution: "local", onboarding_state: "needs_input" }, "modal", "local"), false, "secrets progress is kept");
-  assert.equal(onboarding.startsOnboarding({ execution: "modal", onboarding_state: "failed" }, "modal", "local"), false, "already cloud");
-  assert.equal(onboarding.startsOnboarding({ execution: "local", onboarding_state: "failed" }, null, "local"), false, "still local");
 
   await insert(COMMITTED, "analyzing");
   const begun = await runner.onboardRepo(COMMITTED);

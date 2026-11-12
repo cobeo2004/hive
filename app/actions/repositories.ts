@@ -8,7 +8,6 @@ import { installationRepos } from "@/lib/github/installation";
 import { sourcesOn } from "@/lib/job-sources";
 import { github } from "@/lib/github/pulls";
 import { reportedHarnesses } from "@/lib/machine";
-import { startsOnboarding } from "@/lib/onboarding";
 import { modalEnvConfigured, modalSecretStore } from "@/lib/modal-secrets";
 import {
   addRepository as add,
@@ -32,7 +31,6 @@ import {
   type DefaultRepoInput,
   type RepositoryInput,
 } from "@/lib/repositories";
-import { readSettings, resolveExecution } from "@/lib/settings";
 import { panelSource, syncGithubLabelsNow } from "@/lib/sources";
 
 const user = currentUser;
@@ -46,13 +44,7 @@ export async function saveRepository(input: RepositoryInput) {
       user,
       registry,
       harnesses: async () => reportedHarnesses(await db.select().from(machines), Date.now()),
-      save: async (choice, by) => {
-        const at = new Date();
-        const before = (await registry()).find((r) => r.repo === choice.repo);
-        await writeRepository(db, choice, by, at);
-        // A local repo was never onboarded; moving it to the cloud starts onboarding.
-        if (before && startsOnboarding(before, choice.execution, resolveExecution(await readSettings(db)))) await request("onboard_repo", choice.repo);
-      },
+      save: (choice, by) => writeRepository(db, choice, by, new Date()),
     },
     input,
   );

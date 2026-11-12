@@ -11,7 +11,6 @@ import { load, machinesQuery } from "@/lib/live-queries";
 import { modalEnvConfigured } from "@/lib/modal-secrets";
 import { REPO_NAME } from "@/lib/repo-name";
 import { readRegistry, readRepoStats } from "@/lib/repositories";
-import { readSettings, resolveExecution } from "@/lib/settings";
 
 async function Panel({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await connection();
@@ -27,18 +26,9 @@ async function Panel({ searchParams }: { searchParams: Promise<Record<string, st
     );
   // load checks the member before anything is read.
   const machines = await load(machinesQuery());
-  const [registry, stats, settings, { repo }] = await Promise.all([readRegistry(db), readRepoStats(db), readSettings(db), searchParams]);
+  const [registry, stats, { repo }] = await Promise.all([readRegistry(db), readRepoStats(db), searchParams]);
   const selected = typeof repo === "string" && REPO_NAME.test(repo) ? repo : undefined;
-  return (
-    <Repositories
-      registry={registry}
-      stats={stats}
-      machines={machines}
-      selected={selected}
-      panelTakesSecrets={modalEnvConfigured()}
-      defaultExecution={resolveExecution(settings)}
-    />
-  );
+  return <Repositories registry={registry} stats={stats} machines={machines} selected={selected} panelTakesSecrets={modalEnvConfigured()} />;
 }
 
 export default function RepositoriesPage(props: PageProps<"/repositories">) {
