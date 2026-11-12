@@ -18,18 +18,29 @@ const TOKEN = "sk-ant-oat01-claudesecrettoken0123456789";
 // without one, takes seconds to show a link wrapped over lines, then asks "Paste code".
 const SHOW = String.raw`printf '\033[1mOpen \033[36mhttps://auth.openai.com/codex/device\033[0m\n'; printf 'Enter code \033[1mDM2C-O3PW0\033[0m\n'`;
 const CODEX = `${SHOW}; env > "${bin}/env.txt"; sleep 1; printf '%s' '${AUTH}' > "$CODEX_HOME/auth.json"; echo "Logged in"`;
-const CLAUDE = [
-  "[ -t 0 ] || exit 0",
-  "sleep 1",
-  String.raw`printf '\033[2mBrowser didn'"'"'t open? Use the url below to sign in\033[0m\n'`,
-  String.raw`printf '\033[36m%s\n%s\033[0m\n' 'https://claude.example/oauth/authorize?code=true&client_id=abc&redirect_uri=https%3A%2F%2Fclaude.example' '%2Fcb&state=xyz'`,
-  // 2.1.322 draws the prompt's spaces as cursor moves
-  String.raw`printf 'Paste\033[1Ccode\033[1Chere\033[1Cif\033[1Cprompted\033[1C>\033[1C'`,
-  'read code; [ "$code" = "pasted-code" ] || exit 2',
-  `echo "Your token: ${TOKEN}"`,
-].join("; ");
+// The prompt's spaces are cursor moves, and in raw mode a chunk longer than one key is a paste, so its \r is text:
+// only an Enter written on its own submits (2.1.322).
+const CLAUDE = `#!/usr/bin/env bun
+if (!process.stdin.isTTY) process.exit(0);
+await Bun.sleep(1000);
+process.stdout.write("\\x1b[2mBrowser didn't open? Use the url below to sign in\\x1b[0m\\n");
+process.stdout.write("\\x1b[36mhttps://claude.example/oauth/authorize?code=true&client_id=abc&redirect_uri=https%3A%2F%2Fclaude.example\\n%2Fcb&state=xyz\\x1b[0m\\n");
+process.stdout.write("Paste\\x1b[1Ccode\\x1b[1Chere\\x1b[1Cif\\x1b[1Cprompted\\x1b[1C>\\x1b[1C");
+process.stdin.setRawMode(true);
+let typed = "";
+process.stdin.on("data", (d) => {
+  const keys = d.toString();
+  // The real CLI would sit forever with an Enter pasted into the text; fail fast instead of hanging the run.
+  if (keys !== "\\r" && keys.includes("\\r")) process.exit(3);
+  if (keys !== "\\r") return void (typed += keys);
+  if (typed !== "pasted-code") process.exit(2);
+  console.log("\\nYour token: ${TOKEN}");
+  process.exit(0);
+});
+`;
 script("codex", CODEX);
-script("claude", CLAUDE);
+writeFileSync(join(bin, "claude"), CLAUDE);
+chmodSync(join(bin, "claude"), 0o755);
 process.env.PATH = `${bin}:${process.env.PATH}`;
 
 const { db } = await import("../db/client");
@@ -104,7 +115,9 @@ try {
   assert.deepEqual(await handleAccountLogin(codeIntent, rt), { code: "stored" });
   const [scrubbed] = await db.select().from(intents).where(eq(intents.id, codeIntent.id));
   assert.equal(scrubbed!.detail?.includes("pasted-code"), false, "the code is scrubbed from the intent");
-  await running.get(claude.id);
+  // `cat` holds the pty open after the CLI exits, so a code that never submits would wait forever: bound it.
+  const settled = await Promise.race([running.get(claude.id)!.then(() => true), new Promise((r) => setTimeout(() => r(false), 15_000))]);
+  assert.ok(settled, "the Claude login finishes once the code is pasted and Enter pressed on its own");
   assert.deepEqual(states(claude.id), ["pending", "waiting_code", "done"]);
   const [claudeRow] = (await accounts(A)).filter((r) => r.provider === "claude");
   assert.equal(unseal(claudeRow!.sealed, pair.privateKey), TOKEN);

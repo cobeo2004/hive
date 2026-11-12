@@ -35,6 +35,8 @@ export const loginRuntime = {
   pollMs: 1_000,
   urlWaitMs: 60_000,
   killMs: 2_000,
+  /** Claude 2.1.322 takes a long chunk as a paste, so an Enter inside it is text; Enter goes alone after this pause. */
+  enterMs: 500,
 };
 export const running = new Map<string, Promise<void>>();
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -174,7 +176,9 @@ export async function handleAccountLogin(
         if (!row) return ended();
         if (provider === "claude" && row.code && !delivered) {
           delivered = true;
-          proc.stdin?.write(`${row.code}\r`);
+          proc.stdin?.write(row.code);
+          await sleep(rt.enterMs);
+          proc.stdin?.write("\r");
           await patch({ code: null });
         }
       }
