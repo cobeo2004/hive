@@ -40,6 +40,7 @@ import {
   type Recipe,
 } from "../lib/recipe";
 import { recipeHash, sha256 } from "../lib/recipe-hash";
+import { requestId } from "../lib/request-id";
 import { builtVersions, GITHUB_TOKEN_PATH, imageProblem, REPO_DIR, type SandboxImage } from "../lib/sandbox";
 import { matchesAny } from "../lib/globs";
 import type { RepoPushDetail } from "../lib/webhooks";
@@ -86,8 +87,8 @@ export const onboardingRuntime = {
   bugbotRan: (prUrl: string): Promise<boolean> => github.bugbotRan(prUrl),
   playbook: () => readFileSync(PLAYBOOK, "utf8"),
   checkouts: (): Promise<ReadonlyMap<string, string>> => factoryCheckouts(),
-  startLocalThread: (checkout: string, title: string, text: string, harness: HarnessChoice) =>
-    startThread(localHost, checkout, ONBOARDING_BRANCH, title, text, harness),
+  startLocalThread: (checkout: string, branch: string, title: string, text: string, harness: HarnessChoice) =>
+    startThread(localHost, checkout, branch, title, text, harness),
   now: () => new Date(),
 };
 
@@ -100,7 +101,14 @@ type Change = { state?: OnboardingState | null; detail: OnboardingDetail };
 type StartedRun = OnboardingRun & { sandboxId: string };
 const hasSandbox = (run: OnboardingRun): run is StartedRun => run.sandboxId !== undefined;
 /** Where a local agent writes its result: outside the worktree, in the temp dir T3's agents may write to. */
-export const localResult = (repo: string) => join(tmpdir(), `hive-onboarding-${repo.replace("/", "-")}.json`);
+export const localResult = (repo: string) => join(tmpdir(), `hive-onboarding-${encodeURIComponent(repo)}.json`);
+/** Each local run works on its own branch, since the checkout keeps the last one's; it pushes to ONBOARDING_BRANCH. */
+const localBranch = (run: OnboardingRun) => `${ONBOARDING_BRANCH}-${Date.parse(run.startedAt)}`;
+/** Stops a local agent's thread, so a run given up on does not go on working, spending and pushing on the owner's machine. */
+const stopLocalThread = (threadId: string, reason: string) =>
+  threads
+    .interrupt(threadId, requestId(), reason, localHost)
+    .catch((error: unknown) => log("onboarding:interrupt-failed", { threadId, error: message(error) }));
 const sameLocal = (a: OnboardingRun | undefined, b: OnboardingRun) => a?.local === true && a.startedAt === b.startedAt && a.machine === b.machine;
 
 /** Repos whose agent run this runner is creating a sandbox for. */
@@ -131,7 +139,7 @@ async function fail(repo: string, reason: string, logText?: string) {
   return { repo, failed: reason };
 }
 
-/** Ends the run's sandbox, handing an agent's login back to its slot first, and clears the run. A local run leaves its thread. */
+/** Ends the run's sandbox, handing an agent's login back to its slot first, and clears the run. */
 async function endRun(repo: string, run: OnboardingRun) {
   if (!hasSandbox(run)) {
     await localHost.remove(localResult(repo));
@@ -231,15 +239,20 @@ async function applyRecipe(repo: string, recipe: Recipe, extra: Partial<Onboardi
   return updated?.onboarding_state ?? null;
 }
 
-function agentMessage(repo: string, detail: OnboardingDetail, committedError: string | undefined, local = false) {
+function agentMessage(repo: string, detail: OnboardingDetail, committedError: string | undefined, local?: { branch: string }) {
   return [
     `Onboard ${repo} to Hive: write its setup recipe, ${RECIPE_PATH}, prove it, and open a pull request with it.`,
     "",
     local
-      ? `This is an unattended onboarding run on the owner's own machine, not a sandbox. Follow the playbook below. Your worktree is on branch ${ONBOARDING_BRANCH}. Install nothing system-wide here: still write the \`system\` packages and \`runtimes\` a fresh sandbox would need, but prove only the \`setup\` commands and the checks, in your worktree. Write the result to ${localResult(repo)} last, then end the turn.`
+      ? [
+          `This is an unattended onboarding run on the owner's own machine, not a sandbox. Follow the playbook below, with these changes.`,
+          `- Your worktree is on branch ${local.branch}. Push it with \`git push --force-with-lease origin HEAD:${ONBOARDING_BRANCH}\` and open or update the pull request from ${ONBOARDING_BRANCH}.`,
+          `- In "Prove it", skip the \`system\` installs: install nothing system-wide on this machine. Run the \`setup\` commands and the checks in your worktree only. Still list the \`system\` packages and \`runtimes\` a fresh Linux sandbox would need.`,
+          `- Write the result to ${localResult(repo)} last, then end the turn.`,
+        ].join("\n")
       : `This is an unattended onboarding run. Follow the playbook below. The repo is cloned at ${REPO_DIR}; your worktree is on branch ${ONBOARDING_BRANCH}. Write the result to ${ONBOARDING_RESULT} last, then end the turn.`,
     ...(committedError ? ["", `main already has a ${RECIPE_PATH}, but the factory cannot use it: ${committedError} Fix it in your recipe.`] : []),
-    ...((detail.secretsSet ?? []).length > 0 ? ["", `These env vars have values in this sandbox already: ${detail.secretsSet!.join(", ")}.`] : []),
+    ...(!local && (detail.secretsSet ?? []).length > 0 ? ["", `These env vars have values in this sandbox already: ${detail.secretsSet!.join(", ")}.`] : []),
     "",
     onboardingRuntime.playbook(),
   ].join("\n");
@@ -274,21 +287,37 @@ export async function onboardRepo(repo: string) {
 /** A local repo's agent: a T3 thread in this machine's checkout, on the Settings harness and the machine's own login. */
 async function startLocalAgent(repo: string, committedError: string | undefined) {
   const checkout = (await onboardingRuntime.checkouts()).get(repo);
-  if (!checkout) return fail(repo, `This machine has no checkout of ${repo} to onboard it on; add it to the runner's repos, or run it in the cloud.`);
+  if (!checkout)
+    return fail(
+      repo,
+      `This machine has no checkout of ${repo} to onboard it on; retry from a machine that has one, add it to this runner's repos, or run it in the cloud.`,
+    );
   const run: OnboardingRun = { kind: "agent", machine: (await thisMachine()).id, startedAt: onboardingRuntime.now().toISOString(), local: true };
   if (!(await claimRun(repo, run, "analyzing"))) return { repo, skipped: "another run started" };
   starting.add(repo);
+  let threadId: string | undefined;
   try {
     await localHost.remove(localResult(repo));
     const [row] = await db.select().from(repoSettings).where(eq(repoSettings.repo, repo));
     const { harness } = await launchSettings();
-    const text = agentMessage(repo, parseDetail(row?.onboarding_detail), committedError, true);
-    const threadId = await onboardingRuntime.startLocalThread(checkout, `Onboard ${repo}`, text, harness);
-    await update(repo, (_r, d) => (sameLocal(d.run, run) ? { detail: { ...d, run: { ...run, threadId } } } : null));
-    log("onboarding:agent-started", { repo, local: true, threadId, harness });
+    const branch = localBranch(run);
+    const text = agentMessage(repo, parseDetail(row?.onboarding_detail), committedError, { branch });
+    threadId = await onboardingRuntime.startLocalThread(checkout, branch, `Onboard ${repo}`, text, harness);
+    const bound = { ...run, threadId };
+    if (!(await update(repo, (_r, d) => (sameLocal(d.run, run) ? { detail: { ...d, run: bound } } : null)))) {
+      // Cleared meanwhile (a Retry, or another run): this thread is nobody's.
+      await stopLocalThread(threadId, "the onboarding run was cleared while it started");
+      return { repo, skipped: "its run was cleared while it started" };
+    }
+    log("onboarding:agent-started", { repo, local: true, threadId, branch, harness });
     return { repo, agent: threadId, local: true };
   } catch (error) {
-    return fail(repo, `The onboarding agent could not start on this machine: ${message(error)}`);
+    if (threadId) await stopLocalThread(threadId, "the onboarding run could not record its thread");
+    const reason = `The onboarding agent could not start on this machine: ${message(error)}`;
+    // Only this run's failure: a run that replaced it meanwhile keeps the row.
+    await update(repo, (_r, d) => (sameLocal(d.run, run) ? { state: "failed", detail: { ...d, run: undefined, failure: failure(reason) } } : null));
+    log("onboarding:failed", { repo, reason });
+    return { repo, failed: reason };
   } finally {
     starting.delete(repo);
   }
@@ -362,6 +391,7 @@ async function advanceAgent(row: RepoSettingsRow, run: OnboardingRun) {
   const read = await threads.read(run.threadId ?? null, host);
   if (read.state === "running") {
     if (overdue(run, AGENT_GIVE_UP_MS)) {
+      if (!hasSandbox(run) && run.threadId) await stopLocalThread(run.threadId, "the onboarding run ran out of time");
       await endRun(row.repo, run);
       return fail(row.repo, `The onboarding agent was still running after ${AGENT_GIVE_UP_MS / 60_000} minutes, so the factory stopped it.`);
     }
