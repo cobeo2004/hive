@@ -594,7 +594,11 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
       let host: JobHost;
       let ran: HarnessChoice;
       try {
-        const codex = lease.codex ? { slot: `account:${lease.codex.id}`, auth: lease.codex.secret } : lease.slot ? loginOf(lease.slot) : null;
+        const codex = lease.codex
+          ? { slot: `account:${lease.codex.id}`, auth: lease.codex.secret, marked: lease.codex.kind !== "api_key" }
+          : lease.slot
+            ? loginOf(lease.slot)
+            : null;
         const githubToken = await runtime.githubToken(entry.repo as RepoName);
         const created = await createJobSandbox({
           key: entry.key,

@@ -184,17 +184,20 @@ async function loggedIn(host: JobHost, command: string, args: string[]) {
  */
 export const writeGithubToken = (host: JobHost, token: string) => writeSecretFile(host, GITHUB_TOKEN_PATH, token);
 
+/** What an account's login was installed from, so the reseal at the end can tell whether the account moved on meanwhile. */
+export const markInstalled = (host: JobHost, auth: string) => writeSecretFile(host, `${CODEX_HOME}/${INSTALLED}`, revOf(auth));
+
 /** Puts the slot's login in the sandbox and checks Codex accepts it; CodexLoginError when it does not. */
-export async function installCodexLogin(host: JobHost, slot: string, auth: string) {
+export async function installCodexLogin(host: JobHost, slot: string, auth: string, marked = slot.startsWith("account:")) {
   await host.run("mkdir", ["-p", CODEX_HOME], { timeoutMs: 30_000 });
   await host.run("chmod", ["700", CODEX_HOME], { timeoutMs: 30_000 });
   await writeSecretFile(host, CODEX_AUTH, auth);
-  // What an account's login was installed from, so the reseal at the end can tell whether the account moved on meanwhile.
-  if (slot.startsWith("account:")) await writeSecretFile(host, `${CODEX_HOME}/${INSTALLED}`, revOf(auth));
+  if (marked) await markInstalled(host, auth);
   if (!(await loggedIn(host, "codex", ["login", "status"]))) throw new CodexLoginError(slot);
 }
 
-export type CodexLogin = { slot: string; auth: string };
+/** `marked` false for a pool API key, which is never resealed. */
+export type CodexLogin = { slot: string; auth: string; marked?: boolean };
 
 export type SandboxSetup = {
   repo: string;
@@ -244,7 +247,7 @@ async function refreshWarmCheckout(host: JobHost, repo: string, setup: readonly 
  */
 export async function setupSandbox(host: JobHost, setup: SandboxSetup, codexModel: string): Promise<{ choice: HarnessChoice; fallback?: string }> {
   await host.run("mkdir", ["-p", T3_USERDATA, "/work"], { timeoutMs: 30_000 });
-  if (setup.codex) await installCodexLogin(host, setup.codex.slot, setup.codex.auth);
+  if (setup.codex) await installCodexLogin(host, setup.codex.slot, setup.codex.auth, setup.codex.marked);
   let { choice, hasClaude } = setup;
   let fallback: string | undefined;
   if (choice.provider === CLAUDE && !(await loggedIn(host, "claude", ["auth", "status"]))) {

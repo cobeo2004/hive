@@ -618,6 +618,18 @@ try {
     ['{"v":3}', revOf('{"v":3}')],
     "the wake installs the sealed copy, not the snapshot's",
   );
+  // A sandbox that keeps running after a failed snapshot goes on from the login it sealed: its next refresh seals too.
+  const snapshot = sbWoken.snapshotFilesystem;
+  sbWoken.snapshotFilesystem = async () => Promise.reject(new Error("snapshot failed"));
+  sbWoken.files.set(CODEX_AUTH, '{"v":4}');
+  const quiet = Date.now() + 86_400_000;
+  assert.match(JSON.stringify(await hibernateIdle(quiet)), /snapshot failed/, "the snapshot fails and the sandbox stays");
+  assert.equal(await sealedNow(), '{"v":4}');
+  sbWoken.snapshotFilesystem = snapshot;
+  sbWoken.files.set(CODEX_AUTH, '{"v":5}');
+  assert.deepEqual(await hibernateIdle(quiet), [`${ACCT}:hibernated`]);
+  assert.equal(await sealedNow(), '{"v":5}', "the next refresh is sealed, not dropped as stale");
+  await setSeal('{"v":3}');
   await db.update(jobs).set({ stage: "merged" }).where(eq(jobs.key, ACCT));
   await teardownFinished();
   fake.images.set(
@@ -633,8 +645,8 @@ try {
   breakInstall = false;
   assert.equal(await sealedNow(), '{"v":3}', "the snapshot's old login does not overwrite the newer seal");
   assert.ok(
-    events.some((e) => e.event === "sandbox:login-resealed" && e.detail.result === "stale"),
-    "the skipped reseal is logged",
+    events.some((e) => e.event === "sandbox:login-resealed" && e.detail.result === "stale" && String(e.detail.note).includes("reconnecting")),
+    "the skipped reseal is logged, with a note that the account may need reconnecting",
   );
   limits.maxParallel -= 3;
   await db.delete(agentAccounts).where(eq(agentAccounts.id, acct));
