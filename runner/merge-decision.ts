@@ -80,7 +80,16 @@ export async function watchBugbot(repo: string, policy: RepoPolicy, pr: Pick<PrF
 }
 
 type Evaluated =
-  | { decision: Decision; headSha: string | null; headSeenAt: number | null; review?: ReviewSummary; evidence?: HeadEvidence; runner?: RunnerVerification }
+  | {
+      decision: Decision;
+      headSha: string | null;
+      headSeenAt: number | null;
+      review?: ReviewSummary;
+      evidence?: HeadEvidence;
+      runner?: RunnerVerification;
+      /** Set when this PR's Bugbot review turned require_bugbot on. */
+      bugbotOn?: true;
+    }
   | "unchanged";
 
 /**
@@ -142,8 +151,9 @@ async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | 
     prFacts(job.pr_url!, job.repo as RepoName, detail.headSha, detail.baseRef, detail.mergeable, headSeenAt),
     sourceFor(job.source).labels(job),
   ]);
+  const decided = await watchBugbot(job.repo, policy, pr);
   const decision = decideMerge({
-    policy: await watchBugbot(job.repo, policy, pr),
+    policy: decided,
     assessment: parseAssessment(job.merge_assessment),
     labels,
     pr,
@@ -154,7 +164,7 @@ async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | 
     browser: job.execution === "modal",
     trustEdits: await changedTrust(job, detail, pr),
   });
-  return { decision, headSha: detail.headSha, headSeenAt, review: reviewSummary(pr), evidence, runner };
+  return { decision, headSha: detail.headSha, headSeenAt, review: reviewSummary(pr), evidence, runner, ...(decided !== policy && { bugbotOn: true as const }) };
 }
 
 /** The runner's verification record for this head: failed once it couldn't, running once it started. */
@@ -193,6 +203,8 @@ export async function decideMerges({ now = Date.now(), only }: { now?: number; o
       const previous = storedDecision(job);
       const { recipe, ...trusted } = requiredChecks(policies, job.repo);
       const result = await evaluate(job, policy, previous, now, trusted);
+      // The repo's later PRs in this pass wait for Bugbot too, whatever their own Bugbot run shows.
+      if (result !== "unchanged" && result.bugbotOn) for (const row of policies) if (row.repo === job.repo) row.require_bugbot = true;
       if (result === "unchanged") {
         if (previous) await syncComments(job, previous);
         continue;
