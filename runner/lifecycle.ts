@@ -4,6 +4,7 @@ import { db } from "../db/client";
 import { auditLog, codexSlotLeases, jobs, repoSettings, type JobRow } from "../db/schema";
 import type { RepoName } from "../lib/github/app";
 import type { Account } from "../lib/creds";
+import { ONLINE_WINDOW_MS } from "../lib/machine";
 import { HostGoneError, hosts, isHibernated, WakeDeferredError, type HostedJob, type JobHost } from "../lib/host";
 import { deleteSnapshot, isModalGone, modal, modalHost, snapshotSandbox, terminateSandbox, tunnelUrl } from "../lib/modal-host";
 import { scrubbed } from "../lib/modal-secrets";
@@ -187,7 +188,7 @@ const isJsonObject = (text: string) => {
  * nothing to give; that is logged and the caller goes on. The contents are never logged.
  */
 export async function writeBackLogin(key: string, sandboxId: string, slot: string | null) {
-  if (!slot) return "no slot";
+  if (!slot || slot.startsWith("account:")) return "no slot";
   let text: string | null;
   try {
     text = await modalHost(sandboxId).readFile(CODEX_AUTH);
@@ -264,8 +265,7 @@ export async function teardownSandbox(row: SandboxRow) {
     await retireSandbox(row.key, row.sandbox_id, row.codex_slot);
   }
   // A local Codex job's refreshed login is sealed again before its account is free for the next job (R9b); a throw keeps the lease.
-  if (!row.sandbox_id && row.codex_slot?.startsWith(LOCAL_SLOT))
-    log("local:login-resealed", { key: row.key, result: await resealLocal(row.key, row.codex_slot) });
+  if (!row.sandbox_id && row.codex_slot?.startsWith(LOCAL_SLOT)) log("local:login-resealed", { key: row.key, result: await resealLocal(row.codex_slot) });
   const stop = stopping(row) ? parseStop(row.stop) : null;
   if (row.sandbox_id && stop) await verifyGone(row.sandbox_id);
   if (row.sandbox_snapshot) await deleteSnapshot(row.sandbox_snapshot);
@@ -425,7 +425,7 @@ async function wakeInRoom(row: JobRow, snapshot: string, asleep: SQL | undefined
   // Like a launch: the owner's or pool's Codex account replaces a slot (errors carry an id or fixed text, never a secret).
   const codex = needsCodexSlot(row.provider) ? await sandboxRuntime.account(row.key, "codex", undefined) : null;
   if (codex === "wait") throw new WakeDeferredError(`${row.key} waits to wake: the team pool is at its threshold`);
-  const slot = needsCodexSlot(row.provider) && !codex ? await leaseSlot(asleep, usableSlots(limits)) : null;
+  const slot = needsCodexSlot(row.provider) ? await leaseSlot(asleep, codex ? [`account:${codex.id}`] : usableSlots(limits)) : null;
   if (slot === undefined) throw new WakeDeferredError(`no free Codex login slot to wake ${row.key}`);
   let sandboxId: string | undefined;
   let claude: Account | null = null;
@@ -561,7 +561,14 @@ export async function reap() {
     .select({ key: jobs.key, sandbox_id: jobs.sandbox_id, codex_slot: jobs.codex_slot })
     .from(jobs)
     // A local job's account lease has no sandbox to look for; teardownSandbox frees it.
-    .where(and(eq(jobs.machine_id, machine.id), isNotNull(jobs.codex_slot), sql`${jobs.codex_slot} not like ${`${LOCAL_SLOT}%`}`, notPending));
+    .where(
+      and(
+        eq(jobs.machine_id, machine.id),
+        isNotNull(jobs.codex_slot),
+        or(isNotNull(jobs.sandbox_id), sql`${jobs.codex_slot} not like ${`${LOCAL_SLOT}%`}`),
+        notPending,
+      ),
+    );
   const idle = holders.filter((h) => !h.sandbox_id || !running.has(h.sandbox_id));
   const freed: string[] = [];
   for (const holder of idle.filter((h) => suspects.slots.has(`${h.key}:${h.codex_slot}`))) {
@@ -575,6 +582,14 @@ export async function reap() {
     if (cleared) freed.push(`${holder.key}:${holder.codex_slot}`);
   }
   suspects.slots = new Set(idle.map((h) => `${h.key}:${h.codex_slot}`).filter((id) => !freed.includes(id)));
+  // A local job's account lease on a machine that stopped reporting: nothing there will free it.
+  const silent = sql`${jobs.machine_id} in (select id from machines where last_seen_at < now() - make_interval(secs => ${ONLINE_WINDOW_MS / 1000}))`;
+  const gone = await db
+    .update(jobs)
+    .set({ codex_slot: null })
+    .where(and(isNull(jobs.sandbox_id), sql`${jobs.codex_slot} like ${`${LOCAL_SLOT}%`}`, silent))
+    .returning({ key: jobs.key, slot: jobs.codex_slot });
+  freed.push(...gone.map((j) => j.key));
   if (terminated.length > 0 || freed.length > 0) log("sandbox:reaped", { terminated, freed });
   return { terminated, freed, suspects: suspects.sandboxes.size + suspects.slots.size };
 }

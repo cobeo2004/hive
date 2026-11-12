@@ -2,7 +2,7 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import type { ExecError } from "../lib/exec";
 import type { RepoName } from "../lib/github/app";
-import { accountFor, recordRunAccount, type Account } from "../lib/creds";
+import { recordRunAccount, type Account } from "../lib/creds";
 import { HostGoneError, hosts, localHost, type JobHost } from "../lib/host";
 import { scrubbed } from "../lib/modal-secrets";
 import { terminateSandbox } from "../lib/modal-host";
@@ -381,7 +381,6 @@ async function launchLocal(
   }
   // The owner's own login for a Claude or Codex job (R9b); a job with none runs on this Mac's.
   const accounts = localAccounts({
-    account: (key, provider) => accountFor(key, provider, undefined),
     lease: (key, marker, slotId) => leaseCodexSlot(key, marker, [slotId]),
     log: overrideRuntime.log,
   });
@@ -401,7 +400,10 @@ async function launchLocal(
       const message = await withPlaybook(await withLocalImages(entry.source, entry.key, entry.message), "local", host, checkout);
       const threadId = await startLead(host, checkout, entry, message, accounts.harness(entry), registry, (event, detail) =>
         overrideRuntime.log(event, detail),
-      );
+      ).catch((error) => {
+        accounts.discard(entry.key);
+        throw error;
+      });
       await accounts.started(entry.key, threadId).catch(() => {});
       return threadId;
     },
@@ -569,7 +571,8 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
         return false;
       }
       if (codex === "wait") return releaseLaunch(key, marker).then(() => poolWait(key));
-      const codexSlot = needsCodexSlot(choice.provider) && !codex ? await leaseCodexSlot(key, marker, usableSlots(limits)) : null;
+      // An account is leased like a slot, so one Codex account runs in one job anywhere, local or here.
+      const codexSlot = !needsCodexSlot(choice.provider) ? null : await leaseCodexSlot(key, marker, codex ? [`account:${codex.id}`] : usableSlots(limits));
       if (codexSlot === undefined) {
         await releaseLaunch(key, marker);
         runtime.log("sandbox:no-slot", { key, slots: limits.codexSlots.length });

@@ -827,6 +827,17 @@ try {
   assert.deepEqual(await launchInSandboxes([entry(waiting)], slot), [], "no thread starts");
   const { stage, stage_summary, t3_thread_id, machine_id } = (await db.select().from(jobs).where(eq(jobs.key, waiting)))[0]!;
   assert.deepEqual([stage, stage_summary, t3_thread_id, machine_id], ["queued", "Waiting for the team pool", null, null], "1.4: the job waits for the pool");
+  // A Codex account a local job holds is leased, so a cloud job on it waits instead of running the same login twice.
+  const [local, cloud] = [`${id}-local`, `${id}-cloud`];
+  await db.insert(jobs).values([linearJob(local, local, { codex_slot: `account:${id}-acct` }), linearJob(cloud, cloud, { stage: "queued" })]);
+  Object.assign(sandboxRuntime, { account: async () => ({ id: `${id}-acct`, secret: "s" }) });
+  assert.deepEqual(
+    await launchInSandboxes([{ ...entry(cloud), harness: { provider: "codex", model: "m" } }], slot),
+    [],
+    "the account is leased to the local job",
+  );
+  assert.equal((await db.select().from(jobs).where(eq(jobs.key, cloud)))[0]!.machine_id, null, "the cloud job is not claimed");
+  Object.assign(sandboxRuntime, { account: async () => "wait" });
   // 1.3 on an untracked harness, whatever status T3 settled on: with a PR open the job stays at pr with one note and is never relaunched; with none it fails for the next account.
   const openPr = "https://github.com/ski043/factory-demo/pull/1";
   const posted: { jobKey?: string; stage?: string }[] = [];
