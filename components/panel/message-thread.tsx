@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toastManager } from "@/components/ui/toast";
 import type { JobRow } from "@/db/schema";
 import { allows, followUpHint, inboxKind, MAX_FOLLOW_UP_CHARS } from "@/lib/inbox";
+import { requestId } from "@/lib/request-id";
 import { parseDecision } from "./merge-decision";
 
 /** Whether the inbox lets the owner write to this job: only a failed revert files a follow-up today. */
@@ -24,7 +25,7 @@ export function MessageThread({ job }: { job: JobRow }) {
     start(async () => {
       try {
         // ponytail: the runner files the follow-up from the intent; we don't poll for it as the inbox does, the item leaves on the next refresh.
-        const outcome = await fileFollowUp(job.id, crypto.randomUUID(), text).catch((e: unknown) => ({ ok: false as const, message: String(e) }));
+        const outcome = await fileFollowUp(job.id, requestId(), text).catch((e: unknown) => ({ ok: false as const, message: String(e) }));
         toastManager.add(outcome.ok ? { type: "success", title: outcome.message ?? "Filed the follow-up." } : { type: "error", title: outcome.message });
         if (outcome.ok) setText("");
       } finally {
