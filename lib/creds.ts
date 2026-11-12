@@ -140,7 +140,13 @@ export async function accountFor(
   if (row === "wait") return row;
   if (!row) return runnerDefault ? { id: null, secret: runnerDefault } : null;
   if (!env.HIVE_CREDS_PRIVATE_KEY) throw new Error(`HIVE_CREDS_PRIVATE_KEY is not set; cannot open account ${row.id}`);
-  return { id: row.id, secret: unseal(row.sealed, env.HIVE_CREDS_PRIVATE_KEY), ...(row.kind === "api_key" && { kind: row.kind }) };
+  const secret = unseal(row.sealed, env.HIVE_CREDS_PRIVATE_KEY);
+  // Codex reads an API key from auth.json as {"OPENAI_API_KEY": …}, as the local path writes it.
+  return {
+    id: row.id,
+    secret: provider === "codex" && row.kind === "api_key" ? JSON.stringify({ OPENAI_API_KEY: secret }) : secret,
+    ...(row.kind === "api_key" && { kind: row.kind }),
+  };
 }
 
 /** Stamps the account on the job's run rows for this thread that have none yet; the default (null) stamps nothing. */

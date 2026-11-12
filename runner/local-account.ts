@@ -1,4 +1,4 @@
-import { createPrivateKey, createPublicKey } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,10 @@ import type { HarnessChoice } from "../lib/settings";
 // A local job runs on its owner's account (R9b): the credential is opened from Postgres into
 // ~/.hive/creds/<userId>/<provider>/ and the thread starts on a T3 provider instance of that user,
 // whose home path T3 hands to the CLI as CLAUDE_CONFIG_DIR or CODEX_HOME. Nothing here logs a secret.
+
+/** Beside an installed Codex login: the hash of the sealed login it was installed from, so a reseal can tell whether the account has moved on since. */
+export const INSTALLED = ".hive-installed";
+export const revOf = (secret: string) => createHash("sha256").update(secret).digest("hex");
 
 /** The T3 drivers that take a per-user instance; any other harness keeps the Mac's own login. */
 const DRIVERS = new Set(["claudeAgent", "codex"]);
@@ -48,7 +52,10 @@ export function materialize(scope: string, driver: string, secret: string): Harn
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
   // A setup-token is static and travels in the instance's environment; Codex's auth.json lives in its home.
-  if (provider === "codex") writePrivate(join(dir, "auth.json"), secret);
+  if (provider === "codex") {
+    writePrivate(join(dir, "auth.json"), secret);
+    writePrivate(join(dir, INSTALLED), revOf(secret));
+  }
   const id = `${driver}-${scope}`;
   setInstance(id, {
     driver,
@@ -131,7 +138,7 @@ export function localAccounts(rt: LocalRuntime) {
     /** A launch that failed after harness(): the plaintext login must not stay on disk. */
     discard(key: string) {
       const one = held.get(key);
-      if (one) rmSync(join(credsDir(one.scope, "codex"), "auth.json"), { force: true });
+      for (const file of ["auth.json", INSTALLED]) if (one) rmSync(join(credsDir(one.scope, "codex"), file), { force: true });
     },
     /** The thread runs: its runs are stamped with the account so its usage is the one that moves. */
     started: (key: string, threadId: string) => recordRunAccount(key, threadId, held.get(key)?.id ?? null),
@@ -139,7 +146,7 @@ export function localAccounts(rt: LocalRuntime) {
 }
 
 /** Seals a Codex login Codex refreshed into its subscription account when it changed. A pool API key never changes and a disconnected account has nothing to seal into. */
-export async function resealAccount(id: string, text: string, env: Record<string, string | undefined> = process.env) {
+export async function resealAccount(id: string, text: string, base: string | null, env: Record<string, string | undefined> = process.env) {
   const [row] = await db
     .select({ sealed: agentAccounts.sealed, disconnected: agentAccounts.disconnected_at, kind: agentAccounts.kind })
     .from(agentAccounts)
@@ -148,15 +155,20 @@ export async function resealAccount(id: string, text: string, env: Record<string
   if (row.kind === "api_key") return "static";
   if (typeof JSON.parse(text) !== "object") throw new Error("the refreshed Codex login is not a JSON object");
   const key = privateKey(env);
-  if (unseal(row.sealed, key) === text) return "unchanged";
+  const current = unseal(row.sealed, key);
+  if (current === text) return "unchanged";
+  // The account moved on since this login was installed (a reconnect, a newer job's seal): that one wins. No record means an older install, which seals as before.
+  if (base && revOf(current) !== base) return "stale";
   const publicKey = createPublicKey(createPrivateKey(key.replace(/\\n/g, "\n")))
     .export({ type: "spki", format: "pem" })
     .toString();
-  await db
+  // Compare-and-set on the copy read above, so a writer that lost the race is skipped, not overwritten.
+  const set = await db
     .update(agentAccounts)
     .set({ sealed: seal(text, publicKey) })
-    .where(eq(agentAccounts.id, id));
-  return "resealed";
+    .where(and(eq(agentAccounts.id, id), eq(agentAccounts.sealed, row.sealed)))
+    .returning({ id: agentAccounts.id });
+  return set.length ? "resealed" : "stale";
 }
 
 /**
@@ -170,7 +182,9 @@ export async function resealLocal(slot: string, env: Record<string, string | und
   const file = join(credsDir(row?.owner ?? `pool-${id}`, "codex"), "auth.json");
   const text = existsSync(file) ? readFileSync(file, "utf8") : "";
   if (!text) return "missing";
-  const result = await resealAccount(id, text, env);
+  const installed = join(file, "..", INSTALLED);
+  const result = await resealAccount(id, text, existsSync(installed) ? readFileSync(installed, "utf8") : null, env);
   rmSync(file, { force: true });
+  rmSync(installed, { force: true });
   return result;
 }
