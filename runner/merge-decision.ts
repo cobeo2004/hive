@@ -61,9 +61,13 @@ async function prFacts(prUrl: string, repo: RepoName, headSha: string, baseRef: 
  * require_bugbot on, for this decision too, so a PR never merges past the review that revealed Bugbot.
  */
 export async function watchBugbot(repo: string, policy: RepoPolicy, pr: Pick<PrFacts, "bugbot">): Promise<RepoPolicy> {
-  if (policy.requireBugbot || pr.bugbot.review.state === "pending") return policy;
+  const review = pr.bugbot.review;
+  // A skipped run is Bugbot installed but not reviewing this repo: waiting on it would block every merge.
+  if (policy.requireBugbot || review.state === "pending" || (review.state === "failed" && review.conclusion === "skipped")) return policy;
   const turnedOn = await db.transaction(async (tx) => {
     const [row] = await tx.select().from(repoSettings).where(eq(repoSettings.repo, repo)).for("update");
+    // Another PR of the repo may have turned it on earlier in this pass, after the policies were read.
+    if (row?.require_bugbot) return true;
     const detail = parseDetail(row?.onboarding_detail);
     if (!row || !detail.bugbotWatch) return false;
     await tx

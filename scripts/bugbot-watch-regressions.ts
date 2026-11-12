@@ -34,11 +34,15 @@ try {
   assert.deepEqual([added.require_bugbot, parseDetail(added.onboarding_detail).bugbotWatch], [false, true], "a new repo starts off and watching");
 
   assert.equal(await watchBugbot(A, policy, none), policy, "no Bugbot run yet: nothing changes");
+  const skipped: Pick<PrFacts, "bugbot"> = { bugbot: { review: { state: "failed", conclusion: "skipped" }, findings: [] } };
+  assert.equal(await watchBugbot(A, policy, skipped), policy, "a skipped run is not a review");
   assert.equal((await row(A)).require_bugbot, false);
 
   assert.deepEqual(await watchBugbot(A, policy, seen), { ...policy, requireBugbot: true }, "the PR that revealed Bugbot waits for it too");
   const turned = await row(A);
   assert.deepEqual([turned.require_bugbot, parseDetail(turned.onboarding_detail).bugbotWatch], [true, undefined], "on, and the watch ends");
+  // A second PR of the repo in the same pass still holds the policy read before the first turned it on.
+  assert.deepEqual(await watchBugbot(A, policy, seen), { ...policy, requireBugbot: true }, "the second PR waits for Bugbot too");
 
   // An admin's own choice ends the watch: Bugbot seen later doesn't overrule turning it off by hand.
   await writeNewRepository(db, B, "test", new Date());
