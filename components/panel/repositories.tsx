@@ -329,8 +329,8 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
               Require Bugbot review
             </FieldLabel>
             <FieldDescription>
-              A pull request waits for Bugbot&apos;s review and doesn&apos;t merge on its own with an unresolved medium or high finding. Turn it off for a repo
-              without Bugbot, so the factory neither waits for its review nor reads its findings.
+              A pull request waits for Bugbot&apos;s review and doesn&apos;t merge on its own with an unresolved medium or high finding. A new repo starts with
+              this off; the factory turns it on the first time Bugbot reviews one of its pull requests.
             </FieldDescription>
           </Field>
           {failure && (
