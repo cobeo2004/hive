@@ -13,10 +13,13 @@ export function CopyButton({ value, label, children }: { value: string; label: s
       aria-label={label}
       size={children ? "sm" : "icon"}
       variant="outline"
-      onClick={async () => {
-        await copyText(value);
-        setCopied(true);
-      }}
+      onClick={() =>
+        // A refused copy leaves the icon unticked; the value stays on screen to copy by hand.
+        copyText(value).then(
+          () => setCopied(true),
+          () => setCopied(false),
+        )
+      }
     >
       {copied ? <CheckIcon /> : <CopyIcon />}
       {children}

@@ -68,10 +68,11 @@ export function useSandboxT3(jobId: JobId) {
     if (next) void ask(round.current);
   };
 
-  const copy = async (pairUrl: string) => {
-    await copyText(pairUrl);
-    setCopied(true);
-  };
+  const copy = (pairUrl: string) =>
+    copyText(pairUrl).then(
+      () => setCopied(true),
+      () => setCopied(false),
+    );
 
   const dialog = (
     <Dialog open={open} onOpenChange={change}>
