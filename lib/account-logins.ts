@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as schema from "../db/schema";
+import { seal } from "./creds";
 
-// The panel's half of connecting an account (R9b): the login row and the intent that tells a runner to run the login. It never sees a token.
+// The panel's half of connecting an account (R9b): the login row and the intent that tells a runner to run the login. It never sees a
+// subscription token; a pasted Cursor key is sealed on arrival and never read back (R27c).
 
 type Db = NodePgDatabase<typeof schema>;
 const { accountLogins, agentAccounts, intents } = schema;
@@ -58,7 +60,8 @@ export const loginForCard = (login: LoginRow) => login && { status: login.status
 export async function disconnectOwnAccount(database: Db, userId: string, accountId: string, at = new Date()) {
   const rows = await database
     .update(agentAccounts)
-    .set({ disconnected_at: at, sealed: Buffer.alloc(0) })
+    // Sharing ends too: reconnecting later starts unshared, so nobody's key goes back into the pool without them choosing it again.
+    .set({ disconnected_at: at, sealed: Buffer.alloc(0), shared: false })
     .where(and(eq(agentAccounts.id, accountId), eq(agentAccounts.owner_id, userId)))
     .returning({ id: agentAccounts.id });
   return rows.length ? ({ ok: true } as const) : ({ ok: false, status: 403, message: "You can only disconnect your own accounts." } as const);
@@ -72,4 +75,30 @@ export async function setAccountShared(database: Db, userId: string, accountId: 
     .where(and(eq(agentAccounts.id, accountId), eq(agentAccounts.owner_id, userId)))
     .returning({ id: agentAccounts.id });
   return rows.length ? ({ ok: true } as const) : ({ ok: false, status: 403, message: "You can only share your own accounts." } as const);
+}
+
+/** A Cursor API key: printable, no spaces, and short. */
+const API_KEY = /^[\x21-\x7e]{8,512}$/;
+
+/**
+ * Connects or replaces the user's own Cursor account (R27c): the pasted key is sealed to the runners' key and only the sealed
+ * bytes are stored. A reconnect reseals the same row, so its id and sharing stay. No outcome carries the key or a library error.
+ */
+export async function connectApiKey(database: Db, userId: string, apiKey: string, publicKey: string | undefined) {
+  const key = String(apiKey).trim();
+  if (!API_KEY.test(key)) return { ok: false, status: 400, message: "Paste the whole API key." } as const;
+  if (!publicKey) return { ok: false, status: 500, message: "HIVE_CREDS_PUBLIC_KEY is not set." } as const;
+  try {
+    const sealed = seal(key, publicKey);
+    const own = and(eq(agentAccounts.owner_id, userId), eq(agentAccounts.provider, "cursor"), eq(agentAccounts.kind, "api_key"));
+    const [existing] = await database.select({ id: agentAccounts.id }).from(agentAccounts).where(own).limit(1);
+    if (existing) await database.update(agentAccounts).set({ sealed, disconnected_at: null }).where(eq(agentAccounts.id, existing.id));
+    else
+      await database
+        .insert(agentAccounts)
+        .values({ id: randomUUID(), owner_id: userId, provider: "cursor", kind: "api_key", label: "Cursor API key", sealed, created_by: userId });
+    return { ok: true } as const;
+  } catch {
+    return { ok: false, status: 500, message: "Could not save the key." } as const;
+  }
 }

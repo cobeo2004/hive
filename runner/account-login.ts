@@ -106,7 +106,8 @@ export async function handleAccountLogin(
     .select()
     .from(accountLogins)
     .where(and(live, eq(accountLogins.status, "pending")));
-  if (!login) return { login: "skipped" };
+  // Cursor connects with a pasted key, never a relayed login (R27c).
+  if (!login || login.provider === "cursor") return { login: "skipped" };
   if (!env.HIVE_CREDS_PRIVATE_KEY) throw new Error("HIVE_CREDS_PRIVATE_KEY is not set; cannot seal an account");
   const { provider } = login;
   const status = (next: string) => rt.log("login:status", { loginId, provider, status: next });

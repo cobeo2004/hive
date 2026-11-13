@@ -644,11 +644,11 @@ export const linearSettings = pgTable("linear_settings", {
   updated_by: text("updated_by").notNull(),
 });
 
-export const agentProvider = pgEnum("agent_provider", ["claude", "codex"]);
+export const agentProvider = pgEnum("agent_provider", ["claude", "codex", "cursor"]);
 export const agentAccountKind = pgEnum("agent_account_kind", ["subscription", "api_key"]);
 
 /**
- * A Claude or Codex account agents run on (R36): an engineer's own, or a pool account when owner_id
+ * A Claude, Codex or Cursor account agents run on (R36): an engineer's own, or a pool account when owner_id
  * is null. The token is stored only sealed; disconnecting sets disconnected_at and clears sealed to
  * empty bytes.
  */

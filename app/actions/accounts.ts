@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/db/client";
-import { cancelLogin, disconnectOwnAccount, loginForCard, readLogin, setAccountShared, writeCode, writeLogin } from "@/lib/account-logins";
+import { cancelLogin, connectApiKey, disconnectOwnAccount, loginForCard, readLogin, setAccountShared, writeCode, writeLogin } from "@/lib/account-logins";
 import { currentUser } from "@/lib/auth/server";
 import { addPoolAccount as add, disconnectPoolAccount as disconnect, renamePoolAccount as rename } from "@/lib/pool-accounts";
 
@@ -35,6 +35,11 @@ export async function submitLoginCode(loginId: string, code: string) {
 
 export async function cancelAccountLogin(loginId: string) {
   await cancelLogin(db, await member(), loginId);
+}
+
+/** Cursor (R27c): your pasted API key, sealed here; the outcome is a status and a fixed message, never the key. */
+export async function connectMyApiKey(apiKey: string) {
+  return connectApiKey(db, await member(), apiKey, process.env.HIVE_CREDS_PUBLIC_KEY);
 }
 
 /** Your own account only; anyone else's id is 403 (Q21). */
