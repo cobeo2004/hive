@@ -61,6 +61,8 @@ export function unseal(sealed: Uint8Array, privateKeyPem: string): string {
 }
 
 export type CredsProvider = "claude" | "codex";
+/** Any account a sandbox reads: a lead's login, or the Cursor API key a lead hands work to (Cursor is never a lead, R21). */
+type AccountProvider = CredsProvider | "cursor";
 /** The account provider for a T3 harness: Claude Code's driver is `claudeAgent`, anything else runs on Codex. */
 export const credsProvider = (harnessProvider: string): CredsProvider => (harnessProvider === "claudeAgent" ? "claude" : "codex");
 
@@ -73,7 +75,7 @@ const inPool = (r: Pick<AccountRow, "owner_id" | "shared">, ownerId: string | nu
 export function pickAccount<R extends AccountRow>(
   rows: readonly R[],
   ownerId: string | null,
-  provider: CredsProvider,
+  provider: AccountProvider,
   usage: ReadonlyMap<string, number> = new Map(),
   pool: { threshold: number; pauseInstead: boolean } = { threshold: 90, pauseInstead: false },
   exclude: ReadonlySet<string> = new Set(),
@@ -105,7 +107,7 @@ export const runnerDefaultClaudeToken = (env: Env = process.env) => env.CLAUDE_C
  */
 export async function accountFor(
   jobKey: string,
-  provider: CredsProvider,
+  provider: AccountProvider,
   runnerDefault: string | undefined,
   env: Env = process.env,
 ): Promise<Account | "wait" | null> {

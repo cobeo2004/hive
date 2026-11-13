@@ -257,14 +257,20 @@ try {
     "hibernated with no slot to hand back",
   );
   const allSlots = sandboxRuntime.slots;
+  const accountOf = sandboxRuntime.account;
   sandboxRuntime.slots = () => [];
+  // R27e: a woken sandbox gets the owner's current Cursor key again.
+  sandboxRuntime.account = (async (k, provider, fallback) =>
+    provider === "cursor" ? { id: "cursor-acct", secret: "fake-cursor-key" } : accountOf(k, provider, fallback)) as typeof accountOf;
   try {
     await ensureAwake(clAsleep);
   } finally {
     sandboxRuntime.slots = allSlots;
+    sandboxRuntime.account = accountOf;
   }
   const clAwake = await row(CL);
   const sbClW = sandboxes.get(clAwake.sandbox_id!)!;
+  assert.equal(sbClW.spec!.secrets.CURSOR_API_KEY, "fake-cursor-key", "the woken sandbox gets the owner's Cursor key");
   assert.deepEqual([clAwake.sandbox_snapshot, clAwake.codex_slot], [null, null], "woken from its snapshot without a slot");
   assert.ok(!sbClW.execs.some((e) => e.argv.join(" ") === "codex login status") && !sbClW.files.has(CODEX_AUTH), "and no Codex login goes in");
   await db.update(jobs).set({ stage: "merged" }).where(eq(jobs.key, CL));
@@ -307,6 +313,7 @@ try {
     t3Version: "0.1.4",
     claudeCodeVersion: "2.1.311",
     codexVersion: "0.164.0",
+    cursorAgentVersion: "2026.11.11-b912975",
     playwrightMcpVersion: "0.0.83",
     pstack: { repo: "o/r", commit: "a".repeat(40), version: "0.9.70" },
   };
@@ -317,7 +324,15 @@ try {
       true,
       { t3Version: "0.1.3", factoryCommit: "abc1234", builtAt: image.builtAt, versions },
       "0.1.4",
-      { t3: "0.1.4", claudeCode: "2.1.311", codex: "0.164.0", playwrightMcp: "0.0.83", pstack: "0.9.70@aaaaaaaaaaaa", playbooks: playbooksVersion() },
+      {
+        t3: "0.1.4",
+        claudeCode: "2.1.311",
+        codex: "0.164.0",
+        cursorAgent: "2026.11.11-b912975",
+        playwrightMcp: "0.0.83",
+        pstack: "0.9.70@aaaaaaaaaaaa",
+        playbooks: playbooksVersion(),
+      },
       3,
     ],
     "the inventory reports the image's versions, build time and commit, every pin and the cap",

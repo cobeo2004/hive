@@ -27,7 +27,7 @@ const HARNESS = {
   codex: { title: "ChatGPT", note: "Your ChatGPT subscription, used by Codex", hint: "Open the link, sign in and enter this code." },
   cursor: {
     title: "Cursor",
-    note: "Your Cursor API key, used by Cursor",
+    note: "Your Cursor API key, used when a job hands work to Cursor",
     hint: "Paste an API key from your Cursor dashboard. It is sealed and never shown again.",
   },
 } as const;
@@ -157,11 +157,7 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
     <div className="flex flex-col gap-2.5 rounded-[10px] bg-(--surface-2) p-3.5">
       <div className="flex items-center justify-between gap-2">
         <b className="font-semibold">{title}</b>
-        {account ? (
-          <Badge variant="success">{provider === "cursor" ? "Connected" : "Signed in"}</Badge>
-        ) : (
-          <Badge variant="outline">{provider === "cursor" ? "Not connected" : "Team pool"}</Badge>
-        )}
+        {account ? <Badge variant="success">{provider === "cursor" ? "Connected" : "Signed in"}</Badge> : <Badge variant="outline">Team pool</Badge>}
       </div>
       <span className="text-xs text-muted-foreground">{note}</span>
       {apiKey !== null ? (
@@ -256,13 +252,15 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
               <Meter label="Weekly" reading={account.weekly} title={title} />
             </>
           )}
-          {/* ponytail: no job leases a Cursor key yet, so sharing one would do nothing; m3-09e turns this on with the sandbox lease. */}
-          {manage && provider !== "cursor" && (
+          {manage && (
             <label className="flex items-start justify-between gap-3 text-sm">
               <span className="flex flex-col gap-0.5">
                 <span>Share with the team pool</span>
                 <span className="text-xs text-muted-foreground">
-                  Teammates without their own {title} account can run their jobs on it. Turning it off stops new jobs; ones already on it finish.
+                  Teammates without their own {title} {provider === "cursor" ? "key can hand work to Cursor with it" : "account can run their jobs on it"}.
+                  {provider === "cursor"
+                    ? " Turning it off takes effect when a job next starts or wakes."
+                    : " Turning it off stops new jobs; ones already on it finish."}
                 </span>
               </span>
               <Switch checked={account.shared} disabled={pending} onCheckedChange={share} />
@@ -271,9 +269,7 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
           {manage &&
             (confirming ? (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm">
-                  Disconnect {title}?{provider === "cursor" ? "" : " Your jobs fall back to the team pool."}
-                </span>
+                <span className="text-sm">Disconnect {title}? Your jobs fall back to the team pool.</span>
                 <Button size="sm" variant="destructive" loading={pending} onClick={disconnect}>
                   Disconnect
                 </Button>

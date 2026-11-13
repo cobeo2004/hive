@@ -89,7 +89,7 @@ export function SetupSteps({
           <>
             <h1 className="text-2xl/[30px] font-semibold tracking-[-0.015em]">Connect your agents</h1>
             <p className="-mt-2 max-w-[60ch] text-sm/[21px] text-muted-foreground">
-              Jobs you own run on your own subscriptions first, then on the team pool. You can add more later in Settings.
+              Jobs you own run on your own accounts first, then on the team pool. You can add more later in Settings.
             </p>
             <YourAccounts accounts={accounts} />
           </>

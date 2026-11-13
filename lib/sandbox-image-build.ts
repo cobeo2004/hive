@@ -31,7 +31,7 @@ import { forbidInTest } from "./test-mode";
 // entry points are bundled here with Bun, one self-contained file each at the path the wiring
 // names, so the sandbox needs no checkout and no install; `factory-verify` on PATH runs
 // hooks/verify.ts. A sandbox from the base gets those files and the factory's playbooks,
-// and its filesystem snapshot, kept indefinitely, is the image. T3, Claude Code, Codex, Playwright MCP and PStack
+// and its filesystem snapshot, kept indefinitely, is the image. T3, Claude Code, Codex, the Cursor CLI, Playwright MCP and PStack
 // install at the versions factory.sandbox pins, and the build fails unless the sandbox reports
 // exactly those, holds this checkout's playbooks and runs the hook bundles; only then is the new
 // image id written, so a failed build leaves the old image in place.
@@ -55,13 +55,16 @@ const verifyWrapper = `#!/bin/sh
 exec bun ${FACTORY_ROOT}/hooks/verify.ts "$@"
 `;
 
-export type BuildLimits = Pick<SandboxLimits, "appName" | "t3Version" | "claudeCodeVersion" | "codexVersion" | "playwrightMcpVersion" | "pstack">;
+export type BuildLimits = Pick<
+  SandboxLimits,
+  "appName" | "t3Version" | "claudeCodeVersion" | "codexVersion" | "cursorAgentVersion" | "playwrightMcpVersion" | "pstack"
+>;
 type Log = (message: string) => void;
 /** Starts the build sandbox from the base layers; regressions pass a fake one. */
 type OpenBuildSandbox = (limits: BuildLimits, log: Log) => Promise<SandboxHandle>;
 
 /** The Dockerfile commands for the base layers, at the pinned versions. */
-const baseLayers = (limits: BuildLimits) => [
+export const baseLayers = (limits: BuildLimits) => [
   "RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates procps unzip && rm -rf /var/lib/apt/lists/*",
   "RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg" +
     ' && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list' +
@@ -69,6 +72,8 @@ const baseLayers = (limits: BuildLimits) => [
   "RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash",
   `RUN curl -fsSL https://t3.codes/install.sh | T3CODE_VERSION=${limits.t3Version} T3CODE_INSTALL_BIN_DIR=/usr/local/bin sh`,
   `RUN npm i -g @anthropic-ai/claude-code@${limits.claudeCodeVersion} @openai/codex@${limits.codexVersion}`,
+  // Cursor's installer (cursor.com/install) always fetches its latest build and checks no sum; this fetches the same tarball at the pinned one and checks its sha256.
+  cursorAgentLayer(limits.cursorAgentVersion),
   // The playwright CLI bundled with the pinned package installs the Chromium that exact version drives, with its OS libraries.
   `RUN npm i -g @playwright/mcp@${limits.playwrightMcpVersion} && cd "$(npm root -g)/@playwright/mcp" && npx --no-install playwright install --with-deps chromium && rm -rf /var/lib/apt/lists/*`,
   // Neither CLI pins a marketplace to a commit, so each adds the checkout as a local marketplace.
@@ -225,6 +230,7 @@ export async function buildSandboxImage({
       t3: parseVersion("t3", await sh(sandbox, "t3 --version")) ?? undefined,
       claudeCode: parseVersion("claudeCode", await sh(sandbox, "claude --version")) ?? undefined,
       codex: parseVersion("codex", await sh(sandbox, "codex --version")) ?? undefined,
+      cursorAgent: parseVersion("cursorAgent", await sh(sandbox, "cursor-agent --version")) ?? undefined,
       playwrightMcp: parseVersion("playwrightMcp", await sh(sandbox, "playwright-mcp --version")) ?? undefined,
       pstack: await pstackInImage(sandbox, limits, log),
       playbooks,
@@ -253,4 +259,24 @@ export async function buildSandboxImage({
     if (bundleDir) rmSync(bundleDir, { recursive: true, force: true });
     held.release();
   }
+}
+
+/** sha256 of Cursor's linux tarballs per pinned version: its installer checks none, so the image does. Bumping cursorAgentVersion needs both. */
+const CURSOR_AGENT_SHA256: Record<string, { x64: string; arm64: string }> = {
+  "2026.11.11-b912975": {
+    x64: "be01f42ad334f81d05a9992fcf060a52cc746f52cc451e849eb652146a6e3c91",
+    arm64: "f068af64ed91b5304605976586f690579679f740a41f388091a6b3a2e776987c",
+  },
+};
+
+function cursorAgentLayer(version: string) {
+  const sha = CURSOR_AGENT_SHA256[version];
+  if (!sha) throw new Error(`no sha256 pinned for cursor-agent ${version}; add it to CURSOR_AGENT_SHA256`);
+  return (
+    `RUN arch=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/') && case $arch in x64) sum=${sha.x64};; arm64) sum=${sha.arm64};; *) exit 1;; esac` +
+    ` && curl -fsSL -o /tmp/cursor-agent.tgz "https://downloads.cursor.com/lab/${version}/linux/$arch/agent-cli-package.tar.gz"` +
+    ` && echo "$sum  /tmp/cursor-agent.tgz" | sha256sum -c - && mkdir -p /usr/local/lib/cursor-agent` +
+    " && tar --strip-components=1 -xzf /tmp/cursor-agent.tgz -C /usr/local/lib/cursor-agent && rm /tmp/cursor-agent.tgz" +
+    " && ln -s /usr/local/lib/cursor-agent/cursor-agent /usr/local/bin/cursor-agent && ln -s /usr/local/lib/cursor-agent/cursor-agent /usr/local/bin/agent"
+  );
 }

@@ -26,6 +26,8 @@ export const sandboxSchema = z
     t3Version: z.string().default("0.1.3-nightly.20261023.3566"),
     claudeCodeVersion: z.string().default("2.1.310"),
     codexVersion: z.string().default("0.164.0"),
+    /** Cursor CLI build, from the tarball Cursor's official installer (cursor.com/install) downloads. */
+    cursorAgentVersion: z.string().default("2026.11.11-b912975"),
     playwrightMcpVersion: z.string().default("0.0.83"),
     /** The PStack marketplace repo at a commit; version is the plugin version that commit declares. */
     pstack: z

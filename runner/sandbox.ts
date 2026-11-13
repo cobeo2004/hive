@@ -157,8 +157,29 @@ async function pstackEnabled(host: JobHost) {
 /** Just what the hooks read: where to report. */
 export const ingestConfig = (config: Pick<FactoryConfig, "ingestUrl" | "secret">) => json({ ingestUrl: config.ingestUrl, secret: config.secret });
 
-/** Secrets the sandbox's processes see as environment variables; never an API key that would bill per token. */
-export const sandboxSecrets = (claudeToken: string | undefined): Record<string, string> => (claudeToken ? { CLAUDE_CODE_OAUTH_TOKEN: claudeToken } : {});
+/**
+ * Secrets the sandbox's processes see as environment variables. The only per-token API key is the
+ * owner's Cursor key (m3-09e), which a lead spends by handing work to `cursor-agent -p`.
+ */
+export const sandboxSecrets = (claudeToken: string | undefined, cursorKey?: string): Record<string, string> => ({
+  ...(claudeToken && { CLAUDE_CODE_OAUTH_TOKEN: claudeToken }),
+  ...(cursorKey && { CURSOR_API_KEY: cursorKey }),
+});
+
+/**
+ * The job owner's Cursor API key for CURSOR_API_KEY: their own account, else the pool's (R27e). It is
+ * never leased: an API key does not rotate, so any number of sandboxes share it. Cursor only helps a
+ * lead, so no key, or one that will not open, launches without it; the log names fixed text, never the key.
+ */
+export async function cursorKey(key: string): Promise<string | undefined> {
+  try {
+    const account = await sandboxRuntime.account(key, "cursor", undefined);
+    return account && account !== "wait" ? account.secret : undefined;
+  } catch (error) {
+    sandboxRuntime.log("sandbox:no-cursor-key", { key, error: error instanceof Error ? error.message.split("\n")[0] : "unknown error" });
+    return undefined;
+  }
+}
 
 const sh = async (host: JobHost, script: string, timeoutMs = 60_000) => (await host.run("bash", ["-c", script], { timeoutMs })).stdout;
 
@@ -357,6 +378,7 @@ export async function createJobSandbox({
   imageId,
   limits,
   claudeToken,
+  cursorKey,
   namedSecrets = [],
 }: {
   key: string;
@@ -366,6 +388,7 @@ export async function createJobSandbox({
   imageId: string;
   limits: SandboxLimits;
   claudeToken: string | undefined;
+  cursorKey?: string;
   /** The repo's Modal secret, when its recipe's env vars have values saved. */
   namedSecrets?: string[];
 }) {
@@ -373,7 +396,7 @@ export async function createJobSandbox({
     name: sandboxName(key, attempt),
     tags: { job: key, attempt: String(attempt), label, machine: machineId },
     imageId,
-    secrets: sandboxSecrets(claudeToken),
+    secrets: sandboxSecrets(claudeToken, cursorKey),
     namedSecrets,
     // Claude Code refuses full access as root unless told it is in a sandbox.
     env: { IS_SANDBOX: "1" },

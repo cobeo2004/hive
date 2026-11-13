@@ -9,7 +9,8 @@ import { fake, FakeSandbox, type Reply } from "./fake-modal";
 const { factorySchema } = await import("../lib/config");
 const { sandboxReadinessSchema } = await import("../lib/machine");
 const { pinnedVersions, PSTACK_PLUGIN, readSandboxImage } = await import("../lib/sandbox");
-const { buildLockPath, buildSandboxImage, BuildLockedError } = await import("../lib/sandbox-image-build");
+const { baseLayers, buildLockPath, buildSandboxImage, BuildLockedError } = await import("../lib/sandbox-image-build");
+const { imageDrift, rebuildText } = await import("../lib/machine");
 const { baseImageBuild, baseImageIdle, baseImageRuntime, rebuildBaseImage, resetBaseImage, RETRY_AFTER_MS, stopBaseImage } = await import(
   "../runner/base-image"
 );
@@ -36,6 +37,7 @@ function buildBox(overrides: { claudeCode?: string; verifyExit?: number } = {}) 
     if (script === "t3 --version") return { stdout: `t3 v${limits.t3Version}` };
     if (script === "claude --version") return { stdout: `${overrides.claudeCode ?? limits.claudeCodeVersion} (Claude Code)` };
     if (script === "codex --version") return { stdout: `codex-cli ${limits.codexVersion}` };
+    if (script === "cursor-agent --version") return { stdout: limits.cursorAgentVersion };
     if (script === "playwright-mcp --version") return { stdout: `Version ${limits.playwrightMcpVersion}` };
     if (script === "claude plugin list --json")
       return { stdout: JSON.stringify([{ id: PSTACK_PLUGIN, version: limits.pstack.version, enabled: true, installPath: "/root/pstack" }]) };
@@ -48,6 +50,20 @@ function buildBox(overrides: { claudeCode?: string; verifyExit?: number } = {}) 
     return {};
   };
   return box;
+}
+
+// m3-09e: the image installs cursor-agent from Cursor's tarball at the pinned build, and an image built before it is rebuilt.
+{
+  const layer = baseLayers(limits).find((l) => l.includes("cursor-agent"));
+  assert.ok(layer?.includes(`https://downloads.cursor.com/lab/${limits.cursorAgentVersion}/linux/`), "cursor-agent comes at the pinned build");
+  assert.ok(layer?.includes("/usr/local/bin/cursor-agent"), "on PATH");
+  assert.ok(
+    layer?.includes("sha256sum -c") && layer.includes("be01f42ad334f81d05a9992fcf060a52cc746f52cc451e849eb652146a6e3c91"),
+    "the tarball is checked against its pinned sha256",
+  );
+  assert.throws(() => baseLayers({ ...limits, cursorAgentVersion: "0.0.0-unpinned" }), /no sha256 pinned/, "a version without a pinned sha256 does not build");
+  const before = { ...pinned, cursorAgent: undefined };
+  assert.equal(rebuildText(imageDrift(before, pinned)), `Rebuild the sandbox image: Cursor CLI missing → ${limits.cursorAgentVersion}`);
 }
 
 // The build: the new id is written only after the pins read back and the hook bundles run.
