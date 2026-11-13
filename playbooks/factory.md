@@ -15,20 +15,20 @@ No human reads this thread while it runs. The Hive panel, the Linear issue and t
 - **Every gate is yours or Hive's, never a person's in this thread.** No `AskUserQuestion`, no plan-mode approval prompt, no question that waits for a reply in the thread. Nobody answers. Gates pass as described in "Gates in an unattended run". Treat the run as a full-autonomy grant for every reversible step.
 - **Blocked or ambiguous means `waiting`.** When the issue does not say what done looks like, or something outside the repo blocks you, call `report_stage` with `stage: "waiting"`, what you found, and a `question` the reporter can answer in one reply. Name each decision you need and offer two or three concrete options for each. Then end the turn. Do not guess, and do not open a PR for a guess.
 - **Never merge.** Never run `gh pr merge`, never arm auto-merge, never push to the base branch, never force-push. The run ends at a merge-ready PR reported with a merge assessment. Hive decides whether it merges or goes to a person.
-- **Children never commit.** Routed children (`sstack-dispatch`) write files only. You commit, push and open the PR. Bring a worktree child's diff into this checkout before Phase 3, as `work` says.
+- **Children never commit.** Routed children (`sstack-dispatch`) write files only. You commit, push and open the PR. Bring a worktree child's diff into this checkout before the `gate` step, as `work` says.
 - **Clean up only what you started.** Other runs share this machine, its simulators and its ports. Start dev servers on a free port and stop the PID you started before the turn ends. Shut down a simulator or emulator only if you booted it. Never `pkill` or `killall` by name.
-- **Prove the commit you ship.** Before you report `pr`, run `factory-verify` in this worktree on the final pushed commit, with nothing uncommitted. It runs `.sstack/project.toml`'s `verify` list at `HEAD` and reports exit codes for that exact commit. Hive only merges a head whose checks passed there. If you push again, run it again.
+- **Prove the commit you ship.** Before you report `pr`, run `factory-verify` (`bun <factory root>/hooks/verify.ts`; the `report_stage` reply for `verifying` names the exact command) in this worktree on the final pushed commit, with nothing uncommitted. It runs `.sstack/project.toml`'s `verify` list at `HEAD` and reports exit codes for that exact commit. Hive only merges a head whose checks passed there. If you push again, run it again.
 - **Show what you change.** For a change a user can see, follow sstack's `testing.md` on the surfaces `[test.*]` names: drive the page in T3's browser or the app in T3's device panel, and save `before-<step>` and `after-<step>` media in `<run>/media/`. Without media, Hive hands a UI change to a person.
 - **Giving up means `failed`.** A third fix round on the same failure, a broken toolchain or a dead end: call `report_stage` with `stage: "failed"` and the reason, then end the turn.
 
 ## Gates in an unattended run
 
-SSTACK_UNATTENDED=1 is set, and `.sstack/config.toml` `[unattended]` holds the plan gate setting.
+`SSTACK_UNATTENDED=1` is set, so `sstack-workflow done` prints `GATE: unattended, …` instead of waiting for a yes, and `work`'s `steps.md` § Unattended applies. The plan gate comes from `SSTACK_PLAN_GATE` when Hive sets it at launch, else from `.sstack/config.toml` `[unattended] plan_gate`; `sstack-workflow unattended` prints the one in force.
 
-- **Gate 0 (recon):** passes when `recon.md` is written and every heading has content or says plainly what you could not verify. Do not wait for a reader.
-- **Gate 1 (plan):** with `plan_gate = "auto"`, you approve your own plan only when every `R#` has at least one check in `answer-key.md`; an uncovered requirement means `waiting` with the requirement named. With `plan_gate = "inbox"`, call `report_stage` with `stage: "waiting"`, `kind: "plan_approval"`, and `plan.md` and `answer-key.md` attached, then end the turn. Hive resumes the thread with the approval or the requested changes.
-- **Gate 3 (tests and review):** passes when every answer-key check is green and no Important finding is open. An Important finding you believe is wrong stays open; note it for the assessment instead of overriding it.
-- **Gate 4 (commit, push, PR):** always passes. This run is the standing request to open the PR.
+- **Gate 0 (recon):** passes when `recon.md` has all six headings, each with content or saying plainly what you could not verify. Do not wait for a reader.
+- **Gate 1 (plan):** with `plan_gate = "auto"`, you approve your own plan only when every `R#` has at least one check in `answer-key.md`; an uncovered requirement you cannot write a check for means `waiting` with the requirement named. With `plan_gate = "inbox"` (`WAITING: plan_approval`), call `report_stage` with `stage: "waiting"`, `kind: "plan_approval"`, and `plan.md` and `answer-key.md` attached, then end the turn. Hive resumes the thread with the approval or the requested changes.
+- **Gate 3 (gate and review):** passes when every answer-key check is green and no Important finding is open. An Important finding you believe is wrong stays open; note it for the assessment instead of overriding it.
+- **Gate 4 (pr):** always passes. This run is the standing request to commit, push, open the PR and publish its media.
 
 ## Triage
 
@@ -44,7 +44,7 @@ A run that stopped in `waiting` resumes when someone answers on Linear or in the
 
 1. Read the run directory's `progress.md`, `plan.md` and latest reports, and check `git status` and `git log` against them, as `work`'s Resume says.
 2. The answer is the spec. Where it picks an option you offered, build that option and nothing the reporter did not ask for. Where it adds a request, add an `R#` for it.
-3. A plan approval resumes at Phase 2. Requested plan changes resume at Phase 1. Anything else resumes at Triage: call `report_stage` with `stage: "triage"` and keep the branch and its commits.
+3. A plan approval resumes at the `implement` step. Requested plan changes resume at the `plan` step. Anything else resumes at Triage: call `report_stage` with `stage: "triage"` and keep the branch and its commits.
 4. Still unable to write a falsifiable done: report `waiting` once more with one concrete question about what is still open, and end the turn.
 
 ## Merge conflicts
@@ -71,19 +71,42 @@ When you report `pr`, pass `assessment` with `recommendation`, `interpretation`,
 
 ### work
 
-- **Before** Phase 0 step 1, call `report_stage` with `stage: "investigating"`.
-- **Replace** step 3 of Phase 0 ("No falsifiable definition of done … run `grill` first") with: The requirements written in Triage are the definition of done. If one is still not falsifiable after recon, report `waiting` and stop.
-- **Replace** "**Gate 0:** the user reads the report. Don't plan until they respond." with: Gate 0 as in "Gates in an unattended run".
-- **Before** Phase 1 step 1, call `report_stage` with `stage: "planning"`.
-- **Replace** "**Gate 1:** the harness's plan approval …" with: Gate 1 as in "Gates in an unattended run".
-- **Before** Phase 2's first dispatch, call `report_stage` with `stage: "implementing"`.
-- **Replace** "if it fails again, stop and ask" in Phase 3's loop guard with: if it fails again, report `failed` with the failing command and its output.
-- **Before** Phase 3 step 1, call `report_stage` with `stage: "verifying"`.
-- **Replace** "every Important finding fixed or agreed out of lane by the user" with: every Important finding fixed, or left open and named in the assessment as the reason for `handover`.
-- **In** Phase 4 step 2, merge the base branch instead of rebasing a pushed branch.
-- **Replace** "**Gate 4:** the user's explicit yes before commit, push or PR, and before publishing media." with: Gate 4 as in "Gates in an unattended run". Commit with Conventional Commits prefixed by the issue key, as in `UNI-482 fix(linking): replay the pending invite link after auth restores`. Start the PR body with `Linear: [UNI-482](<issue url>)`.
+The chain `sstack-workflow show` prints is `recon`, `plan`, `implement`, `gate`, `review`, `pr` unless the repository changed it; these changes quote `work`'s `steps.md`.
+
+#### recon
+
+- **Before** "Check the checkout", call `report_stage` with `stage: "investigating"`.
+- **Replace** "No falsifiable definition of done and no `decisions.md` → run `grill` first." with: The requirements written in Triage are the definition of done. If one is still not falsifiable after recon, report `waiting` and stop.
+- **Replace** "the user reads the report: don't plan until they respond" with: Gate 0 as in "Gates in an unattended run".
+
+#### plan
+
+- **Before** "Write `plan.md`", call `report_stage` with `stage: "planning"`.
+- **Replace** "the harness's plan approval (see harness notes) or an explicit "yes" in chat where there is none" with: Gate 1 as in "Gates in an unattended run".
+
+#### implement
+
+- **Before** the step's first dispatch, call `report_stage` with `stage: "implementing"`.
+
+#### gate
+
+- **Before** "Restore `protected/` in `restore` mode.", call `report_stage` with `stage: "verifying"`.
+- **Replace** "the loop cap stops the attempt after that (`STOP: ask user`)" with: when the loop cap stops it, report `failed` with the failing command and its output.
+
+#### review
+
+- **Replace** "Nothing continues until the user says yes." with: Gate 3 as in "Gates in an unattended run". An Important finding left open is named in the assessment as the reason for `handover`.
+
+#### pr
+
+- **In** "**Wiki.**", you write the pages, in this thread: add or refresh pages under `.sstack/wiki/` for what this run learned that the code doesn't show, including what children flagged in their reports, and fix every page `index` marks `[stale]` whose `paths` this run changed. Then run `sstack-wiki index` and `sstack-wiki lint`; a lint error is fixed before the PR. The pages land in this job's PR. Children never write pages: a child's brief asks it to put wiki-worthy findings in its report.
+- **Replace** "Rebase/merge base" with: Merge the base branch; never rebase a pushed branch.
+- **Replace** "the user's explicit yes (unattended: none, see above) before commit, push or PR, and before publishing media" with: Gate 4 as in "Gates in an unattended run". Commit with Conventional Commits prefixed by the issue key, as in `UNI-482 fix(linking): replay the pending invite link after auth restores`. Start the PR body with `Linear: [UNI-482](<issue url>)`.
 - **After** `sstack-pr-media <pr> <run>/media/* --edit-body`, start `babysit` on that PR right away.
-- **Skip** the closing `reflect` step. Hive collects corrections from the Inbox and runs `reflect` itself.
+
+#### Always
+
+- **Skip** "at the end, run `reflect` if the user corrected you or you hit a dead end". Hive collects corrections from the Inbox and runs `reflect` itself.
 
 ### bug-fix
 

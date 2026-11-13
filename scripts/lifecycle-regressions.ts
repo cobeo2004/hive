@@ -415,7 +415,7 @@ try {
   );
   assert.ok(
     launched.includes(
-      "This repository also has .agents/playbooks/factory.md. The factory playbook at /opt/marshal-factory/playbooks/factory.md is authoritative",
+      "This repository also has .sstack/playbooks/factory.md. The factory playbook at /opt/marshal-factory/playbooks/factory.md is authoritative",
     ),
     "over the repo's own copy",
   );
