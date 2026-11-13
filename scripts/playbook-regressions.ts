@@ -114,9 +114,10 @@ const section = (heading: string) => {
   const level = heading.indexOf(" ");
   const start = playbook.indexOf(`\n${heading}\n`);
   assert.ok(start >= 0, `the playbook has ${heading}`);
-  const rest = playbook.slice(start + heading.length + 2);
-  const end = rest.search(new RegExp(`\\n#{1,${level}} `));
-  return end < 0 ? rest : rest.slice(0, end);
+  const lines = playbook.slice(start + heading.length + 2).split("\n");
+  const hashes = (line: string) => line.length - line.replace(/^#+/, "").length;
+  const end = lines.findIndex((line) => hashes(line) >= 1 && hashes(line) <= level && line[hashes(line)] === " ");
+  return (end < 0 ? lines : lines.slice(0, end)).join("\n");
 };
 assert.match(
   playbook,
