@@ -579,8 +579,9 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
       const codexSlot = !needsCodexSlot(choice.provider) || codex?.kind === "api_key" ? null : await leaseCodexSlot(key, marker, slots);
       if (codexSlot === undefined) {
         await releaseLaunch(key, marker);
-        // R27d: no own, shared or pool account and no runner login to fall back on: the owner has to connect one.
-        if (slots.length === 0) return queuedNote(key, NO_ACCOUNT, "sandbox:account-needed");
+        // R27d: no own, shared or pool account and no runner login configured: the owner has to connect one. Configured logins
+        // that are only marked unusable are the runner's problem, not the owner's, so that stays sandbox:no-slot.
+        if (!codex && sandboxRuntime.slots(limits).length === 0) return queuedNote(key, NO_ACCOUNT, "sandbox:account-needed");
         runtime.log("sandbox:no-slot", { key, slots: limits.codexSlots.length });
         return false;
       }

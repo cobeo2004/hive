@@ -71,6 +71,8 @@ try {
   const listed = async (admin: boolean) => (await poolAccounts(db, { id: C, admin })).find((a) => a.id === ownB)?.ownerName;
   assert.equal(await listed(true), `Name ${B}`, "an admin sees who shares it");
   assert.equal(await listed(false), null, "an engineer sees that it is shared, not by whom");
+  const seen = (await poolAccounts(db, { id: C, admin: false })).find((a) => a.id === ownB);
+  assert.equal(seen?.ownerId, "member", "nor the sharer's user id");
 } finally {
   await db.delete(runs).where(inArray(runs.job_key, [jobA, jobC]));
   await db.delete(jobs).where(inArray(jobs.key, [jobA, jobC]));
