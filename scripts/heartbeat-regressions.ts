@@ -463,6 +463,7 @@ try {
           fresh.push(options);
           await new Promise((resolve) => setTimeout(resolve, 20));
           await writeInventory(id, inventoryA, new Date());
+          return true;
         },
         () => {},
       );
@@ -498,6 +499,7 @@ try {
       async () => true,
       async () => {
         tries++;
+        return true;
       },
       () => {},
       { now: () => clock },
@@ -507,6 +509,43 @@ try {
     clock = 60_000;
     await failing();
     assert.equal(tries, 2, "it is retried after retryMs");
+    tries = 0;
+    let busy = true;
+    const skipping = checkNowWatcher(
+      async () => true,
+      async () => {
+        tries++;
+        busy = !busy;
+        return busy;
+      },
+      () => {},
+      { now: () => clock },
+    );
+    await skipping();
+    await skipping();
+    assert.equal(tries, 2, "a fresh beat skipped because one was running starts no cooldown");
+
+    // A collection that began before the click, even a fresh one, does not answer it.
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const gated = createBeat({
+      machine: mine,
+      heartbeatCollectors: ok,
+      inventoryCollectors: { ...stubCollectors, browser: () => gate.then(() => inventoryA.browser) },
+      inventoryMs: 600_000,
+      log: () => {},
+    });
+    assert.notEqual(await inventoryAt(mine.id), null);
+    const inFlight = gated({ fresh: true });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await checkMachineNow({ db, user: person("admin") }, mine.id);
+    release();
+    await inFlight;
+    assert.equal(await inventoryAt(mine.id), null, "a collection that began before the click keeps the click's null");
+    await gated({ fresh: true });
+    assert.notEqual(await inventoryAt(mine.id), null, "the next fresh beat answers it");
   } finally {
     await db.delete(machines).where(eq(machines.id, mine.id));
     await db.delete(machines).where(eq(machines.id, other.id));
