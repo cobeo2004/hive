@@ -84,6 +84,9 @@ await db.insert(jobs).values(
 const again = await run(admin);
 assert.deepEqual(again, { ok: true, existing: true, key: "FAC-1", href: "/?view=list&run=s-1" }, "once claimed, a second click returns the job");
 assert.equal(filed.length, 0, "and files nothing");
+await db.delete(machines);
+assert.deepEqual(await run(admin), again, "an unsettled job is returned even when no Mac is ready now");
+await db.insert(machines).values([mac("mac-ios", inventory(false)), mac("mac-1", inventory())]);
 assert.deepEqual(
   (await testJobStatus(db)).last,
   { key: "FAC-1", href: "/?view=list&run=s-1", stage: "implementing", checks: null },
@@ -147,6 +150,14 @@ assert.deepEqual(
   settled?.checks?.filter((c) => !c.ok).map((c) => `${c.name}: ${c.detail}`),
   [],
   "read from its row, media and evidence, all passing",
+);
+await db
+  .update(jobs)
+  .set({ merge_decision: { outcome: "handover", reasons: [], headSha: "c".repeat(40) } as never })
+  .where(eq(jobs.key, "FAC-1"));
+assert.ok(
+  (await testJobStatus(db)).last?.checks?.some((c) => !c.ok),
+  "evidence that passed at an older commit does not count for the PR's head",
 );
 const next = await run(admin);
 assert.equal(next.ok && !next.existing && filed.length, 1, "after it settles, a click files a new one");

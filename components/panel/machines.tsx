@@ -328,6 +328,8 @@ function TestJob({ status, blocker }: { status: TestJobStatus; blocker: string |
       if (result.ok) router.refresh();
     });
   const last = status.last;
+  // An unsettled job stays reachable when the machines stop being ready; readiness only gates filing a new one.
+  const gate = last !== null && last.checks === null ? null : blocker;
   return (
     <section aria-label="Test job" className="flex flex-col gap-2 rounded-[10px] border p-3.5 text-sm">
       <div className="flex items-start gap-3">
@@ -335,11 +337,11 @@ function TestJob({ status, blocker }: { status: TestJobStatus; blocker: string |
           Files a job on <span className="font-mono text-foreground">{status.repo}</span> that screenshots a page in the browser, the iOS Simulator and the
           Android Emulator on a pool Mac.
         </p>
-        <Button size="xs" variant="outline" className="shrink-0" onClick={run} disabled={pending || blocker !== null}>
+        <Button size="xs" variant="outline" className="shrink-0" onClick={run} disabled={pending || gate !== null}>
           {pending ? "Filing…" : "Run test job"}
         </Button>
       </div>
-      {blocker && <span className="text-xs text-muted-foreground">{blocker}</span>}
+      {gate && <span className="text-xs text-muted-foreground">{gate}</span>}
       {outcome && !outcome.ok && (
         <span role="alert" className="text-xs text-destructive">
           {outcome.message}

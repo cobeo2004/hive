@@ -40,10 +40,11 @@ const link = (job: Row): TestJobLink => ({ key: job.key, href: job.session_id ? 
 
 export async function runTestJob(deps: Deps): Promise<RunTestJobOutcome> {
   if (!isAdmin(await deps.user())) return { ok: false, message: "Only an admin can run the test job." };
+  const last = await latest(deps.db);
+  // An unsettled job is shown whatever the machines say now; readiness only gates filing a new one.
+  if (last && !settled(last)) return { ok: true, existing: true, ...link(last) };
   const blocker = testJobBlocker(await deps.db.select().from(machines), Date.now());
   if (blocker) return { ok: false, message: blocker };
-  const last = await latest(deps.db);
-  if (last && !settled(last)) return { ok: true, existing: true, ...link(last) };
   // Keyed on the job before it: a second click before the runner claims this one gets Linear's issue back, not a new one.
   const requestId = uuid(
     createHash("sha256")
@@ -65,14 +66,15 @@ export async function testJobStatus(db: Db): Promise<TestJobStatus> {
   const media = job.assessment_event_id
     ? await db.select({ file: jobMedia.file, bytes: jobMedia.bytes }).from(jobMedia).where(eq(jobMedia.stage_event_id, job.assessment_event_id))
     : [];
-  const sha = job.evidence?.sha;
+  // The PR head the merge decision read, so evidence that passed at an older commit does not count for a newer head.
+  const sha = job.merge_decision?.headSha ?? job.evidence?.sha;
   const [evidence] = sha
     ? await db
         .select()
         .from(jobEvidence)
         .where(and(eq(jobEvidence.job_key, job.key), eq(jobEvidence.sha, sha)))
     : [];
-  // ponytail: the panel has no gh, so the head is the latest evidence's sha and its state the stage's; the canary asks GitHub.
+  // ponytail: the panel has no gh, so the head is the decision's (else the latest evidence's) and its state the stage's; the canary asks GitHub.
   const head = job.pr_url ? { sha: sha ?? "", state: job.stage === "pr" ? "OPEN" : job.stage.toUpperCase() } : null;
   return { repo: TEST_JOB_REPO, last: { ...link(job), stage: job.stage, checks: checks("devices", job, head, media, evidence) } };
 }
