@@ -81,8 +81,10 @@ export async function disconnectPoolAccount(deps: Deps, input: unknown): Promise
   }
 }
 
-/** The live pool accounts, for any signed-in member (Q21). ponytail: reuses the meter query; pool rows hold no owner data. */
+/** The live pool accounts, for any signed-in member (Q21), with the ones members share (R27d); only an admin sees who shares each. ponytail: reuses the meter query. */
 export async function poolAccounts(db: Db, viewer: Viewer | null): Promise<MeterAccount[]> {
   if (!viewer) return [];
-  return ((await accountMeters(db, { ...viewer, admin: true })).accounts ?? []).filter((a) => a.ownerId === null);
+  return ((await accountMeters(db, { ...viewer, admin: true })).accounts ?? [])
+    .filter((a) => a.ownerId === null || a.shared)
+    .map((a) => (viewer.admin ? a : { ...a, ownerName: null }));
 }

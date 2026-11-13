@@ -31,7 +31,7 @@ const { factorySchema, TEST_MACHINE_ID } = await import("../lib/config");
 const { canReclaim, canReclaimSql, stopDeliverable, stopDeliverableSql } = await import("../runner/binding");
 const { and, sql } = await import("drizzle-orm");
 const { launchEntries, maybeStarted, MaybeStartedError, mobileRepos, parseThreadId, placeMobile, startLead, startThread } = await import("../runner/launch");
-const { launchInSandboxes } = await import("../runner/launch");
+const { launchInSandboxes, NO_ACCOUNT } = await import("../runner/launch");
 const { LOCAL_CONFIG, startUnattended, unattendedConfig } = await import("../runner/unattended");
 const { isMobileSnapshot } = await import("../lib/execution");
 const { hosts, localHost } = await import("../lib/host");
@@ -837,7 +837,15 @@ try {
     "the account is leased to the local job",
   );
   assert.equal((await db.select().from(jobs).where(eq(jobs.key, cloud)))[0]!.machine_id, null, "the cloud job is not claimed");
-  Object.assign(sandboxRuntime, { account: async () => "wait" });
+  // R27d: no own, shared or pool account and no runner login: the job stays queued and says to connect one.
+  const blocked = `${id}-no-account`;
+  await db.insert(jobs).values(linearJob(blocked, blocked, { stage: "queued" }));
+  const slots = sandboxRuntime.slots;
+  Object.assign(sandboxRuntime, { account: async () => null, slots: () => [] });
+  assert.deepEqual(await launchInSandboxes([{ ...entry(blocked), harness: { provider: "codex", model: "m" } }], slot), [], "no thread starts");
+  const queued = (await db.select().from(jobs).where(eq(jobs.key, blocked)))[0]!;
+  assert.deepEqual([queued.stage, queued.stage_summary, queued.machine_id], ["queued", NO_ACCOUNT, null], "R27d: the job asks its owner to connect an account");
+  Object.assign(sandboxRuntime, { account: async () => "wait", slots });
   // 1.3 on an untracked harness, whatever status T3 settled on: with a PR open the job stays at pr with one note and is never relaunched; with none it fails for the next account.
   const openPr = "https://github.com/ski043/factory-demo/pull/1";
   const posted: { jobKey?: string; stage?: string }[] = [];

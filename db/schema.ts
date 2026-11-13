@@ -664,6 +664,8 @@ export const agentAccounts = pgTable(
     /** The sealed token; the panel cannot open it (R36). */
     sealed: bytea("sealed").notNull(),
     created_by: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    /** The owner opted in to lend it to the team pool: it serves other people's jobs when they have none of their own (R27d). */
+    shared: boolean("shared").notNull().default(false),
     created_at: ts("created_at").notNull().defaultNow(),
     disconnected_at: ts("disconnected_at"),
   },

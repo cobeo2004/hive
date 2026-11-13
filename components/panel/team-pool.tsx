@@ -92,7 +92,9 @@ export function TeamPoolSection({ accounts, pool, readOnly = false }: Props) {
                   ) : (
                     <>
                       <span className="min-w-40 flex-1 break-all font-mono text-sm">{a.label}</span>
-                      <span className="text-sm text-muted-foreground">{`${PROVIDERS[a.provider]} · ${keyed ? "API key" : "Subscription"}`}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {`${PROVIDERS[a.provider]} · ${keyed ? "API key" : "Subscription"}${a.ownerId === null ? "" : ` · shared by ${a.ownerName ?? "a teammate"}`}`}
+                      </span>
                       {keyed ? (
                         <span className="w-32 text-sm text-muted-foreground">No meter</span>
                       ) : (
@@ -101,7 +103,8 @@ export function TeamPoolSection({ accounts, pool, readOnly = false }: Props) {
                           <span className="text-xs tabular-nums text-muted-foreground">{pct === null ? "—" : `${Math.round(pct)}%`}</span>
                         </span>
                       )}
-                      {!readOnly && (
+                      {/* A shared account stays its owner's: only they stop sharing or disconnect it. */}
+                      {!readOnly && a.ownerId === null && (
                         <span className="flex gap-1">
                           <Ghost onClick={() => setRenaming({ id: a.id, label: a.label })}>Edit</Ghost>
                           <Ghost onClick={() => setDisconnecting(a)}>Disconnect</Ghost>

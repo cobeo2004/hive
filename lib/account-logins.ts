@@ -63,3 +63,13 @@ export async function disconnectOwnAccount(database: Db, userId: string, account
     .returning({ id: agentAccounts.id });
   return rows.length ? ({ ok: true } as const) : ({ ok: false, status: 403, message: "You can only disconnect your own accounts." } as const);
 }
+
+/** Opt your own account in or out of the team pool (R27d). Anyone else's id, or one that does not exist, gets the same 403. Opting out stops new leases; a run already on it keeps it. */
+export async function setAccountShared(database: Db, userId: string, accountId: string, shared: boolean) {
+  const rows = await database
+    .update(agentAccounts)
+    .set({ shared })
+    .where(and(eq(agentAccounts.id, accountId), eq(agentAccounts.owner_id, userId)))
+    .returning({ id: agentAccounts.id });
+  return rows.length ? ({ ok: true } as const) : ({ ok: false, status: 403, message: "You can only share your own accounts." } as const);
+}

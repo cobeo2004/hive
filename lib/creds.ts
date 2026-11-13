@@ -64,7 +64,10 @@ export type CredsProvider = "claude" | "codex";
 /** The account provider for a T3 harness: Claude Code's driver is `claudeAgent`, anything else runs on Codex. */
 export const credsProvider = (harnessProvider: string): CredsProvider => (harnessProvider === "claudeAgent" ? "claude" : "codex");
 
-type AccountRow = Pick<typeof agentAccounts.$inferSelect, "id" | "owner_id" | "provider" | "sealed" | "disconnected_at" | "created_at">;
+type AccountRow = Pick<typeof agentAccounts.$inferSelect, "id" | "owner_id" | "provider" | "shared" | "sealed" | "disconnected_at" | "created_at">;
+
+/** The team pool for a job's owner (R27d): accounts nobody owns, and other people's accounts they chose to share. */
+const inPool = (r: Pick<AccountRow, "owner_id" | "shared">, ownerId: string | null) => r.owner_id === null || (r.shared && r.owner_id !== ownerId);
 
 /** R10a: the owner's account under 95% of its 5h window, else the lowest-use pool account, else "wait" (pool full, pauseInstead on). No pool row: undefined (Q17). */
 export function pickAccount<R extends AccountRow>(
@@ -80,7 +83,7 @@ export function pickAccount<R extends AccountRow>(
     .filter((r) => r.provider === provider && !r.disconnected_at && !exclude.has(r.id))
     .sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
   const own = ownerId === null ? undefined : live.find((r) => r.owner_id === ownerId && pct(r) < 95);
-  const shared = live.filter((r) => r.owner_id === null);
+  const shared = live.filter((r) => inPool(r, ownerId));
   if (own || shared.length === 0) return own;
   if (pool.pauseInstead && shared.every((r) => pct(r) >= pool.threshold)) return "wait";
   return shared.reduce((best, r) => (pct(r) < pct(best) ? r : best));
@@ -111,6 +114,13 @@ export async function accountFor(
   const { config } = await import("../runner/config");
   const [job] = await db.select({ owner: jobs.owner_id, failure: jobs.previous_failure, attempt: jobs.attempt }).from(jobs).where(eq(jobs.key, jobKey));
   const owner = job?.owner ?? null;
+  const branch = attemptBranch(jobKey, job?.attempt ?? 1);
+  const prior = await db
+    .select({ id: runs.account_id, branch: runs.branch, at: runs.last_event_at })
+    .from(runs)
+    .where(and(eq(runs.job_key, jobKey), isNotNull(runs.account_id)));
+  // This attempt's account stays its own across wakes, even if its owner stopped sharing it since.
+  const kept = prior.find((p) => p.branch === branch)?.id;
   const rows = await db
     .select()
     .from(agentAccounts)
@@ -118,22 +128,22 @@ export async function accountFor(
       and(
         eq(agentAccounts.provider, provider),
         isNull(agentAccounts.disconnected_at),
-        or(isNull(agentAccounts.owner_id), owner ? eq(agentAccounts.owner_id, owner) : undefined),
+        or(
+          isNull(agentAccounts.owner_id),
+          eq(agentAccounts.shared, true),
+          owner ? eq(agentAccounts.owner_id, owner) : undefined,
+          kept ? eq(agentAccounts.id, kept) : undefined,
+        ),
       ),
     );
   const ids = rows.map((r) => r.id);
   const metered = and(inArray(accountUsage.account_id, ids), eq(accountUsage.window, "5h"));
   const meters = rows.length ? await db.select({ id: accountUsage.account_id, pct: accountUsage.used_pct }).from(accountUsage).where(metered) : [];
-  const branch = attemptBranch(jobKey, job?.attempt ?? 1);
-  const prior = await db
-    .select({ id: runs.account_id, branch: runs.branch, at: runs.last_event_at })
-    .from(runs)
-    .where(and(eq(runs.job_key, jobKey), isNotNull(runs.account_id)));
   const limited = job?.failure?.includes(RATE_LIMITED);
   const skip = new Set(prior.flatMap((r) => (limited && r.branch !== branch && r.at.getTime() > Date.now() - 5 * 3_600_000 ? [r.id!] : [])));
   // With no pool and no default, a full owner account still beats nothing, and a Claude job with every account skipped waits: the harness is never switched.
   const row =
-    rows.find((r) => r.id === prior.find((p) => p.branch === branch)?.id) ??
+    rows.find((r) => r.id === kept) ??
     pickAccount(rows, owner, provider, new Map(meters.map((m) => [m.id, m.pct])), config.factory.pool, skip) ??
     (runnerDefault ? undefined : pickAccount(rows, owner, provider, new Map(), config.factory.pool, skip)) ??
     (rows.length > 0 && !runnerDefault && provider === "claude" ? "wait" : undefined);

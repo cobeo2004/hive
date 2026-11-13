@@ -2,12 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { accountLogin, cancelAccountLogin, disconnectMyAccount, startAccountLogin, submitLoginCode } from "@/app/actions/accounts";
+import { accountLogin, cancelAccountLogin, disconnectMyAccount, shareMyAccount, startAccountLogin, submitLoginCode } from "@/app/actions/accounts";
 import { CopyButton } from "@/components/copy-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import type { MeterAccount, Reading } from "@/lib/account-meters";
 import { MeterBar } from "./usage-meter";
 
@@ -115,6 +116,12 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
       setConfirming(false);
       router.refresh();
     });
+  const share = (shared: boolean) =>
+    act(async () => {
+      const outcome = account && (await shareMyAccount(account.id, shared));
+      if (outcome && !outcome.ok) return setError(outcome.message);
+      router.refresh();
+    });
 
   const waiting = loginId && login?.status === "waiting_code" && login.url;
   return (
@@ -186,6 +193,17 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
         <>
           <Meter label="5-hour window" reading={account.fiveHour} title={title} />
           <Meter label="Weekly" reading={account.weekly} title={title} />
+          {manage && (
+            <label className="flex items-start justify-between gap-3 text-sm">
+              <span className="flex flex-col gap-0.5">
+                <span>Share with the team pool</span>
+                <span className="text-xs text-muted-foreground">
+                  Teammates without their own {title} account can run their jobs on it. Turning it off stops new jobs; ones already on it finish.
+                </span>
+              </span>
+              <Switch checked={account.shared} disabled={pending} onCheckedChange={share} />
+            </label>
+          )}
           {manage &&
             (confirming ? (
               <div className="flex flex-wrap items-center gap-2">
