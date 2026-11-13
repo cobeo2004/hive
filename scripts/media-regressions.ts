@@ -268,6 +268,7 @@ try {
       checks: "success",
       bugbot: { review: { state: "reviewed" }, findings: [] },
       files: [{ path: "src/list.tsx", additions: 3, deletions: 1 }],
+      body: "<!-- sstack-media -->\n| Before | After |\n<!-- /sstack-media -->",
     },
     headSeenAt: 0,
     now: 1,

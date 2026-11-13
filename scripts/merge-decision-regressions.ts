@@ -101,12 +101,14 @@ assert.ok(!globToRegExp("*.ts").test("a/b.ts") && globToRegExp("*.ts").test("b.t
 
 // --- decideMerge
 const NOW = 1_800_000_000_000;
+const MEDIA_BODY = "<!-- sstack-media -->\n| Before | After |\n<!-- /sstack-media -->";
 const facts = (over: Partial<PrFacts> = {}): PrFacts => ({
   headSha: "h1",
   mergeable: "mergeable",
   checks: "success",
   bugbot: { review: { state: "reviewed" }, findings: [] },
   files: [{ path: "src/list.tsx", additions: 10, deletions: 2 }],
+  body: MEDIA_BODY,
   ...over,
 });
 const input = (over: Partial<DecisionInput> = {}): DecisionInput => ({
@@ -194,6 +196,22 @@ assert.equal(
 // Size, retries, a branch behind its base, migrations and major bumps are the agent's and GitHub's to judge, not hard limits.
 const mergesAlone = (pr: PrFacts, why: string) => assert.deepEqual(decideMerge(input({ pr })), { outcome: "merge", reasons: [] }, why);
 mergesAlone(facts({ files: [{ path: "a.ts", additions: 200, deletions: 103 }] }), "a 303-line pull request");
+// A UI change shows its Before and After in the PR body (R24.2), browser or not.
+const noSection = "The pull request changes UI files (src/list.tsx), but its description has no Before and After media.";
+for (const body of [
+  "",
+  "Fixes the list.",
+  "<!-- sstack-media -->\n<!-- /sstack-media -->",
+  "<!-- /sstack-media --> | Before | After | <!-- sstack-media -->",
+]) {
+  assert.deepEqual(decideMerge(input({ pr: facts({ body }) })), { outcome: "handover", reasons: [noSection] }, `missing media: ${JSON.stringify(body)}`);
+}
+assert.deepEqual(
+  decideMerge(input({ pr: facts({ body: `Fixes the list.\n\n${MEDIA_BODY}` }) })),
+  { outcome: "merge", reasons: [] },
+  "the section with media passes",
+);
+mergesAlone(facts({ body: "", files: [{ path: "lib/sort.ts", additions: 3, deletions: 1 }] }), "a PR that touches no UI files ignores the section");
 mergesAlone(facts({ files: [{ path: "drizzle/0001.sql", additions: 1, deletions: 0 }] }), "a migration, once a protected path");
 mergesAlone(facts({ files: [{ path: "package.json", additions: 1, deletions: 1 }] }), "a manifest whose diff bumps a major version");
 
@@ -446,7 +464,13 @@ const stub = await serve(0, async (request) => {
 });
 try {
   const client = pullsClient({ api: `http://localhost:${stub.port}`, tokens: { get: async () => "ghs_stub", evict: () => {} } });
-  assert.deepEqual(await client.pullDetail("https://github.com/o/r/pull/9"), { state: "open", mergeable: "mergeable", headSha: "h9", baseRef: "main" });
+  assert.deepEqual(await client.pullDetail("https://github.com/o/r/pull/9"), {
+    state: "open",
+    mergeable: "mergeable",
+    headSha: "h9",
+    baseRef: "main",
+    body: "",
+  });
   const files = await client.pullFiles("https://github.com/o/r/pull/9");
   assert.equal(files.length, 103, "files page until a short page");
   assert.deepEqual(files[0], { path: "f0.ts", additions: 1, deletions: 2 });
@@ -577,7 +601,9 @@ try {
   };
   const heads = new Map<string, string>();
   const calls: string[] = [];
-  github.pullDetail = async (url) => (calls.push(`detail ${url}`), { state: "open", mergeable: "mergeable", headSha: heads.get(url) ?? "h1", baseRef: "main" });
+  github.pullDetail = async (url) => (
+    calls.push(`detail ${url}`), { state: "open", mergeable: "mergeable", headSha: heads.get(url) ?? "h1", baseRef: "main", body: MEDIA_BODY }
+  );
   github.pullFiles = async () => (calls.push("files"), [{ path: "src/list.tsx", additions: 5, deletions: 1 }]);
   let checks: "success" | "pending" = "success";
   github.checkState = async () => (calls.push("checks"), { checks, bugbot: { state: "reviewed" as const } });
@@ -715,7 +741,7 @@ try {
   // A job that left pr meanwhile keeps no decision written for the old report.
   github.pullDetail = async (url) => {
     await db.update(jobs).set({ stage: "implementing", stage_event_id: "merge-regress-conflict" }).where(eq(jobs.pr_url, url));
-    return { state: "open", mergeable: "mergeable", headSha: "h3", baseRef: "main" };
+    return { state: "open", mergeable: "mergeable", headSha: "h3", baseRef: "main", body: MEDIA_BODY };
   };
   const before = (await row(ASLEEP)).merge_decision;
   assert.deepEqual(await decideMerges({ only: [ASLEEP], now: at(50) }), []);

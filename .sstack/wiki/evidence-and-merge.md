@@ -14,8 +14,9 @@ updated: 3588135
   verified (`lib/evidence.ts:230-273`). Trusted commands come from the DB
   (`repo_settings.onboarding_detail`), never from the PR.
 - **Handover triggers.** Edits to `.factory/setup.json`, workflows, `.npmrc`, `bunfig.toml`, a nested
-  package.json or any root script (`lib/trusted-checks.ts:52-78`). UI files without media, but only
-  when the agent had a browser (Modal).
+  package.json or any root script (`lib/trusted-checks.ts:52-78`). UI files without media attached to
+  the assessment, when the agent had a browser (Modal); and, on any run, a UI PR whose body lacks the
+  `<!-- sstack-media -->` section that `sstack-pr-media --edit-body` writes (`lib/media.ts` `hasMediaSection`).
 - **Modes.** `off`: hand over, no evaluation. `trial`: full evaluation, audited as "Would merge
   (trial)", never merges. `auto`: merges via `mergeNow`; if only verification is missing, the runner
   verifies the head itself. Owner approval skips agent/policy/Bugbot reasons, not checks or conflicts.

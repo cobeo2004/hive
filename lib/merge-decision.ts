@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { MergeAssessment } from "./assessment";
 import { headEvidenceSchema, notVerifiedWhy, shortSha, type HeadEvidence } from "./evidence";
-import { uiFiles } from "./media";
+import { hasMediaSection, uiFiles } from "./media";
 
 // Whether a factory PR would merge on its own. The agent recommends merge unless it isn't confident
 // (lib/assessment.ts); the runner enforces factual hard limits that no recommendation overrides. Pure, so the runner pass and the
@@ -137,6 +137,8 @@ export type PrFacts = {
   checks: CheckState;
   bugbot: { review: BugbotReview; findings: readonly BugbotFinding[] };
   files: readonly ChangedFile[];
+  /** The PR description, where `sstack-pr-media` puts its Before and After section. */
+  body: string;
 };
 
 export type DecisionInput = {
@@ -182,13 +184,18 @@ function agentReasons({ assessment }: DecisionInput) {
   return [`The agent isn't confident: ${assessment.confidence.reason ?? "it recommends handing over."}`];
 }
 
-/** A change to a page needs an image or video of it, when the agent had a browser to take them with. */
+/**
+ * A change to a page needs its Before and After in the PR body for reviewers, and an image or video in
+ * the assessment when the agent had the sandbox's browser to take them with.
+ */
 function mediaReasons({ assessment, browser }: DecisionInput, pr: PrFacts): string[] {
-  if (!browser || !assessment || assessment.media?.length) return [];
   const ui = uiFiles(pr.files.map((f) => f.path));
   if (ui.length === 0) return [];
   const named = ui.slice(0, 3).join(", ") + (ui.length > 3 ? ` and ${ui.length - 3} more` : "");
-  return [`The pull request changes UI files (${named}), but the agent attached no media.`];
+  const reasons: string[] = [];
+  if (!hasMediaSection(pr.body)) reasons.push(`The pull request changes UI files (${named}), but its description has no Before and After media.`);
+  if (browser && assessment && !assessment.media?.length) reasons.push(`The pull request changes UI files (${named}), but the agent attached no media.`);
+  return reasons;
 }
 
 /** The verified-at-head limit: what the agent or the runner ran at exactly the PR's head. */

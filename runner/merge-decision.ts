@@ -47,13 +47,18 @@ import { runnerVerification, startVerification } from "./verify";
 export const RECHECK_MS = 15 * 60_000;
 
 /** `seenAt` is when the factory first saw this head, so a repo without CI is told from CI that hasn't started. */
-async function prFacts(prUrl: string, repo: RepoName, headSha: string, baseRef: string, mergeable: PrFacts["mergeable"], seenAt?: number): Promise<PrFacts> {
+async function prFacts(
+  prUrl: string,
+  repo: RepoName,
+  { headSha, baseRef, mergeable, body }: Pick<PrFacts, "headSha" | "mergeable" | "body"> & { baseRef: string },
+  seenAt?: number,
+): Promise<PrFacts> {
   const [files, state, findings] = await Promise.all([
     github.pullFiles(prUrl),
     github.checkState(repo, headSha, { baseRef, seenAt, graceMs: config.factory.noCiGraceMinutes * 60_000 }),
     github.bugbotFindings(prUrl),
   ]);
-  return { headSha, mergeable, files, checks: state.checks, bugbot: { review: state.bugbot, findings } };
+  return { headSha, mergeable, body, files, checks: state.checks, bugbot: { review: state.bugbot, findings } };
 }
 
 /**
@@ -147,10 +152,7 @@ async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | 
   const runner = runnerVerification(job, detail.headSha, policy, previous, now);
 
   const headSeenAt = sameHead && previous.headSeenAt ? Date.parse(previous.headSeenAt) : now;
-  const [pr, labels] = await Promise.all([
-    prFacts(job.pr_url!, job.repo as RepoName, detail.headSha, detail.baseRef, detail.mergeable, headSeenAt),
-    sourceFor(job.source).labels(job),
-  ]);
+  const [pr, labels] = await Promise.all([prFacts(job.pr_url!, job.repo as RepoName, detail, headSeenAt), sourceFor(job.source).labels(job)]);
   const decided = await watchBugbot(job.repo, policy, pr);
   const decision = decideMerge({
     policy: decided,
@@ -289,7 +291,7 @@ export async function approveMerge(id: JobId, { actor, headSha, via }: ApproveDe
     });
   }
   const seenAt = previous?.headSha === detail.headSha && previous.headSeenAt ? Date.parse(previous.headSeenAt) : undefined;
-  const pr = await prFacts(job.pr_url, job.repo as RepoName, detail.headSha, detail.baseRef, detail.mergeable, seenAt);
+  const pr = await prFacts(job.pr_url, job.repo as RepoName, detail, seenAt);
   const blockers = approvalBlockers(pr);
   if (blockers.length > 0) return stop("not_mergeable", detail.headSha, { blocked: blockers.join(" ") });
   const policy = resolvePolicy(await readRepoSettings(db), job.repo);

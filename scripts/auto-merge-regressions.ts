@@ -96,6 +96,7 @@ const pullJson = (p: Pull, sha: string) => ({
   base: { ref: p.base },
   mergeable: true,
   title: p.title,
+  body: "<!-- sstack-media -->\n| Before | After |\n<!-- /sstack-media -->",
   commits: 1,
   merged_by: p.merged ? (p.mergedBy ?? { login: "marshal-factory[bot]", type: "Bot" }) : null,
   html_url: `https://github.com/${p.repo}/pull/${p.number}`,
