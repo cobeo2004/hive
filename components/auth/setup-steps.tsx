@@ -17,6 +17,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { YourAccounts } from "@/components/panel/your-accounts";
+import type { MeterAccount } from "@/lib/account-meters";
 import type { OptIns } from "@/lib/opt-ins";
 import { setupSteps, type SourceChoice } from "@/lib/source-choice";
 import { cn } from "@/lib/utils";
@@ -26,10 +28,22 @@ type LinearCard = { matched: boolean; note: string };
 
 /**
  * /setup (R5, R33, R28, R13, R14): Account saves the name and enrols TOTP, Sources (admin only) saves where jobs
- * come from, Linear saves the pickup opt-ins and is left out when GitHub Issues is the only source, Done stamps
- * setup_done_at and opens Jobs.
+ * come from, Linear saves the pickup opt-ins and is left out when GitHub Issues is the only source, Agents (R27)
+ * connects the user's own accounts or skips to the team pool, Done stamps setup_done_at and opens Jobs.
  */
-export function SetupSteps({ user, sources, linear, optIns: savedOptIns }: { user: SetupUser; sources: SourceChoice; linear: LinearCard; optIns: OptIns }) {
+export function SetupSteps({
+  user,
+  sources,
+  linear,
+  optIns: savedOptIns,
+  accounts,
+}: {
+  user: SetupUser;
+  sources: SourceChoice;
+  linear: LinearCard;
+  optIns: OptIns;
+  accounts: MeterAccount[];
+}) {
   // The picked radio is `choice`; the steps follow what was saved, so they do not move before the pick is stored.
   const [choice, setChoice] = useState(sources);
   const [stored, setStored] = useState(sources);
@@ -68,6 +82,14 @@ export function SetupSteps({ user, sources, linear, optIns: savedOptIns }: { use
           <Sources choice={choice} pending={pending} setChoice={setChoice} />
         ) : step === "Linear" ? (
           <Linear linear={linear} optIns={optIns} pending={pending} setOptIns={setOptIns} />
+        ) : step === "Agents" ? (
+          <>
+            <h1 className="text-2xl font-semibold tracking-[-0.015em]">Connect your agents</h1>
+            <p className="text-sm text-muted-foreground">
+              Jobs you own run on your own subscriptions first, then on the team pool. You can add more later in Settings.
+            </p>
+            <YourAccounts accounts={accounts} />
+          </>
         ) : (
           <Done choice={stored} labelNote={labelNote} name={name} user={user} />
         )}
@@ -133,6 +155,17 @@ export function SetupSteps({ user, sources, linear, optIns: savedOptIns }: { use
               }}
             >
               {pending ? "Saving" : "Continue"}
+            </Button>
+          </>
+        ) : step === "Agents" ? (
+          <>
+            <Button onClick={() => go(-1)} variant="ghost">
+              Back
+            </Button>
+            <span className="flex-1" />
+            {/* Skipping writes nothing: no agent_accounts rows, so the user's jobs run on the team pool. */}
+            <Button onClick={() => go(1)} variant={accounts.length ? "default" : "ghost"}>
+              {accounts.length ? "Continue" : "Skip, use the team pool"}
             </Button>
           </>
         ) : (
