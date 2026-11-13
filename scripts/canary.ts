@@ -68,7 +68,9 @@ log(`filed ${filed.key} for ${repo}: ${filed.url}`);
 
 /** Reads what lib/test-job.ts checks: the PR head, the pr report's media and the evidence at that head. */
 async function checks(job: JobRow) {
-  const media = job.stage_event_id ? await db.select({ file: jobMedia.file }).from(jobMedia).where(eq(jobMedia.stage_event_id, job.stage_event_id)) : [];
+  const media = job.stage_event_id
+    ? await db.select({ file: jobMedia.file, bytes: jobMedia.bytes }).from(jobMedia).where(eq(jobMedia.stage_event_id, job.stage_event_id))
+    : [];
   const head = job.pr_url ? prHead(job.pr_url) : null;
   const [evidence] = head
     ? await db
@@ -76,13 +78,7 @@ async function checks(job: JobRow) {
         .from(jobEvidence)
         .where(and(eq(jobEvidence.job_key, job.key), eq(jobEvidence.sha, head.sha)))
     : [];
-  return testJobChecks(
-    variant,
-    job,
-    head,
-    media.map((m) => m.file),
-    evidence,
-  );
+  return testJobChecks(variant, job, head, media, evidence);
 }
 
 function prHead(url: string) {
