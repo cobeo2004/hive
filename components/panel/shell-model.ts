@@ -1,6 +1,7 @@
 import type { JobRow } from "@/db/schema";
 import { type ArchiveJob, isFinished, splitArchived } from "@/lib/archive";
 import { inboxItems, ownedBy, type Viewer } from "@/lib/inbox";
+import { ALL_REPOS } from "@/lib/repo-filter";
 
 // What the sidebar and the breadcrumb bar show, as pure rules so the regressions cover them.
 
@@ -73,3 +74,6 @@ export function elapsed(ms: number) {
   const hours = Math.floor(minutes / 60);
   return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
 }
+
+/** The sidebar lists every repo, so its View all links override the remembered repo filter. */
+export const everyRepo = (href: string) => `${href}${href.includes("?") ? "&" : "?"}repo=${ALL_REPOS}`;

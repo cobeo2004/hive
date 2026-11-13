@@ -7,7 +7,7 @@ import type { JobRow } from "@/db/schema";
 import type { Viewer } from "@/lib/inbox";
 import { inboxHref, jobsHref } from "./job-view";
 import { type Feed, useFeed } from "./live-refresh";
-import { elapsed, harnessChip, repoBadge, settledJobs, waitingJobs, workingJobs } from "./shell-model";
+import { elapsed, everyRepo, harnessChip, repoBadge, settledJobs, waitingJobs, workingJobs } from "./shell-model";
 import { useNow } from "./time";
 
 const SECTION = "flex items-center justify-between px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground";
@@ -78,8 +78,8 @@ export function SidebarJobs({ jobs, me }: { jobs: Feed<JobRow>; me: Viewer | nul
       {working.map((job) => (
         <JobLink key={job.id} job={job} since={job.claimed_at} now={now} />
       ))}
-      <JobsDropdown label="Waiting on you" jobs={waiting} empty="Nothing waiting" viewAll={inboxHref()} now={now} />
-      <JobsDropdown label="Settled" jobs={settled} empty="Nothing settled" viewAll={jobsHref("list")} now={now} />
+      <JobsDropdown label="Waiting on you" jobs={waiting} empty="Nothing waiting" viewAll={everyRepo(inboxHref())} now={now} />
+      <JobsDropdown label="Settled" jobs={settled} empty="Nothing settled" viewAll={everyRepo(jobsHref("list"))} now={now} />
     </div>
   );
 }
