@@ -495,48 +495,37 @@ try {
     // A fresh inventory that keeps failing to land is retried once per retryMs, not on every heartbeat's notification.
     let clock = 0;
     let tries = 0;
-    const failing = checkNowWatcher(
-      async () => true,
-      async () => {
-        tries++;
-        return true;
-      },
-      () => {},
-      { now: () => clock },
-    );
+    const alwaysStale = (ran: () => boolean) =>
+      checkNowWatcher(
+        async () => true,
+        async () => (tries++, ran()),
+        () => {},
+        { now: () => clock },
+      );
+    const failing = alwaysStale(() => true);
     for (let i = 0; i < 3; i++) await failing();
     assert.equal(tries, 1, "notifications after a failed fresh inventory do not loop it");
     clock = 60_000;
     await failing();
     assert.equal(tries, 2, "it is retried after retryMs");
     tries = 0;
-    let busy = true;
-    const skipping = checkNowWatcher(
-      async () => true,
-      async () => {
-        tries++;
-        busy = !busy;
-        return busy;
-      },
-      () => {},
-      { now: () => clock },
-    );
+    const skipping = alwaysStale(() => tries > 1);
     await skipping();
     await skipping();
     assert.equal(tries, 2, "a fresh beat skipped because one was running starts no cooldown");
 
     // A collection that began before the click, even a fresh one, does not answer it.
-    let release = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const gated = createBeat({
-      machine: mine,
-      heartbeatCollectors: ok,
-      inventoryCollectors: { ...stubCollectors, browser: () => gate.then(() => inventoryA.browser) },
-      inventoryMs: 600_000,
-      log: () => {},
-    });
+    const { promise: gate, resolve: release } = Promise.withResolvers<void>();
+    const beatWith = (browser: () => Promise<typeof inventoryA.browser>, timeoutMs?: number) =>
+      createBeat({
+        machine: mine,
+        heartbeatCollectors: ok,
+        inventoryCollectors: { ...stubCollectors, browser },
+        inventoryMs: 600_000,
+        timeoutMs,
+        log: () => {},
+      });
+    const gated = beatWith(() => gate.then(() => inventoryA.browser));
     assert.notEqual(await inventoryAt(mine.id), null);
     const inFlight = gated({ fresh: true });
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -548,18 +537,8 @@ try {
     assert.notEqual(await inventoryAt(mine.id), null, "the next fresh beat answers it");
 
     // A beat that timed out and finishes late writes nothing, so it cannot answer a click it never followed.
-    let releaseLate = () => {};
-    const late = new Promise<void>((resolve) => {
-      releaseLate = resolve;
-    });
-    const slow = createBeat({
-      machine: mine,
-      heartbeatCollectors: ok,
-      inventoryCollectors: { ...stubCollectors, browser: () => late.then(() => inventoryB.browser) },
-      inventoryMs: 600_000,
-      timeoutMs: 200,
-      log: () => {},
-    });
+    const { promise: late, resolve: releaseLate } = Promise.withResolvers<void>();
+    const slow = beatWith(() => late.then(() => inventoryB.browser), 200);
     await checkMachineNow({ db, user: person("admin") }, mine.id);
     await slow({ fresh: true });
     await checkMachineNow({ db, user: person("admin") }, mine.id);
