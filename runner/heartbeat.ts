@@ -221,7 +221,10 @@ export function createBeat({
   let inventoryAt: number | undefined;
   /** Bumped by each fresh request, so an inventory collected before it does not count as fresh. */
   let freshAsked = 0;
+  /** Bumped as each beat ends, timed out or not, so an abandoned beat that finishes late writes no inventory. */
+  let beats = 0;
   async function beatOnce(withInventory: boolean) {
+    const beatNo = beats;
     const started = now();
     const heartbeat = await collectHeartbeat(heartbeatCollectors);
     await writeHeartbeat(machine, heartbeat, new Date(now()));
@@ -236,7 +239,10 @@ export function createBeat({
     const asked = freshAsked;
     // Read before collecting: a Check now (or a new machine's row) already null now is answered by this collection.
     const fill = await inventoryStale(machine.id);
-    const result = await report(await collectInventory(inventory), fill);
+    const collected = await collectInventory(inventory);
+    // ponytail: a write already sent when the timeout fires can still land; the window is one UPDATE.
+    if (beatNo !== beats) return log("inventory", { ms: now() - collectedAt, result: "abandoned" });
+    const result = await report(collected, fill);
     if (result !== "missing" && asked === freshAsked) inventoryAt = collectedAt;
     log("inventory", { ms: now() - collectedAt, result });
   }
@@ -264,6 +270,7 @@ export function createBeat({
     } catch (error) {
       log("heartbeat:error", { error: message(error) });
     } finally {
+      beats++;
       running = false;
     }
     return true;

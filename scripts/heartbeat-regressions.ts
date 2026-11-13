@@ -546,6 +546,26 @@ try {
     assert.equal(await inventoryAt(mine.id), null, "a collection that began before the click keeps the click's null");
     await gated({ fresh: true });
     assert.notEqual(await inventoryAt(mine.id), null, "the next fresh beat answers it");
+
+    // A beat that timed out and finishes late writes nothing, so it cannot answer a click it never followed.
+    let releaseLate = () => {};
+    const late = new Promise<void>((resolve) => {
+      releaseLate = resolve;
+    });
+    const slow = createBeat({
+      machine: mine,
+      heartbeatCollectors: ok,
+      inventoryCollectors: { ...stubCollectors, browser: () => late.then(() => inventoryB.browser) },
+      inventoryMs: 600_000,
+      timeoutMs: 200,
+      log: () => {},
+    });
+    await checkMachineNow({ db, user: person("admin") }, mine.id);
+    await slow({ fresh: true });
+    await checkMachineNow({ db, user: person("admin") }, mine.id);
+    releaseLate();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(await inventoryAt(mine.id), null, "an abandoned beat's late inventory does not land");
   } finally {
     await db.delete(machines).where(eq(machines.id, mine.id));
     await db.delete(machines).where(eq(machines.id, other.id));
