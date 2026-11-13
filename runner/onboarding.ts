@@ -9,6 +9,7 @@ import type { RepoName } from "../lib/github/app";
 import { fileOnDefaultBranch } from "../lib/github/installation";
 import { showThread } from "../lib/t3-client";
 import { github } from "../lib/github/pulls";
+import { readVerify, SSTACK_PROJECT_PATH } from "../lib/sstack-verify";
 import { HostGoneError, localHost, type JobHost } from "../lib/host";
 import { createSandbox, deleteSnapshot, modal, modalHost, rememberSandbox, terminateSandbox } from "../lib/modal-host";
 import {
@@ -57,12 +58,13 @@ import { threads } from "./threads";
 // Runs a repo's onboarding on Modal, tracked on its registry row rather than as a job. Each step is
 // short and the tick advances it, so nothing long ever holds the runner's queue:
 //
-//   onboard   main has a valid recipe: take it (its checks run in the image build). Otherwise an
+//   onboard   main has a valid recipe and the sstack files: take it (its checks run in the image build). Otherwise an
 //             agent run: a sandbox from the base image, T3 started as for a job, one thread on the
-//             Settings harness with playbooks/onboarding.md, which commits the recipe on
-//             hive/onboarding, opens its PR and writes ONBOARDING_RESULT
+//             Settings harness with playbooks/onboarding.md, which runs sstack setup, commits the
+//             recipe and .sstack/ on hive/onboarding, opens its PR and writes ONBOARDING_RESULT
 //   agent     the tick waits for the thread to settle, reads the result, hands the login back and
-//             ends the sandbox; the recipe then needs secrets (needs_input) or goes to building
+//             ends the sandbox; the PR's head must hold ONBOARDING_FILES, and its verify list is
+//             recorded as the repo's trusted checks; the recipe then needs secrets (needs_input) or goes to building
 //   build     a sandbox from the base image clones origin/main, installs and sets up in the
 //             background; once it exits 0 the token and the build files go, the filesystem is
 //             snapshotted to the repo's warm image, and the old image is deleted
@@ -77,13 +79,18 @@ const AGENT_GIVE_UP_MS = 90 * 60_000;
 const LEASING_GIVE_UP_MS = 30 * 60_000;
 const BUILD_GIVE_UP_MS = 45 * 60_000;
 const PLAYBOOK = join(import.meta.dirname, "../playbooks/onboarding.md");
+/** What onboarding leaves in a repo: the recipe, and sstack setup's product.md, project.toml and wiki (R18, R40). */
+const ONBOARDING_FILES = [RECIPE_PATH, ".sstack/product.md", SSTACK_PROJECT_PATH, ".sstack/wiki/index.md"];
+const verifyOf = (files: (string | null)[]) => readVerify(files[ONBOARDING_FILES.indexOf(SSTACK_PROJECT_PATH)]!) ?? undefined;
 
 const log = (event: string, detail: Record<string, unknown>) => sandboxRuntime.log(event, detail);
 const message = (error: unknown) => (error instanceof Error ? error.message.split("\n")[0]! : String(error));
 
 /** What onboarding reads from outside the database; regressions replace any of it. */
 export const onboardingRuntime = {
-  committedRecipe: (repo: string): Promise<string | null> => fileOnDefaultBranch(repo as RepoName, RECIPE_PATH),
+  onMain: (repo: string, path: string): Promise<string | null> => fileOnDefaultBranch(repo as RepoName, path),
+  pullHead: async (prUrl: string) => (await github.pullDetail(prUrl)).headSha,
+  fileAt: (repo: string, path: string, ref: string) => github.fileAt(repo as RepoName, path, ref),
   bugbotRan: (prUrl: string): Promise<boolean> => github.bugbotRan(prUrl),
   playbook: () => readFileSync(PLAYBOOK, "utf8"),
   checkouts: (): Promise<ReadonlyMap<string, string>> => factoryCheckouts(),
@@ -243,7 +250,7 @@ async function applyRecipe(repo: string, recipe: Recipe, extra: Partial<Onboardi
 
 function agentMessage(repo: string, detail: OnboardingDetail, committedError: string | undefined, local?: { branch: string }) {
   return [
-    `Onboard ${repo} to Hive: write its setup recipe, ${RECIPE_PATH}, prove it, and open a pull request with it.`,
+    `Onboard ${repo} to Hive: run sstack setup, write its setup recipe, ${RECIPE_PATH}, prove it, and open one pull request with both.`,
     "",
     local
       ? [
@@ -277,10 +284,12 @@ export async function onboardRepo(repo: string) {
     return { repo, skipped: `${detail.run.kind === "agent" ? "an agent" : "a build"} run is in flight` };
   }
   if (row.onboarding_state !== "analyzing") await update(repo, (_r, d) => ({ state: "analyzing", detail: { ...d, failure: undefined } }));
-  const committed = await onboardingRuntime.committedRecipe(repo);
-  const parsed = committed === null ? null : parseRecipe(committed);
-  if (parsed?.ok) {
-    const state = await applyRecipe(repo, parsed.recipe, { recipeSource: "committed", checks: undefined, summary: undefined }, local);
+  const onMain = await Promise.all(ONBOARDING_FILES.map((path) => onboardingRuntime.onMain(repo, path)));
+  const parsed = onMain[0] === null ? null : parseRecipe(onMain[0]);
+  // A recipe without sstack's files beside it (a repo onboarded before R18) still goes to the agent, which adds them.
+  if (parsed?.ok && onMain.every((file) => file !== null)) {
+    const extra = { recipeSource: "committed" as const, checks: undefined, summary: undefined, verify: verifyOf(onMain) };
+    const state = await applyRecipe(repo, parsed.recipe, extra, local);
     return { repo, recipe: "committed", state, builds: await startBuilds() };
   }
   const committedError = parsed && !parsed.ok ? parsed.error : undefined;
@@ -442,12 +451,24 @@ async function advanceAgent(row: RepoSettingsRow, run: OnboardingRun) {
     );
   if ("failed" in result.data) return fail(row.repo, `The onboarding agent could not write a recipe: ${redact(result.data.failed, envNames, 5)}`, said);
   const { recipe, prUrl, checks, summary } = result.data;
+  if (!prUrl) return fail(row.repo, "The onboarding agent opened no pull request.", said);
+  let files: (string | null)[];
+  try {
+    const head = await onboardingRuntime.pullHead(prUrl);
+    files = await Promise.all(ONBOARDING_FILES.map((path) => onboardingRuntime.fileAt(row.repo, path, head)));
+  } catch (error) {
+    return fail(row.repo, `The onboarding pull request could not be read: ${message(error)}`, said);
+  }
+  const missing = ONBOARDING_FILES.filter((_, i) => files[i] === null);
+  if (missing.length > 0) return fail(row.repo, `The onboarding pull request has no ${missing.join(", ")}.`, said);
   const state = await applyRecipe(
     row.repo,
     recipe,
     {
       recipeSource: "agent",
-      ...(prUrl && { recipePr: prUrl, bugbotProbe: { pr: prUrl, since: onboardingRuntime.now().toISOString() } }),
+      recipePr: prUrl,
+      bugbotProbe: { pr: prUrl, since: onboardingRuntime.now().toISOString() },
+      verify: verifyOf(files),
       checks: checks as CheckResult[] | undefined,
       ...(summary && { summary: redact(summary, recipe.env?.map((e) => e.name) ?? [], 5) }),
     },
@@ -615,7 +636,7 @@ export async function repoPushed(push: RepoPushDetail) {
   if (!recipeChanged && !(detail.recipe && warmKeyTouched(detail.recipe, push.files)))
     return { repo: row.repo, skipped: "nothing the warm image depends on changed" };
   if (recipeChanged) {
-    const text = await onboardingRuntime.committedRecipe(row.repo);
+    const text = await onboardingRuntime.onMain(row.repo, RECIPE_PATH);
     const parsed = text === null ? null : parseRecipe(text);
     if (parsed?.ok) {
       const changed = !detail.recipe || recipeHash(parsed.recipe) !== recipeHash(detail.recipe) || detail.recipeSource !== "committed";

@@ -22,7 +22,7 @@ if (!repo || !/^[^/\s]+\/[^/\s]+$/.test(repo)) {
 }
 
 const { modal, modalHost, rememberSandbox, terminateSandbox, deleteSnapshot } = await import("../lib/modal-host");
-const { parseRecipe, BUILD_EXIT, redact } = await import("../lib/recipe");
+const { parseRecipe, BUILD_EXIT, RECIPE_PATH, redact } = await import("../lib/recipe");
 const { imageProblem, REPO_DIR } = await import("../lib/sandbox");
 const { config } = await import("../runner/config");
 const { sandboxRuntime, writeGithubToken } = await import("../runner/sandbox");
@@ -31,7 +31,7 @@ const { onboardingRuntime, startImageBuild, imageBuildStatus, finishImageBuild }
 const t0 = Date.now();
 const log = (text: string) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${text}`);
 
-const text = values.recipe ? readFileSync(values.recipe, "utf8") : await onboardingRuntime.committedRecipe(repo);
+const text = values.recipe ? readFileSync(values.recipe, "utf8") : await onboardingRuntime.onMain(repo, RECIPE_PATH);
 if (text === null) throw new Error(`${repo} has no recipe on main; pass --recipe`);
 const parsed = parseRecipe(text);
 if (!parsed.ok) throw new Error(parsed.error);
