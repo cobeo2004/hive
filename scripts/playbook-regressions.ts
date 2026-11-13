@@ -98,18 +98,47 @@ assert.match(
   "an image from before the playbooks shipped is outdated",
 );
 
-// What the playbook points at still resolves from outside the repo.
+// A repo's copy lives where sstack resolves repo playbooks, and the launch message says sstack.
+assert.equal(REPO_PLAYBOOK, ".sstack/playbooks/factory.md");
+for (const execution of ["modal", "local"] as const) {
+  const text = await withPlaybook("Work FAC-1: Title", execution, host(true), "/work/repo");
+  assert.ok(text.includes("extends sstack's bundled work skill and playbooks"), `${execution}: the launch names sstack`);
+  assert.ok(text.includes(".sstack/playbooks/factory.md"), `${execution}: and the repo copy's sstack path`);
+  assert.ok(!/PStack|\.agents\/playbooks/.test(text), `${execution}: and nothing from PStack`);
+}
+
+// The playbook is sstack-based and resolves from outside the repo.
 const playbook = readFileSync(join(root, "playbooks/factory.md"), "utf8");
+/** A heading's section: up to the next heading at the same or a higher level. */
+const section = (heading: string) => {
+  const level = heading.indexOf(" ");
+  const start = playbook.indexOf(`\n${heading}\n`);
+  assert.ok(start >= 0, `the playbook has ${heading}`);
+  const lines = playbook.slice(start + heading.length + 2).split("\n");
+  const hashes = (line: string) => line.length - line.replace(/^#+/, "").length;
+  const end = lines.findIndex((line) => hashes(line) >= 1 && hashes(line) <= level && line[hashes(line)] === " ");
+  return (end < 0 ? lines : lines.slice(0, end)).join("\n");
+};
 assert.match(
   playbook,
-  /^---\nextends: bug-fix, feature, opening-a-pr, babysit\n/,
-  "it extends PStack's bundled playbooks, which the image and the runner have",
+  /^---\nextends: work, bug-fix, feature, refactor, perf, babysit\n/,
+  "it extends sstack's work skill and bundled playbooks, which the image and the runner have",
 );
+const order = ["triage", "investigating", "planning", "implementing", "verifying", "pr"].map((stage) => `\`${stage}\``);
+const at = order.map((stage) => section("## Standing rules").indexOf(stage));
+assert.ok(
+  at.every((i, n) => i >= 0 && (n === 0 || i > at[n - 1])),
+  `the standing rules report ${order.join(", ")} in that order`,
+);
+const gates = section("## Gates in an unattended run");
+assert.ok(gates.includes("SSTACK_UNATTENDED") && gates.includes("SSTACK_PLAN_GATE"), "the gates name both sstack env switches");
+assert.ok(gates.includes("[unattended] plan_gate"), "and the config the plan gate falls back to");
+assert.ok(section("#### pr").includes("sstack-wiki lint"), "the pr step keeps sstack's wiki update and its lint");
 assert.ok(
   playbook.includes("`factory-verify`") && playbook.includes("hooks/verify.ts"),
   "it names factory-verify by PATH and by the factory root, not by a repo path",
 );
-assert.ok(!playbook.includes(REPO_PLAYBOOK), "it never names a repo copy as its own location");
+assert.ok(!/PStack|\.agents\/playbooks|Phase \d/.test(playbook), "nothing left from PStack's playbooks");
 
 console.log("playbook regressions passed");
 process.exit(0);

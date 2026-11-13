@@ -6,8 +6,8 @@ import { checkoutPlaybooks, SANDBOX_PLAYBOOKS } from "./sandbox";
 // The factory playbook ships with the factory, not with the target repo: a sandbox image holds it
 // under SANDBOX_PLAYBOOKS, and a local thread runs on the runner's machine next to its checkout.
 
-/** Where a repo may keep its own copy, as scripts/install-target.ts writes it. */
-export const REPO_PLAYBOOK = ".agents/playbooks/factory.md";
+/** Where a repo may keep its own copy, as scripts/install-target.ts writes it: where sstack resolves repo playbooks. */
+export const REPO_PLAYBOOK = ".sstack/playbooks/factory.md";
 
 /** The factory playbook's absolute path on the machine a job's thread runs on. */
 export function factoryPlaybook(execution: Execution) {
@@ -43,7 +43,7 @@ function playbookSection(execution: Execution, repoCopy: boolean) {
   return [
     "## Factory playbook",
     "",
-    `The factory playbook is ${path}. Read it before anything else and follow it. It lives outside this repository and extends PStack's bundled playbooks the way a project playbook under .agents/playbooks/ does: copy the bundled steps, then apply its changes.`,
+    `The factory playbook is ${path}. Read it before anything else and follow it. It lives outside this repository and extends sstack's bundled work skill and playbooks the way a repo playbook under .sstack/playbooks/ does: copy the bundled steps, then apply its changes.`,
     ...(repoCopy
       ? [
           "",

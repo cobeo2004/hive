@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_PATH } from "../lib/config";
+import { REPO_PLAYBOOK } from "../lib/playbook";
 import { json, withHooks, withServer, type Json } from "../lib/target-wiring";
 
 // Wires a target repo to this checkout: hooks, the factory-report MCP server, the playbook.
@@ -45,7 +46,7 @@ const settingsPath = join(target, ".claude/settings.json");
 write(settingsPath, json(withHooks(readJson(settingsPath), root)));
 const mcpPath = join(target, ".mcp.json");
 write(mcpPath, json(withServer(readJson(mcpPath), root)));
-write(join(target, ".agents/playbooks/factory.md"), readFileSync(join(root, "playbooks/factory.md"), "utf8"));
+write(join(target, REPO_PLAYBOOK), readFileSync(join(root, "playbooks/factory.md"), "utf8"));
 
 // Claude Code puts isolated subagents in .claude/worktrees/; linting them breaks the repo's lint.
 const eslintConfig = ["eslint.config.mjs", "eslint.config.js", "eslint.config.ts"].map((name) => join(target, name)).find(existsSync);
