@@ -15,7 +15,7 @@ const { jobId } = await import("../lib/sources/shapes");
 const { TEST_MACHINE_ID } = await import("../lib/config");
 const { HostGoneError, hosts, localHost } = await import("../lib/host");
 const { modal, modalHost, realModal, sandboxName } = await import("../lib/modal-host");
-const { enabledPstack, imageProblem, parseVersion, browserServer, pinnedVersions, PSTACK_PLUGIN, REPO_DIR } = await import("../lib/sandbox");
+const { imageProblem, parseVersion, browserServer, pinnedVersions, REPO_DIR } = await import("../lib/sandbox");
 const { config, launchSettings, threads } = await import("../runner/ops");
 const { launchInSandboxes, maybeStarted, recoverPending } = await import("../runner/launch");
 const { sandboxRuntime } = await import("../runner/sandbox");
@@ -114,13 +114,8 @@ assert.equal(parseVersion("claudeCode", "2.1.310 (Claude Code)"), "2.1.310");
 assert.equal(parseVersion("codex", "codex-cli 0.164.0"), "0.164.0");
 assert.equal(parseVersion("codex", "error: no such command"), null, "output without a version parses to none");
 assert.equal(parseVersion("playwrightMcp", "Version 0.0.83\n"), "0.0.83");
-const plugins = (enabled: boolean) =>
-  JSON.stringify([{ id: PSTACK_PLUGIN, version: "0.9.69", enabled, installPath: "/root/.claude/plugins/cache/pstack-claude/pstack/0.9.69" }]);
-assert.equal(enabledPstack(plugins(true))?.version, "0.9.69");
-assert.equal(enabledPstack(plugins(false)), null, "a disabled PStack does not count");
-assert.equal(enabledPstack("[]"), null);
-assert.equal(enabledPstack("not json"), null);
-assert.equal(pinnedVersions(pins).pstack, `${pins.pstack.version}@${pins.pstack.commit.slice(0, 12)}`, "PStack is pinned by version and commit");
+assert.equal(pinnedVersions(pins).sstack, pins.sstack.commit.slice(0, 12), "sstack is pinned by commit");
+assert.equal(pins.sstack.repo, "cobeo2004/sstack");
 assert.equal(imageProblem(image, pins), undefined, "an image built with every pin can launch");
 assert.match(imageProblem(null, pins)!, /no sandbox image is built/);
 for (const [component, name] of [
@@ -128,7 +123,7 @@ for (const [component, name] of [
   ["claudeCode", "Claude Code"],
   ["codex", "Codex"],
   ["playwrightMcp", "Playwright MCP"],
-  ["pstack", "PStack"],
+  ["sstack", "sstack"],
 ] as const) {
   const stale = { ...image, ...(component === "t3" && { t3Version: "0.0.1" }), versions: { ...image.versions, [component]: "0.0.1" } };
   assert.equal(
@@ -140,7 +135,7 @@ for (const [component, name] of [
 const beforePins = { ...image, versions: undefined };
 assert.match(
   imageProblem(beforePins, pins)!,
-  /^Rebuild the sandbox image: Claude Code missing → .+, Codex missing → .+, Playwright MCP missing → .+, PStack missing → .+;/,
+  /^Rebuild the sandbox image: Claude Code missing → .+, Codex missing → .+, Playwright MCP missing → .+, sstack missing → .+;/,
   "an image built before the other pins is outdated",
 );
 
@@ -176,7 +171,6 @@ const ids = keys.map((k) => `sandbox-regress-${k}`);
 const committedWiring = JSON.stringify({
   hooks: { Stop: [{ hooks: [{ type: "command", command: 'bun "/Users/someone/marshal-factory/hooks/report.ts"' }] }] },
 });
-let pstackListed = false;
 let start: Reply = { stdout: '{"threadId":"thread-1"}' };
 let clone: Reply = {};
 const seenAtFirstExec: Record<string, unknown>[] = [];
@@ -190,7 +184,6 @@ fake.answer = async (sandbox, argv) => {
     return clone;
   }
   if (argv[0] === "t3" && argv[1] === "thread" && argv[2] === "start") return start;
-  if (argv.join(" ") === "claude plugin list --json") return { stdout: plugins(pstackListed) };
   return {};
 };
 
@@ -216,8 +209,8 @@ try {
   sandboxRuntime.image = () => image;
   assert.equal(fake.created, 0, "and no sandbox was created");
 
-  // The image's Codex config holds PStack; the launch adds the report server after it.
-  const imageCodexConfig = `[marketplaces.pstack-claude]\nsource_type = "local"\nsource = "/opt/pstack"\n\n[plugins."${PSTACK_PLUGIN}"]\nenabled = true\n`;
+  // The launch adds the report server after any Codex config the image holds.
+  const imageCodexConfig = `[features]\nhooks = true\n`;
   fake.images.set("im-test", new Map([["/root/.codex/config.toml", imageCodexConfig]]));
 
   // No Claude token: the Claude Code job runs on Codex, recorded on the job.
@@ -255,16 +248,12 @@ try {
     sbA.files.get("/root/.codex/config.toml")!,
     /\[mcp_servers\.factory-report\]\ncommand = "bun"\nargs = \["\/opt\/marshal-factory\/mcp\/factory-report\.ts"\]/,
   );
-  assert.ok(sbA.files.get("/root/.codex/config.toml")!.startsWith(imageCodexConfig), "the image's PStack plugin stays enabled for Codex");
+  assert.ok(sbA.files.get("/root/.codex/config.toml")!.startsWith(imageCodexConfig), "the image's Codex config stays");
   assert.ok(
     sbA.files
       .get("/root/.codex/config.toml")!
       .includes(`env = { FACTORY_REPORTER = "mcp", FACTORY_JOB_KEY = "${keys[0]}", FACTORY_ATTEMPT = "1", FACTORY_REPO = "factory-demo" }`),
     "Codex's report server posts for this job's attempt",
-  );
-  assert.ok(
-    events.some((e) => e.event === "sandbox:no-pstack" && e.detail.plugin === PSTACK_PLUGIN),
-    "a sandbox whose claude lacks PStack is logged",
   );
   assert.equal(sbA.files.get("/root/.config/marshal-factory/github-token"), "ghs_fake_installation_token");
   assert.deepEqual(JSON.parse(sbA.files.get("/root/.config/marshal-factory/config.json")!), { ingestUrl: config.ingestUrl, secret: config.secret });
@@ -332,11 +321,7 @@ try {
   assert.equal(events.at(-1)!.event, "sandbox:no-slot");
 
   // A Claude Code job keeps its harness and needs no slot, so it launches with the only one held; the token goes in as a secret.
-  pstackListed = true;
-  const pstackWarnings = () => events.filter((e) => e.event === "sandbox:no-pstack").length;
-  const warned = pstackWarnings();
   await launchInSandboxes([entry(keys[1]!)], slot);
-  assert.equal(pstackWarnings(), warned, "a sandbox with PStack enabled launches without a warning");
   const b = await row(keys[1]!);
   const sbB = sandboxes.get(b.sandbox_id!)!;
   assert.deepEqual([b.t3_thread_id, b.codex_slot, b.provider, b.model], ["thread-1", null, "claudeAgent", "claude-opus-5-5"], "no slot is leased");

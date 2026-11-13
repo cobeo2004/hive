@@ -307,7 +307,7 @@ try {
     1,
     "the inventory counts it",
   );
-  const versions = { t3: "0.1.3", claudeCode: "2.1.310", codex: "0.164.0", playwrightMcp: "0.0.83", pstack: "0.9.69@614d2f9791dd" };
+  const versions = { t3: "0.1.3", claudeCode: "2.1.310", codex: "0.164.0", playwrightMcp: "0.0.83", sstack: "170f1f51308c" };
   const image = { imageId: "im-secretish", t3Version: "0.1.3", versions, factoryCommit: "abc1234", builtAt: "2026-10-26T10:00:00.000Z" };
   const pins = {
     t3Version: "0.1.4",
@@ -315,7 +315,7 @@ try {
     codexVersion: "0.164.0",
     cursorAgentVersion: "2026.11.11-b912975",
     playwrightMcpVersion: "0.0.83",
-    pstack: { repo: "o/r", commit: "a".repeat(40), version: "0.9.70" },
+    sstack: { repo: "o/r", commit: "a".repeat(40) },
   };
   const reported = sandboxReadiness({ codexSlots: [], ...pins, maxParallel: 3 }, process.env, [], image);
   assert.deepEqual(
@@ -330,7 +330,7 @@ try {
         codex: "0.164.0",
         cursorAgent: "2026.11.11-b912975",
         playwrightMcp: "0.0.83",
-        pstack: "0.9.70@aaaaaaaaaaaa",
+        sstack: "aaaaaaaaaaaa",
         playbooks: playbooksVersion(),
       },
       3,

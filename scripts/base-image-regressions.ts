@@ -8,7 +8,7 @@ import { fake, FakeSandbox, type Reply } from "./fake-modal";
 
 const { factorySchema } = await import("../lib/config");
 const { sandboxReadinessSchema } = await import("../lib/machine");
-const { pinnedVersions, PSTACK_PLUGIN, readSandboxImage } = await import("../lib/sandbox");
+const { pinnedVersions, readSandboxImage } = await import("../lib/sandbox");
 const { baseLayers, buildLockPath, buildSandboxImage, BuildLockedError } = await import("../lib/sandbox-image-build");
 const { imageDrift, rebuildText } = await import("../lib/machine");
 const { baseImageBuild, baseImageIdle, baseImageRuntime, rebuildBaseImage, resetBaseImage, RETRY_AFTER_MS, stopBaseImage } = await import(
@@ -30,7 +30,7 @@ const oldImage: SandboxImage = {
 const storeOld = (path: string) => writeFileSync(path, `${JSON.stringify(oldImage, null, 2)}\n`);
 
 /** A build sandbox that reports these versions and runs the hook bundles unless told not to. */
-function buildBox(overrides: { claudeCode?: string; verifyExit?: number } = {}) {
+function buildBox(overrides: { claudeCode?: string; verifyExit?: number; skills?: string; wikiExit?: number } = {}) {
   const box = new FakeSandbox(`sb-build-${++fake.created}`);
   fake.answer = (_sandbox, argv): Reply => {
     const script = argv[2] ?? "";
@@ -39,12 +39,10 @@ function buildBox(overrides: { claudeCode?: string; verifyExit?: number } = {}) 
     if (script === "codex --version") return { stdout: `codex-cli ${limits.codexVersion}` };
     if (script === "cursor-agent --version") return { stdout: limits.cursorAgentVersion };
     if (script === "playwright-mcp --version") return { stdout: `Version ${limits.playwrightMcpVersion}` };
-    if (script === "claude plugin list --json")
-      return { stdout: JSON.stringify([{ id: PSTACK_PLUGIN, version: limits.pstack.version, enabled: true, installPath: "/root/pstack" }]) };
-    if (script.startsWith("git -C /opt/pstack rev-parse")) return { stdout: limits.pstack.commit };
-    if (script === "codex plugin list --json")
-      return { stdout: JSON.stringify({ installed: [{ pluginId: PSTACK_PLUGIN, version: limits.pstack.version, enabled: true }] }) };
-    if (script.startsWith("ls /root/pstack/skills")) return { stdout: "40" };
+    if (script === "git -C /opt/sstack rev-parse HEAD") return { stdout: limits.sstack.commit };
+    if (script.startsWith("find /root/") && script.includes("-lname '/opt/sstack/*'")) return { stdout: overrides.skills ?? "22" };
+    if (script === "cd /tmp && sstack-wiki lint") return { stdout: "lint: no wiki at /tmp/.sstack/wiki", code: overrides.wikiExit ?? 0 };
+    if (script === "ffmpeg -version") return { stdout: "ffmpeg version 5.1.6-0+deb12u1 Copyright (c) 2000-2024\nbuilt with gcc 12" };
     if (script === "bun --version") return { stdout: "1.3.1" };
     if (script.includes("factory-verify")) return { code: overrides.verifyExit ?? 0 };
     return {};
@@ -66,12 +64,29 @@ function buildBox(overrides: { claudeCode?: string; verifyExit?: number } = {}) 
   assert.equal(rebuildText(imageDrift(before, pinned)), `Rebuild the sandbox image: Cursor CLI missing → ${limits.cursorAgentVersion}`);
 }
 
+// m4-06 (R12): sstack replaces PStack, cloned at the pinned commit and installed with sstack-install; ffmpeg comes from apt.
+{
+  const layers = baseLayers(limits);
+  const layer = layers.find((l) => l.includes("/opt/sstack"));
+  assert.ok(layer?.includes(`https://github.com/cobeo2004/sstack.git ${limits.sstack.commit}`), "sstack comes at the pinned commit");
+  assert.ok(
+    layer?.includes("/opt/sstack/bin/sstack-install") && layer.includes("ln -s /opt/sstack/bin/sstack-* /usr/local/bin/"),
+    "installed, its commands on PATH",
+  );
+  assert.ok(layers[0]!.includes(" ffmpeg "), "ffmpeg is in the image");
+  assert.ok(!layers.some((l) => /pstack/i.test(l)), "PStack is gone");
+}
+
 // The build: the new id is written only after the pins read back and the hook bundles run.
 {
   const path = join(dir, "pass.json");
   storeOld(path);
   const box = buildBox();
-  const built = await buildSandboxImage({ limits, log: quiet, open: async () => box, path });
+  const logged: string[] = [];
+  const built = await buildSandboxImage({ limits, log: (m) => void logged.push(m), open: async () => box, path });
+  const versions = logged.find((m) => m.startsWith("versions: "));
+  assert.ok(versions?.includes(`sstack ${limits.sstack.commit.slice(0, 12)}`), "the check reports sstack at its commit");
+  assert.ok(versions?.includes("ffmpeg version 5.1.6") && !/pstack/i.test(versions), "and ffmpeg's version, and no PStack");
   assert.deepEqual(readSandboxImage(path), built, "a build that passes its checks is recorded");
   assert.equal(built.imageId, fake.snapshots.at(-1)!.imageId);
   assert.deepEqual(built.versions, pinned, "with the versions it was checked against");
@@ -86,6 +101,8 @@ function buildBox(overrides: { claudeCode?: string; verifyExit?: number } = {}) 
 for (const [what, overrides, error] of [
   ["a sandbox that reports another Claude Code", { claudeCode: "2.1.309" }, /does not match the pins: Rebuild the sandbox image: Claude Code 2.1.309 →/],
   ["hook bundles that do not run", { verifyExit: 1 }, /factory-verify/],
+  ["sstack skills that are not linked", { skills: "0" }, /does not match the pins: Rebuild the sandbox image: sstack missing →/],
+  ["sstack-wiki that does not run", { wikiExit: 127 }, /sstack-wiki lint exited 127/],
 ] as const) {
   const path = join(dir, "fail.json");
   storeOld(path);
