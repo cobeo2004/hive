@@ -8,7 +8,7 @@ import { BRANCH_PREFIX } from "../lib/factory";
 import type { RepoName } from "../lib/github/app";
 import { fileOnDefaultBranch } from "../lib/github/installation";
 import { showThread } from "../lib/t3-client";
-import { github } from "../lib/github/pulls";
+import { github, parsePullUrl } from "../lib/github/pulls";
 import { readVerify, SSTACK_PROJECT_PATH } from "../lib/sstack-verify";
 import { HostGoneError, localHost, type JobHost } from "../lib/host";
 import { createSandbox, deleteSnapshot, modal, modalHost, rememberSandbox, terminateSandbox } from "../lib/modal-host";
@@ -90,6 +90,8 @@ const message = (error: unknown) => (error instanceof Error ? error.message.spli
 export const onboardingRuntime = {
   onMain: (repo: string, path: string): Promise<string | null> => fileOnDefaultBranch(repo as RepoName, path),
   pullHead: async (prUrl: string) => (await github.pullDetail(prUrl)).headSha,
+  /** The repo's own PR from ONBOARDING_BRANCH: a fork's head is another owner's, so it never matches. */
+  branchPull: (repo: string) => github.pullRequestForBranch(repo as RepoName, ONBOARDING_BRANCH),
   fileAt: (repo: string, path: string, ref: string) => github.fileAt(repo as RepoName, path, ref),
   bugbotRan: (prUrl: string): Promise<boolean> => github.bugbotRan(prUrl),
   playbook: () => readFileSync(PLAYBOOK, "utf8"),
@@ -454,7 +456,11 @@ async function advanceAgent(row: RepoSettingsRow, run: OnboardingRun) {
   if (!prUrl) return fail(row.repo, "The onboarding agent opened no pull request.", said);
   let files: (string | null)[];
   try {
-    const head = await onboardingRuntime.pullHead(prUrl);
+    // The agent's prUrl is only a claim: trust the PR GitHub has open from the onboarding branch, in this repo.
+    const own = await onboardingRuntime.branchPull(row.repo);
+    if (own?.state !== "open" || !samePull(own.url, prUrl))
+      return fail(row.repo, `The onboarding pull request ${prUrl} is not ${row.repo}'s open ${ONBOARDING_BRANCH} pull request.`, said);
+    const head = await onboardingRuntime.pullHead(own.url);
     files = await Promise.all(ONBOARDING_FILES.map((path) => onboardingRuntime.fileAt(row.repo, path, head)));
   } catch (error) {
     return fail(row.repo, `The onboarding pull request could not be read: ${message(error)}`, said);
@@ -802,4 +808,10 @@ export async function advanceOnboarding({ only }: { only?: readonly string[] } =
   const reaped = reapDue ? await reapOnboarding(await db.select().from(repoSettings)) : [];
   if (reapDue) lastReap = Date.now();
   return { ...(results.length > 0 && { advanced: results }), ...(started && { started }), ...(reaped.length > 0 && { reaped }) };
+}
+
+/** The same PR, whatever the URL's case or trailing path. */
+function samePull(a: string, b: string) {
+  const [x, y] = [a, b].map(parsePullUrl);
+  return x.repo.toLowerCase() === y.repo.toLowerCase() && x.number === y.number;
 }

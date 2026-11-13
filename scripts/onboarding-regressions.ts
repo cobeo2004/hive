@@ -247,7 +247,12 @@ runner.onboardingRuntime.onMain = async (repo, path) =>
 const pullHeads: Record<string, Record<string, string>> = {};
 const fullHead = { [recipes.RECIPE_PATH]: "{}", ...SSTACK };
 runner.onboardingRuntime.pullHead = async (prUrl) => prUrl;
-runner.onboardingRuntime.fileAt = async (_repo, path, ref) => (pullHeads[ref] ?? fullHead)[path] ?? null;
+// A ref here is its PR's URL, readable only through that PR's own repo.
+runner.onboardingRuntime.fileAt = async (repo, path, ref) =>
+  (ref.startsWith(`https://github.com/${repo}/`) ? (pullHeads[ref] ?? fullHead)[path] : undefined) ?? null;
+/** Each repo's open hive/onboarding PR, as GitHub lists it. */
+const openPulls: Record<string, string> = {};
+runner.onboardingRuntime.branchPull = async (repo) => (openPulls[repo] ? { url: openPulls[repo], state: "open" } : null);
 const bugbotOn = new Set<string>();
 runner.onboardingRuntime.bugbotRan = async (prUrl) => bugbotOn.has(prUrl);
 let threadState: "running" | "stopped" = "running";
@@ -435,6 +440,7 @@ try {
       await runner.advanceOnboarding({ only: [LOCAL_AGENT] });
       assert.equal((await detail(LOCAL_AGENT)).run?.threadId, "thread-local-1", "a running thread is left alone");
       threadState = "stopped";
+      openPulls[LOCAL_AGENT] = `https://github.com/${LOCAL_AGENT}/pull/3`;
       writeFileSync(
         join(localTree, runner.LOCAL_RESULT),
         JSON.stringify({ recipe: valid, prUrl: `https://github.com/${LOCAL_AGENT}/pull/3`, summary: "Installs with bun." }),
@@ -655,6 +661,7 @@ try {
   threadState = "stopped";
   const agentRecipe = { ...valid, env: [{ name: "API_KEY", purpose: "the payments sandbox", required: true }] };
   // The fake thread's one PR: the recipe, sstack setup's product.md and project.toml, and the wiki index plus a page.
+  openPulls[AGENT] = `https://github.com/${AGENT}/pull/7`;
   pullHeads[`https://github.com/${AGENT}/pull/7`] = { [recipes.RECIPE_PATH]: JSON.stringify(agentRecipe), ...SSTACK };
   agentBox.files.set(
     runner.ONBOARDING_RESULT,
@@ -888,8 +895,9 @@ try {
   assert.equal((await detail(BROKEN)).failure?.reason, "The onboarding agent could not write a recipe: the repo needs a running Postgres for every check");
   threadState = "running";
   // A result is accepted only with its PR holding the recipe and sstack's files.
-  const brokenWith = async (prUrl: string | undefined, head: Record<string, string>) => {
+  const brokenWith = async (prUrl: string | undefined, head: Record<string, string>, open = prUrl) => {
     if (prUrl) pullHeads[prUrl] = head;
+    if (open) openPulls[BROKEN] = open;
     await actions.writeRepoRequest(db, "onboard_repo", BROKEN, new Date());
     await runner.onboardRepo(BROKEN);
     threadState = "stopped";
@@ -908,6 +916,17 @@ try {
     "The onboarding pull request has no .sstack/wiki/index.md.",
   ]);
   assert.deepEqual(await brokenWith(undefined, fullHead), ["failed", "The onboarding agent opened no pull request."]);
+  // The agent's prUrl is a claim: another repo's PR, or one not from this repo's onboarding branch, is refused.
+  const foreign = "https://github.com/someone/fork/pull/9";
+  assert.deepEqual(await brokenWith(foreign, fullHead, `https://github.com/${BROKEN}/pull/4`), [
+    "failed",
+    `The onboarding pull request ${foreign} is not ${BROKEN}'s open hive/onboarding pull request.`,
+  ]);
+  const other = `https://github.com/${BROKEN}/pull/5`;
+  assert.deepEqual(await brokenWith(other, fullHead, `https://github.com/${BROKEN}/pull/4`), [
+    "failed",
+    `The onboarding pull request ${other} is not ${BROKEN}'s open hive/onboarding pull request.`,
+  ]);
   sandboxRuntime.image = () => null;
   await actions.writeRepoRequest(db, "onboard_repo", BROKEN, new Date());
   await runner.onboardRepo(BROKEN);
