@@ -4,13 +4,16 @@ when: Onboarding a repository to marshal-factory unattended, in an onboarding sa
 
 # Onboarding a repository
 
-No human reads this thread while it runs. The factory reads one file when the thread ends, and the owner reads the pull request you open. Your job is the repo's setup recipe: a `.factory/setup.json` that lets a fresh sandbox install everything and pass the repo's checks. The factory builds a warm image from it, so every later job in this repo starts set up.
+No human reads this thread while it runs. The factory reads one file when the thread ends, and the owner reads the pull request you open. Your job is two things in one pull request:
+
+- the repo's sstack setup: `.sstack/product.md`, `.sstack/project.toml` with its `verify` list, and the sstack wiki under `.sstack/wiki/` with its `index.md`. Every factory job runs sstack, and the `verify` list becomes the repo's trusted checks.
+- the repo's setup recipe: a `.factory/setup.json` that lets a fresh sandbox install everything and pass the repo's checks. The factory builds a warm image from it, so every later job in this repo starts set up.
 
 ## Standing rules
 
 - **Never ask in the thread.** Nobody answers. Decide, note the decision in the PR body, and go on.
 - **Never invent secret values.** When a check needs an env var you do not have, name it in the recipe's `env` with what it is for. Do not put a value, a placeholder token or a fake key anywhere: not in the recipe, a file, a commit, the PR or the result.
-- **Change nothing but the recipe.** Commit only `.factory/setup.json`. Do not fix the repo's code, tests or CI, even when a check fails; report it instead.
+- **Change nothing but the setup.** Commit only `.factory/setup.json` and what sstack `setup` writes under `.sstack/`. Do not fix the repo's code, tests or CI, even when a check fails; report it instead.
 - **Never merge.** Open the PR and stop. Never push to `main`.
 
 ## Read the repo
@@ -19,9 +22,15 @@ No human reads this thread while it runs. The factory reads one file when the th
 2. Find how CI installs the repo and which commands it runs for tests, lint, typecheck and build. Prefer CI's commands: they are what passes today.
 3. List every env var the checks read (`process.env.X`, `os.environ`, `.env.example`, workflow `env:` and `secrets.` entries). Mark one required only when a check fails without it.
 
+## Run sstack setup
+
+1. Run `export SSTACK_UNATTENDED=1` in the shell you run sstack's tools from; `sstack-workflow unattended` must then print `unattended: on`.
+2. Run the sstack `setup` skill. Unattended, it asks nothing and applies every recommended row: `.sstack/product.md`, `.sstack/project.toml` with the audit's `verify` commands, the ignore entries and the wiki seed, committed. It writes no optional or machine rows.
+3. Check that `.sstack/product.md`, `.sstack/project.toml` and `.sstack/wiki/index.md` exist, and that `verify` lists the commands that pass today, the same ones as the recipe's `checks`. When main already has them, keep what holds and update the rest.
+
 ## Write the recipe
 
-Write `.factory/setup.json`:
+Write `.factory/setup.json`, starting from main's when it has one:
 
 ```json
 {
@@ -50,9 +59,9 @@ Write `.factory/setup.json`:
 
 ## Deliver it
 
-1. Commit `.factory/setup.json` alone on this branch, `factory/onboarding`, with the message `Add the factory setup recipe`.
-2. Push it. If `origin` already has `factory/onboarding` from an earlier attempt, it is the factory's own branch: push with `--force-with-lease`.
-3. Open a pull request titled `Add the factory setup recipe`, or update the one already open for the branch. The body says in a few lines what the recipe installs, which checks passed, which failed and why, and which env vars it needs.
+1. Commit `.factory/setup.json` and `.sstack/` (`product.md`, `project.toml`, `wiki/`) on this branch, `hive/onboarding`, with the message `Add the sstack setup and the factory recipe`. The factory reads all four files at the pull request's head, `.sstack/project.toml` and `.sstack/wiki/index.md` included, and fails onboarding when one is missing.
+2. Push it. If `origin` already has `hive/onboarding` from an earlier attempt, it is the factory's own branch: push with `--force-with-lease`.
+3. Open one pull request titled `Add the sstack setup and the factory recipe`, or update the one already open for the branch. The body says in a few lines what the recipe installs, the `verify` list, which checks passed, which failed and why, and which env vars it needs.
 4. Write the result file the first message names, as JSON:
 
 ```json
@@ -64,4 +73,4 @@ Write `.factory/setup.json`:
 }
 ```
 
-`recipe` is exactly what you committed. Each entry in `checks` has `name`, `command`, `ok`, and a short `note` when it failed. If you could not write a working recipe at all, write `{ "failed": "the reason" }` instead. Then end the turn.
+`recipe` is exactly what you committed, and `prUrl` is required. Each entry in `checks` has `name`, `command`, `ok`, and a short `note` when it failed. If you could not write a working recipe at all, write `{ "failed": "the reason" }` instead. Then end the turn.

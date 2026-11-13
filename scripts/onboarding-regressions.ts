@@ -232,7 +232,27 @@ Object.assign(sandboxRuntime, {
   slotHealthPath: join(mkdtempSync(join(tmpdir(), "onb-slot-health-")), "codex-slots.json"),
 });
 const committed: Record<string, string | null> = {};
-runner.onboardingRuntime.committedRecipe = async (repo) => committed[repo] ?? null;
+// What unattended sstack setup writes: a repo with a committed recipe has it on main too, unless it is bare.
+const SSTACK: Record<string, string> = {
+  ".sstack/product.md": "# Product\n",
+  ".sstack/project.toml": 'verify = ["bun run lint", "bun test"]\n',
+  ".sstack/wiki/index.md": "# Wiki\n\n- [Build](build.md)\n",
+  ".sstack/wiki/build.md": "# Build\n",
+};
+const VERIFY = ["bun run lint", "bun test"];
+const bareMain = new Set<string>();
+runner.onboardingRuntime.onMain = async (repo, path) =>
+  path === recipes.RECIPE_PATH ? (committed[repo] ?? null) : committed[repo] && !bareMain.has(repo) ? (SSTACK[path] ?? null) : null;
+// The fake onboarding thread's PR heads, by URL (the fake head sha): unlisted ones carry the recipe and every sstack file.
+const pullHeads: Record<string, Record<string, string>> = {};
+const fullHead = { [recipes.RECIPE_PATH]: "{}", ...SSTACK };
+runner.onboardingRuntime.pullHead = async (prUrl) => prUrl;
+// A ref here is its PR's URL, readable only through that PR's own repo.
+runner.onboardingRuntime.fileAt = async (repo, path, ref) =>
+  (ref.startsWith(`https://github.com/${repo}/`) ? (pullHeads[ref] ?? fullHead)[path] : undefined) ?? null;
+/** Each repo's open hive/onboarding PR, as GitHub lists it. */
+const openPulls: Record<string, string> = {};
+runner.onboardingRuntime.branchPull = async (repo) => (openPulls[repo] ? { url: openPulls[repo], state: "open" } : null);
 const bugbotOn = new Set<string>();
 runner.onboardingRuntime.bugbotRan = async (prUrl) => bugbotOn.has(prUrl);
 let threadState: "running" | "stopped" = "running";
@@ -346,6 +366,19 @@ try {
     "main's recipe makes a local repo ready, with its checks for the merge",
   );
   assert.equal(sandboxes.size, sandboxesBefore, "no sandbox is created for a local repo");
+  assert.deepEqual((await detail(LOCAL)).verify, VERIFY, "main's project.toml verify list is the repo's trusted checks");
+  // A committed recipe without sstack's files beside it goes to the agent, which adds them.
+  const BARE = `${NS}/bare`;
+  committed[BARE] = JSON.stringify(valid);
+  bareMain.add(BARE);
+  await insert(BARE, "analyzing");
+  await db.update(repoSettings).set({ execution: "local" }).where(eq(repoSettings.repo, BARE));
+  await runner.onboardRepo(BARE);
+  assert.deepEqual(
+    [(await detail(BARE)).recipeSource, (await detail(BARE)).failure?.reason.includes("no checkout")],
+    [undefined, true],
+    "not taken as committed: the agent is started (and here finds no checkout)",
+  );
   // A rebuild it wants waits on the row; moved to the cloud, it builds its first image.
   await runner.requestRebuild(LOCAL, "dependencies changed on main");
   assert.deepEqual(
@@ -407,6 +440,7 @@ try {
       await runner.advanceOnboarding({ only: [LOCAL_AGENT] });
       assert.equal((await detail(LOCAL_AGENT)).run?.threadId, "thread-local-1", "a running thread is left alone");
       threadState = "stopped";
+      openPulls[LOCAL_AGENT] = `https://github.com/${LOCAL_AGENT}/pull/3`;
       writeFileSync(
         join(localTree, runner.LOCAL_RESULT),
         JSON.stringify({ recipe: valid, prUrl: `https://github.com/${LOCAL_AGENT}/pull/3`, summary: "Installs with bun." }),
@@ -626,6 +660,9 @@ try {
   assert.equal((await detail(AGENT)).run?.kind, "agent", "a running thread is left alone");
   threadState = "stopped";
   const agentRecipe = { ...valid, env: [{ name: "API_KEY", purpose: "the payments sandbox", required: true }] };
+  // The fake thread's one PR: the recipe, sstack setup's product.md and project.toml, and the wiki index plus a page.
+  openPulls[AGENT] = `https://github.com/${AGENT}/pull/7`;
+  pullHeads[`https://github.com/${AGENT}/pull/7`] = { [recipes.RECIPE_PATH]: JSON.stringify(agentRecipe), ...SSTACK };
   agentBox.files.set(
     runner.ONBOARDING_RESULT,
     JSON.stringify({
@@ -643,6 +680,7 @@ try {
     [d.recipeSource, d.recipePr, d.missingSecrets, d.run, d.checks?.length],
     ["agent", `https://github.com/${AGENT}/pull/7`, ["API_KEY"], undefined, 1],
   );
+  assert.deepEqual(d.verify, VERIFY, "the PR's project.toml verify list is recorded as the repo's trusted checks");
   assert.equal(agentBox.terminated, true, "the onboarding sandbox is torn down");
   assert.deepEqual(await leases(), [], "and its slot's lease is released");
   threadState = "running";
@@ -856,6 +894,39 @@ try {
   await runner.advanceOnboarding({ only: await ours() });
   assert.equal((await detail(BROKEN)).failure?.reason, "The onboarding agent could not write a recipe: the repo needs a running Postgres for every check");
   threadState = "running";
+  // A result is accepted only with its PR holding the recipe and sstack's files.
+  const brokenWith = async (prUrl: string | undefined, head: Record<string, string>, open = prUrl) => {
+    if (prUrl) pullHeads[prUrl] = head;
+    if (open) openPulls[BROKEN] = open;
+    await actions.writeRepoRequest(db, "onboard_repo", BROKEN, new Date());
+    await runner.onboardRepo(BROKEN);
+    threadState = "stopped";
+    sandboxOf((await detail(BROKEN)).run?.sandboxId).files.set(runner.ONBOARDING_RESULT, JSON.stringify({ recipe: valid, prUrl }));
+    await runner.advanceOnboarding({ only: await ours() });
+    threadState = "running";
+    return [(await row(BROKEN)).onboarding_state, (await detail(BROKEN)).failure?.reason];
+  };
+  const without = (path: string) => Object.fromEntries(Object.entries(fullHead).filter(([p]) => p !== path));
+  assert.deepEqual(await brokenWith(`https://github.com/${BROKEN}/pull/1`, without(".sstack/project.toml")), [
+    "failed",
+    "The onboarding pull request has no .sstack/project.toml.",
+  ]);
+  assert.deepEqual(await brokenWith(`https://github.com/${BROKEN}/pull/2`, without(".sstack/wiki/index.md")), [
+    "failed",
+    "The onboarding pull request has no .sstack/wiki/index.md.",
+  ]);
+  assert.deepEqual(await brokenWith(undefined, fullHead), ["failed", "The onboarding agent opened no pull request."]);
+  // The agent's prUrl is a claim: another repo's PR, or one not from this repo's onboarding branch, is refused.
+  const foreign = "https://github.com/someone/fork/pull/9";
+  assert.deepEqual(await brokenWith(foreign, fullHead, `https://github.com/${BROKEN}/pull/4`), [
+    "failed",
+    `The onboarding pull request ${foreign} is not ${BROKEN}'s open hive/onboarding pull request.`,
+  ]);
+  const other = `https://github.com/${BROKEN}/pull/5`;
+  assert.deepEqual(await brokenWith(other, fullHead, `https://github.com/${BROKEN}/pull/4`), [
+    "failed",
+    `The onboarding pull request ${other} is not ${BROKEN}'s open hive/onboarding pull request.`,
+  ]);
   sandboxRuntime.image = () => null;
   await actions.writeRepoRequest(db, "onboard_repo", BROKEN, new Date());
   await runner.onboardRepo(BROKEN);
