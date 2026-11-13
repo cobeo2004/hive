@@ -8,8 +8,9 @@ import { and, eq } from "drizzle-orm";
 // the `playwright` browser, saves a viewport screenshot into its run's media folder, attaches it as
 // `media` to its assessment, verifies its head with factory-verify and opens a PR. The issue carries
 // the `review` label, which the merge decision always hands over on, so the canary's PR never merges,
-// even on a repo set to auto.
-//   bun scripts/canary.ts [--repo owner/name] [--timeout-minutes 60] [--checkout <path>]
+// even on a repo set to auto. With --devices it files lib/test-job.ts's devices job instead: Runs on Local,
+// so a pool Mac screenshots the page in T3's browser, the iOS Simulator and the Android Emulator.
+//   bun scripts/canary.ts [--devices] [--repo owner/name] [--timeout-minutes 60] [--checkout <path>]
 // It exits 0 when every check passed and 1 otherwise. The PR and the issue stay open for you to
 // look at; close both when done.
 
@@ -21,6 +22,7 @@ const option = (name: string) => {
 const checkout = resolve(option("--checkout") ?? join(import.meta.dirname, ".."));
 const repo = option("--repo") ?? "ski043/factory-playground";
 const timeoutMs = Number(option("--timeout-minutes") ?? 60) * 60_000;
+const variant = args.includes("--devices") ? "devices" : "browser";
 
 // The checkout only lends its env; the code is this script's own, so --checkout from a newer branch files with that branch's filer.
 process.chdir(checkout);
@@ -33,6 +35,7 @@ const { linearFiler } = await import("../lib/sources/linear");
 const { readRegistry, repoLabel, REPOSITORY_GROUP } = await import("../lib/repositories");
 const { RUNS_ON_GROUP, RUNS_ON_LABELS } = await import("../lib/ticket-overrides");
 const { REVIEW_LABEL } = await import("../lib/merge-decision");
+const { checks: testJobChecks, testJobDescription } = await import("../lib/test-job");
 type JobRow = typeof jobs.$inferSelect;
 
 const t0 = Date.now();
@@ -41,17 +44,6 @@ const finish = async (passed: boolean, message: string) => {
   console.log(`\ncanary ${passed ? "PASSED" : "FAILED"}: ${message}`);
   process.exit(passed ? 0 : 1);
 };
-
-const PORT = 4173;
-const description = `Factory canary, filed by scripts/canary.ts to check a rollout. Its pull request is for the owner to read and close, never to merge.
-
-Add \`demo/index.html\`: one static page titled "Unit converter demo" with a heading and a table of five conversions this library does (for example 10 km in miles), the numbers written into the HTML by hand. No build step, no script tag, no new dependency, and nothing else in the repo changes.
-
-Then, in this order:
-1. Serve the page on localhost with a static server that is already installed, for example \`python3 -m http.server ${PORT} --directory demo\`.
-2. Open http://localhost:${PORT}/ with the \`playwright\` browser and save a viewport screenshot of the page to \`.sstack/runs/canary/media/after-page.png\` in the repo.
-3. Run \`factory-verify\` at your final commit.
-4. Open the pull request and report \`pr\` with that screenshot attached to your assessment as \`media\`: \`{ file: "after-page.png", caption: "The demo page with its conversions table." }\`.`;
 
 const config = loadConfig();
 const registry = await readRegistry(db);
@@ -64,20 +56,18 @@ const filed = await linearFiler(
   config.factory.label,
 )({
   requestId: randomUUID(),
-  title: `Canary ${new Date().toISOString().slice(0, 16).replace("T", " ")}: unit converter demo page`,
-  description,
+  title: `Canary ${new Date().toISOString().slice(0, 16).replace("T", " ")}: unit converter demo page${variant === "devices" ? " on devices" : ""}`,
+  description: testJobDescription(variant),
   labels: [
     { group: REPOSITORY_GROUP, name: repoLabel(registry, target!) },
-    { group: RUNS_ON_GROUP, name: RUNS_ON_LABELS.modal },
+    { group: RUNS_ON_GROUP, name: RUNS_ON_LABELS[variant === "devices" ? "local" : "modal"] },
   ],
   tags: [REVIEW_LABEL],
 });
 log(`filed ${filed.key} for ${repo}: ${filed.url}`);
 
-type Check = { name: string; ok: boolean; detail: string };
-
-/** What the job has proven so far; every check must hold once it reached its PR. */
-async function checks(job: JobRow): Promise<Check[]> {
+/** Reads what lib/test-job.ts checks: the PR head, the pr report's media and the evidence at that head. */
+async function checks(job: JobRow) {
   const media = job.stage_event_id ? await db.select({ file: jobMedia.file }).from(jobMedia).where(eq(jobMedia.stage_event_id, job.stage_event_id)) : [];
   const head = job.pr_url ? prHead(job.pr_url) : null;
   const [evidence] = head
@@ -86,33 +76,13 @@ async function checks(job: JobRow): Promise<Check[]> {
         .from(jobEvidence)
         .where(and(eq(jobEvidence.job_key, job.key), eq(jobEvidence.sha, head.sha)))
     : [];
-  const failedChecks = evidence?.checks.filter((c) => c.exitCode !== 0).map((c) => c.name) ?? [];
-  const decision = job.merge_decision;
-  return [
-    {
-      name: "launched in a sandbox",
-      ok: job.execution === "modal" && Boolean(job.sandbox_id ?? job.sandbox_snapshot),
-      detail: `execution ${job.execution ?? "none"}`,
-    },
-    { name: "opened a PR", ok: head?.state === "OPEN", detail: job.pr_url ? `${job.pr_url} is ${head?.state ?? "unreadable"}` : "no PR yet" },
-    {
-      name: "media attached",
-      ok: media.length > 0,
-      detail: media.length > 0 ? media.map((m) => m.file).join(", ") : "none on the pr report",
-    },
-    {
-      name: "factory-verify passed at the head",
-      ok: Boolean(evidence?.clean && evidence.producer === "agent" && evidence.checks.length > 0 && failedChecks.length === 0),
-      detail: evidence
-        ? `${evidence.producer}, ${evidence.clean ? "clean" : "dirty"}, ${evidence.checks.map((c) => `${c.name} ${c.exitCode}`).join(", ")}`
-        : `no evidence for ${head?.sha.slice(0, 7) ?? "the head"}`,
-    },
-    {
-      name: "handed over, not merged",
-      ok: decision?.outcome === "handover" && !decision.merged,
-      detail: decision ? `${decision.outcome}: ${decision.reasons.join(" ")}` : "no decision yet",
-    },
-  ];
+  return testJobChecks(
+    variant,
+    job,
+    head,
+    media.map((m) => m.file),
+    evidence,
+  );
 }
 
 function prHead(url: string) {
