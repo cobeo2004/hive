@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
   customType,
@@ -529,6 +530,9 @@ export const user = pgTable("user", {
   twoFactorEnabled: boolean("two_factor_enabled").default(false),
   /** Set when the user finishes /setup (R5, R33). */
   setupDoneAt: ts("setup_done_at"),
+  /** The GitHub account the user linked through the device flow (R27f): matches job owners before email. Only these two, never a token. */
+  githubId: bigint("github_id", { mode: "number" }).unique(),
+  githubLogin: text("github_login"),
 });
 
 export const session = pgTable(

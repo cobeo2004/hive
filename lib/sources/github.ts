@@ -24,8 +24,8 @@ const issueSchema = z.object({
   body: z.string().nullable(),
   labels: z.array(z.object({ name: z.string() })),
   pull_request: z.unknown().optional(),
-  user: z.object({ login: z.string(), type: z.string() }).nullish(),
-  assignees: z.array(z.object({ login: z.string(), type: z.string() })).default([]),
+  user: z.object({ login: z.string(), type: z.string(), id: z.number().optional() }).nullish(),
+  assignees: z.array(z.object({ login: z.string(), type: z.string(), id: z.number().optional() })).default([]),
 });
 const commentSchema = z.object({
   id: z.number().int(),
@@ -283,8 +283,15 @@ export function createGithubAdapter(load: () => GithubDeps | Promise<GithubDeps>
               description: issue.body,
               writeback: { kind: "github", repo, number: issue.number },
               sourceState: { labels: issue.labels.map((l) => l.name) },
-              // R8: only a new job takes an owner (the first insert sets it); a retry skips the lookups.
-              ...(!was && { owner: { assigneeEmail: await publicEmail(d, repo, issue.assignees[0]), creatorEmail: await publicEmail(d, repo, issue.user) } }),
+              // R8: only a new job takes an owner (the first insert sets it); a retry skips the lookups. R27f: a linked GitHub id beats the email.
+              ...(!was && {
+                owner: {
+                  assigneeGithubId: issue.assignees[0]?.id,
+                  assigneeEmail: await publicEmail(d, repo, issue.assignees[0]),
+                  creatorGithubId: issue.user?.id,
+                  creatorEmail: await publicEmail(d, repo, issue.user),
+                },
+              }),
               repo, // R2: the claim refuses it rather than route it elsewhere
               reclaimIf: sql`${jobs.stage}::text is not distinct from ${was?.stage ?? null} and ${jobs.attempt} is not distinct from ${was?.attempt ?? null}::int and ${jobs.synced_event_id} is not distinct from ${was?.synced_event_id ?? null}::text and ${jobs.synced_event_id} = ${jobs.stage_event_id}`,
             });

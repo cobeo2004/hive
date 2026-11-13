@@ -340,13 +340,19 @@ try {
   gh.get(`${ON}#7`)!.events.push(labeled(HIVE.login, "Bot"));
   assert.equal(await retries(), true, "Hive's own login does");
   await patch(7, { stage: was7.stage, stage_event_id: was7.stage_event_id, synced_event_id: was7.synced_event_id });
-  // R8: a new job's owner hints are the assignee's and the creator's public emails; a bot assignee and a retry give none.
-  put(ON, 40, { user: { login: "writer", type: "User" }, assignees: [{ login: "hive[bot]", type: "Bot" }] });
-  put(ON, 41, { user: { login: "ghost", type: "User" }, assignees: [{ login: "dev", type: "User" }] });
+  // R8: a new job's owner hints are the assignee's and the creator's public emails and (R27f) GitHub ids; a bot assignee and a retry give no email.
+  put(ON, 40, { user: { login: "writer", type: "User", id: 7001 }, assignees: [{ login: "hive[bot]", type: "Bot" }] });
+  put(ON, 41, { user: { login: "ghost", type: "User", id: 7002 }, assignees: [{ login: "dev", type: "User", id: 7003 }] });
   const offered = await adapter.ready();
   const owner = (n: number) => offered.find((d) => d.externalId === `${ON}#${n}`)?.owner;
-  assert.deepEqual(owner(40), { assigneeEmail: null, creatorEmail: "w@x.io" }, "a bot assignee is no owner, so the creator's email stands");
-  assert.deepEqual(owner(41), { assigneeEmail: "dev@x.io", creatorEmail: null }, "an email the profile hides is none");
+  const hints = (a: number | undefined, ae: string | null, c: number, ce: string | null) => ({
+    assigneeGithubId: a,
+    assigneeEmail: ae,
+    creatorGithubId: c,
+    creatorEmail: ce,
+  });
+  assert.deepEqual(owner(40), hints(undefined, null, 7001, "w@x.io"), "a bot assignee is no owner, so the creator's email stands");
+  assert.deepEqual(owner(41), hints(7003, "dev@x.io", 7002, null), "an email the profile hides is none, the GitHub id still is");
   assert.equal(owner(7), undefined, "a job that exists is not looked up again");
   assert.ok(!calls.includes("GET owner/on /users/hive%5Bbot%5D"), "a bot's profile is never read");
   for (const n of [40, 41]) gh.delete(`${ON}#${n}`);

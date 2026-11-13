@@ -4,6 +4,7 @@ import { ForbiddenCard } from "@/components/auth/forbidden-card";
 import { LinearSettingsSection } from "@/components/panel/linear-settings";
 import { PanelHeader } from "@/components/panel/panel-header";
 import { SettingsForm } from "@/components/panel/settings-form";
+import { GithubLinkSection } from "@/components/panel/github-link";
 import { SettingsSection } from "@/components/panel/settings-section";
 import { FormSkeleton, PageSkeleton } from "@/components/panel/skeletons";
 import { TeamPoolSection } from "@/components/panel/team-pool";
@@ -34,6 +35,7 @@ async function Panel() {
   const admin = isAdmin(user);
   const teamPool = (
     <>
+      <GithubLinkSection />
       <SettingsSection id="your-accounts" title="Your accounts" description="Jobs you own run on your own subscriptions first, then on the team pool.">
         <YourAccounts accounts={meters.mine} manage />
       </SettingsSection>

@@ -330,6 +330,13 @@
       "when": 1794463282427,
       "tag": "0046_account_login_intent",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794527753487,
+      "tag": "0047_user_github_link",
+      "breakpoints": true
     }
   ]
 }
