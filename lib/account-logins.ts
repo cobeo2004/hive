@@ -50,6 +50,10 @@ export const readLogin = (database: Db, userId: string, loginId: string) =>
     .where(and(eq(accountLogins.id, loginId), eq(accountLogins.user_id, userId)))
     .then(([login]) => login ?? null);
 
+type LoginRow = Awaited<ReturnType<typeof readLogin>>;
+/** What the card may show. A Claude row's code is the one the user pasted back, so only Codex's device code goes to the browser. */
+export const loginForCard = (login: LoginRow) => login && { status: login.status, url: login.url, code: login.provider === "codex" ? login.code : null };
+
 /** Disconnects the user's own account (R27, Q21): the sealed token is wiped. Anyone else's account, or a pool one, is 403. */
 export async function disconnectOwnAccount(database: Db, userId: string, accountId: string, at = new Date()) {
   const rows = await database

@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/db/client";
-import { cancelLogin, disconnectOwnAccount, readLogin, writeCode, writeLogin } from "@/lib/account-logins";
+import { cancelLogin, disconnectOwnAccount, loginForCard, readLogin, writeCode, writeLogin } from "@/lib/account-logins";
 import { currentUser } from "@/lib/auth/server";
 import { addPoolAccount as add, disconnectPoolAccount as disconnect, renamePoolAccount as rename } from "@/lib/pool-accounts";
 
@@ -24,10 +24,8 @@ export async function startAccountLogin(provider: "claude" | "codex") {
   return { loginId: await writeLogin(db, await member(), provider) };
 }
 
-/** What the card shows. A Claude row's code is the one the user pasted back, so only Codex's device code goes to the browser. */
 export async function accountLogin(loginId: string) {
-  const login = await readLogin(db, await member(), loginId);
-  return login && { status: login.status, url: login.url, code: login.provider === "codex" ? login.code : null };
+  return loginForCard(await readLogin(db, await member(), loginId));
 }
 
 /** Claude only: the code the user pasted back after signing in. False when the login is not waiting for one. */

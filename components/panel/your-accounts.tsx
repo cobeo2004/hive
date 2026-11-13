@@ -62,14 +62,19 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
       accountLogin(loginId).then(
         (row) => {
           if (!live) return;
-          if (row) return setLogin(row);
+          if (row) {
+            setLogin(row);
+            // A failed row stays until it expires; "Try again" starts a new login, so stop asking.
+            if (row.status === "failed") clearInterval(timer);
+            return;
+          }
           setLoginId(null);
           router.refresh();
         },
         () => {},
       );
-    poll();
     const timer = setInterval(poll, 2000);
+    poll();
     return () => {
       live = false;
       clearInterval(timer);
@@ -149,12 +154,18 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
               <Button size="sm" variant="ghost" onClick={cancel}>
                 Cancel
               </Button>
-              {checking && <span className="text-xs text-muted-foreground">Finishing sign-in…</span>}
+              {checking && (
+                <span role="status" className="text-xs text-muted-foreground">
+                  Finishing sign-in…
+                </span>
+              )}
             </div>
           </div>
         ) : login?.status === "failed" ? (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-destructive">Sign-in failed.</span>
+            <span role="status" className="text-sm text-destructive">
+              Sign-in failed.
+            </span>
             <Button size="sm" variant="secondary" onClick={connect}>
               Try again
             </Button>
@@ -163,7 +174,7 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
             </Button>
           </div>
         ) : (
-          <span className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             Starting sign-in on a runner…
             <Button size="sm" variant="ghost" onClick={cancel}>

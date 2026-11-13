@@ -46,7 +46,7 @@ process.env.PATH = `${bin}:${process.env.PATH}`;
 const { db } = await import("../db/client");
 const { accountLogins, agentAccounts, intents, user } = await import("../db/schema");
 const { newKeyPair, unseal } = await import("../lib/creds");
-const { cancelLogin, readLogin, writeCode, writeLogin } = await import("../lib/account-logins");
+const { cancelLogin, loginForCard, readLogin, writeCode, writeLogin } = await import("../lib/account-logins");
 const { expireLogins, finishLogin, handleAccountLogin, loginRuntime, running } = await import("../runner/account-login");
 
 const pair = newKeyPair();
@@ -82,6 +82,7 @@ try {
   assert.deepEqual(await handleAccountLogin(codex.intent, rt), { login: "skipped" }, "a login that is not pending starts nothing");
   const shown = await readLogin(db, A, codex.id);
   assert.deepEqual([shown?.status, shown?.url, shown?.code], ["waiting_code", "https://auth.openai.com/codex/device", "DM2C-O3PW0"]);
+  assert.equal(loginForCard(shown)?.code, "DM2C-O3PW0", "the card gets Codex's device code");
   await running.get(codex.id);
   const seen = readFileSync(join(bin, "env.txt"), "utf8");
   assert.ok(
@@ -111,6 +112,10 @@ try {
   for (const bad of ["", "two words", "x".repeat(513), "a\nb"])
     assert.equal(await writeCode(db, A, claude.id, bad), false, "a code of the wrong shape is refused");
   assert.equal(await writeCode(db, A, claude.id, "pasted-code"), true);
+  const waitingRow = await readLogin(db, A, claude.id);
+  const card = loginForCard(waitingRow && { ...waitingRow, code: "pasted-code" });
+  assert.deepEqual(Object.keys(card ?? {}).sort(), ["code", "status", "url"], "the card gets only status, link and code");
+  assert.equal(card?.code, null, "Claude's pasted code never goes back to the browser");
   const codeIntent = (await db.select().from(intents).where(eq(intents.kind, "account_login"))).find((i) => i.detail?.includes("pasted-code"))!;
   assert.deepEqual(await handleAccountLogin(codeIntent, rt), { code: "stored" });
   const [scrubbed] = await db.select().from(intents).where(eq(intents.id, codeIntent.id));
