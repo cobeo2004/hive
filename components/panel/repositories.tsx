@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLinkIcon, XIcon } from "lucide-react";
+import { ExternalLinkIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, useTransition } from "react";
@@ -10,9 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import type { MachineRow, RepoSettingsRow } from "@/db/schema";
@@ -28,8 +26,8 @@ import { cn } from "@/lib/utils";
 import { useRowKeys } from "./row-keys";
 import { useFeed, type Feed } from "./live-refresh";
 import { PanelFooter, PanelHeader, type KeyHint } from "./panel-header";
-import { AddRepository, OnboardingBadge, OnboardingSection, onboardingLine, useOnboardingRefresh } from "./repo-onboarding";
-import { ShortTime, useNow } from "./time";
+import { AddRepository, OnboardingBadge, OnboardingSection, OnboardingSide, onboardingLine, PANEL, useOnboardingRefresh } from "./repo-onboarding";
+import { useNow } from "./time";
 
 const CLOCK_TICK_MS = 30_000;
 
@@ -42,13 +40,14 @@ const AUTONOMY_HELP: Record<Autonomy, string> = {
 const LIST_KEYS: readonly KeyHint[] = [
   { keys: ["J", "K"], label: "move" },
   { keys: ["↵"], label: "open" },
-  { keys: ["Esc"], label: "close" },
 ];
 
 const SETTINGS_DEFAULT = "settings-default";
 
 const itemHref = (repo: string) => `/repositories?${new URLSearchParams({ repo })}`;
 const githubUrl = (repo: string) => `https://github.com/${repo}`;
+/** The repo's Workflow page (Q41); the segment is the encoded `owner/name`. */
+export const workflowHref = (repo: string) => `/repositories/${encodeURIComponent(repo)}/workflow`;
 
 /**
  * Where a repo's jobs can launch. Modal needs a runner that can launch there and, for an onboarded
@@ -88,14 +87,25 @@ function placesLine({ modal, modalNote, machines, rebuild }: Places) {
 
 type Entry = { row: RepoSettingsRow; stats: RepoStats | undefined; places: Places };
 
+function StateBadge({ row }: { row: RepoSettingsRow }) {
+  if (row.enabled && row.onboarding_state) return <OnboardingBadge state={row.onboarding_state} />;
+  return (
+    <Badge variant="outline" size="sm">
+      {row.enabled ? "Not onboarded" : "Disabled"}
+    </Badge>
+  );
+}
+
+/** A repo card (the canvas's .rp): name and state, then how it runs, or where onboarding stands. */
 function Row({ entry, open, cursor, onFocus }: { entry: Entry; open: boolean; cursor: boolean; onFocus: () => void }) {
   const { row, stats, places } = entry;
   const nowhere = !places.modal && places.machines.length === 0;
+  const runs = [row.execution ? RUNS_ON_LABELS[row.execution] : "Settings default", `${stats?.open ?? 0} open`, AUTONOMY_LABELS[row.autonomy]];
   return (
     <div
       className={cn(
-        "relative flex h-9 w-full items-center gap-3 px-4 transition-colors duration-150 hover:bg-accent/60 @3xl:px-5",
-        open ? "bg-accent" : cursor && "bg-accent/60",
+        "relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1 rounded-2xl border-[1.5px] border-transparent p-3.5 transition-colors duration-150 hover:bg-accent",
+        open ? "border-primary bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)]" : cursor && "bg-accent",
         !row.enabled && "text-muted-foreground",
       )}
     >
@@ -106,54 +116,33 @@ function Row({ entry, open, cursor, onFocus }: { entry: Entry; open: boolean; cu
         onFocus={onFocus}
         aria-current={open ? "true" : undefined}
         aria-label={`Open ${displayName(row)}`}
-        className="absolute inset-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        className="absolute inset-0 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
-      {cursor && <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-foreground" />}
-      <span
-        className={cn("size-2 shrink-0 rounded-full", row.enabled ? "bg-success" : "bg-muted-foreground/50")}
-        title={row.enabled ? "Takes new jobs" : "Disabled"}
-      />
-      <span className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="truncate font-medium">{displayName(row)}</span>
-        {row.is_default && (
-          <Badge variant="secondary" size="sm">
-            Default
-          </Badge>
-        )}
-        {!row.enabled && (
-          <Badge variant="outline" size="sm">
-            Disabled
-          </Badge>
-        )}
-        {row.onboarding_state && <OnboardingBadge state={row.onboarding_state} />}
-        <a
-          href={githubUrl(row.repo)}
-          target="_blank"
-          rel="noreferrer"
-          className="relative hidden min-w-0 items-center gap-1 truncate font-mono text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline @lg:flex"
-        >
-          {row.repo}
-          <ExternalLinkIcon className="size-3 shrink-0" />
-        </a>
-      </span>
-      <span className="hidden w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums @md:block">{stats?.open ?? 0} open</span>
-      <span className="hidden w-12 shrink-0 text-right text-xs text-muted-foreground tabular-nums @md:block">
-        {stats?.lastAt ? <ShortTime date={stats.lastAt} /> : "none"}
-      </span>
+      <span className="truncate font-mono text-[13px] font-semibold">{displayName(row)}</span>
+      <StateBadge row={row} />
       <span
         className={cn(
-          "hidden w-72 shrink-0 truncate text-xs @3xl:block",
+          "col-span-2 truncate text-xs",
           nowhere || row.onboarding_state === "failed" || row.onboarding_state === "needs_input" ? "text-warning" : "text-muted-foreground",
         )}
       >
-        {row.onboarding_state && row.onboarding_state !== "ready" ? onboardingLine(row) : placesLine(places)}
+        {row.onboarding_state && row.onboarding_state !== "ready" ? onboardingLine(row) : nowhere ? placesLine(places) : runs.join(" · ")}
       </span>
-      <span className="hidden w-36 shrink-0 truncate text-xs text-muted-foreground @2xl:block">Merging · {AUTONOMY_LABELS[row.autonomy]}</span>
     </div>
   );
 }
 
-function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harnesses: readonly Harness[]; panelTakesSecrets: boolean }) {
+function Detail({
+  entry,
+  harnesses,
+  panelTakesSecrets,
+  canEdit,
+}: {
+  entry: Entry;
+  harnesses: readonly Harness[];
+  panelTakesSecrets: boolean;
+  canEdit: boolean;
+}) {
   const router = useRouter();
   const { row, stats, places } = entry;
   const [name, setName] = useState(displayName(row));
@@ -205,25 +194,29 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
   };
 
   return (
-    <aside aria-label={`${displayName(row)} details`} className="flex min-h-0 flex-col border-l bg-card">
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-2 px-4.5 py-4">
-          <div className="flex items-center justify-between font-mono text-xs text-faint">
-            <span>{row.repo}</span>
-            <Button render={<Link href="/repositories" scroll={false} />} variant="ghost" size="icon-sm" aria-label="Close">
-              <XIcon />
-            </Button>
+    <section aria-label={`${displayName(row)} details`} className="flex min-w-0 flex-[1_1_560px] flex-col gap-4">
+      <div className={PANEL}>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="truncate text-2xl leading-[30px] font-semibold">{displayName(row)}</h2>
+            <StateBadge row={row} />
           </div>
-          <h2 className="text-base font-semibold">{displayName(row)}</h2>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="font-mono">{row.repo}</span>
             {row.is_default ? (
               <Badge variant="secondary">Default</Badge>
             ) : (
-              <Button variant="outline" size="sm" disabled={pending || !row.enabled} onClick={() => run(() => makeDefaultRepository({ repo: row.repo }))}>
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(!canEdit && "hidden")}
+                disabled={pending || !row.enabled}
+                onClick={() => run(() => makeDefaultRepository({ repo: row.repo }))}
+              >
                 Make default
               </Button>
             )}
-            <span className="text-muted-foreground">
+            <span>
               {stats?.open ?? 0} open {stats?.open === 1 ? "job" : "jobs"}
             </span>
             <Button render={<a href={githubUrl(row.repo)} target="_blank" rel="noreferrer" />} variant="outline" size="sm" className="ml-auto">
@@ -231,12 +224,76 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
               <ExternalLinkIcon data-icon="inline-end" />
             </Button>
           </div>
-          <p className={cn("text-sm", !places.modal && places.machines.length === 0 ? "text-warning" : "text-muted-foreground")}>{placesLine(places)}</p>
+          <p className={cn("text-xs", !places.modal && places.machines.length === 0 ? "text-warning" : "text-muted-foreground")}>{placesLine(places)}</p>
         </div>
-        <Separator />
-        <OnboardingSection key={`${row.onboarding_state}-${row.onboarding_at?.toISOString()}`} row={row} panelTakesSecrets={panelTakesSecrets} />
-        <Separator />
-        <div className="flex flex-col gap-5 px-4.5 py-4">
+        <fieldset disabled={!canEdit} className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+          <Field>
+            <FieldLabel htmlFor={id("autonomy")}>Merging</FieldLabel>
+            <Select items={autonomyItems} value={autonomy} disabled={!canEdit} onValueChange={(value) => value !== null && setAutonomy(value)}>
+              <SelectTrigger id={id("autonomy")} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {autonomyItems.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+            <FieldDescription>{AUTONOMY_HELP[autonomy]}</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel>Workflow</FieldLabel>
+            <Button render={<Link href={workflowHref(row.repo)} />} variant="outline" className="w-full justify-between">
+              {canEdit ? "Edit workflow" : "View workflow"}
+              <span aria-hidden>→</span>
+            </Button>
+            <FieldDescription>
+              sstack roles in <span className="font-mono">.sstack/roles/</span>.
+            </FieldDescription>
+          </Field>
+          <div className="contents">
+            <Field>
+              <FieldLabel htmlFor={id("runs-on")}>Default runs on</FieldLabel>
+              <Select
+                items={runsOnItems}
+                value={execution}
+                disabled={!canEdit}
+                onValueChange={(value) => value !== null && setExecution(value === SETTINGS_DEFAULT ? SETTINGS_DEFAULT : (value as Execution))}
+              >
+                <SelectTrigger id={id("runs-on")} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  {runsOnItems.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={id("harness")}>Default harness</FieldLabel>
+              <Select items={harnessItems} value={provider} disabled={!canEdit} onValueChange={(value) => value !== null && setProvider(value)}>
+                <SelectTrigger id={id("harness")} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  {harnessItems.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </Field>
+            <p className="col-span-full text-xs text-muted-foreground">
+              A ticket&apos;s Harness or Runs on label beats these, and these beat Settings. A local run needs a runner&apos;s checkout of the repo; without one
+              the job runs in a cloud sandbox, or waits until it can.
+            </p>
+          </div>
           <Field>
             <FieldLabel htmlFor={id("name")}>Display name</FieldLabel>
             <Input id={id("name")} value={name} onChange={(e) => setName(e.target.value)} />
@@ -251,7 +308,7 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
               ]}
               value={enabled ? "enabled" : "disabled"}
               onValueChange={(value) => value !== null && setEnabled(value === "enabled")}
-              disabled={row.is_default}
+              disabled={!canEdit || row.is_default}
             >
               <SelectTrigger id={id("enabled")} className="w-full">
                 <SelectValue />
@@ -267,65 +324,9 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
                 : "A disabled repository takes no new jobs; an issue labeled with it goes to the default, and the issue is told why."}
             </FieldDescription>
           </Field>
-          <div className="grid w-full grid-cols-2 gap-4">
-            <Field>
-              <FieldLabel htmlFor={id("harness")}>Default harness</FieldLabel>
-              <Select items={harnessItems} value={provider} onValueChange={(value) => value !== null && setProvider(value)}>
-                <SelectTrigger id={id("harness")} className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectPopup>
-                  {harnessItems.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={id("runs-on")}>Default runs on</FieldLabel>
-              <Select
-                items={runsOnItems}
-                value={execution}
-                onValueChange={(value) => value !== null && setExecution(value === SETTINGS_DEFAULT ? SETTINGS_DEFAULT : (value as Execution))}
-              >
-                <SelectTrigger id={id("runs-on")} className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectPopup>
-                  {runsOnItems.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </Field>
-            <p className="col-span-2 text-sm text-muted-foreground">
-              A ticket&apos;s Harness or Runs on label beats these, and these beat Settings. A local run needs a runner&apos;s checkout of the repo; without one
-              the job runs in a cloud sandbox, or waits until it can.
-            </p>
-          </div>
-          <Field>
-            <FieldLabel htmlFor={id("autonomy")}>Merging</FieldLabel>
-            <Select items={autonomyItems} value={autonomy} onValueChange={(value) => value !== null && setAutonomy(value)}>
-              <SelectTrigger id={id("autonomy")} className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectPopup>
-                {autonomyItems.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-            <FieldDescription>{AUTONOMY_HELP[autonomy]}</FieldDescription>
-          </Field>
-          <Field>
+          <Field className="col-span-full">
             <FieldLabel>
-              <Switch checked={requireBugbot} onCheckedChange={setRequireBugbot} />
+              <Switch checked={requireBugbot} onCheckedChange={setRequireBugbot} disabled={!canEdit} />
               Require Bugbot review
             </FieldLabel>
             <FieldDescription>
@@ -334,30 +335,35 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
             </FieldDescription>
           </Field>
           {failure && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="col-span-full text-sm text-destructive">
               {failure}
             </p>
           )}
+        </fieldset>
+        <div className={cn("flex items-center gap-3", !canEdit && "hidden")}>
+          <Button onClick={save} disabled={pending}>
+            {pending && <Spinner data-icon="inline-start" />}
+            Save
+          </Button>
+          {savedNow && !pending && <span className="text-sm text-muted-foreground">Saved. New jobs use it.</span>}
         </div>
-      </ScrollArea>
-      <div className="flex shrink-0 items-center gap-3 border-t px-4.5 py-3.5">
-        <Button onClick={save} disabled={pending}>
-          {pending && <Spinner data-icon="inline-start" />}
-          Save
-        </Button>
-        {savedNow && !pending && <span className="text-sm text-muted-foreground">Saved. New jobs use it.</span>}
       </div>
-    </aside>
+      <div key={`${row.onboarding_state}-${row.onboarding_at?.toISOString()}`} className="flex flex-wrap items-start gap-4">
+        <OnboardingSection row={row} canEdit={canEdit} />
+        <OnboardingSide row={row} panelTakesSecrets={panelTakesSecrets} canEdit={canEdit} />
+      </div>
+    </section>
   );
 }
 
-/** Every repository in the registry as one dense row; Enter opens its settings on the right. */
+/** Repos as cards on the left and the open one's settings and onboarding beside them, as on the canvas. Engineers see it read-only (Q40). */
 export function Repositories({
   registry,
   stats,
   machines,
   selected,
   panelTakesSecrets,
+  canEdit,
 }: {
   registry: readonly RepoSettingsRow[];
   stats: readonly RepoStats[];
@@ -365,6 +371,8 @@ export function Repositories({
   selected: string | undefined;
   /** The panel holds a Modal token, so it takes secret values itself. */
   panelTakesSecrets: boolean;
+  /** An admin; an engineer sees the page without its actions. */
+  canEdit: boolean;
 }) {
   useOnboardingRefresh(registry);
   const { rows, status } = useFeed(machines);
@@ -375,15 +383,16 @@ export function Repositories({
     [registry, stats, rows, now],
   );
   const listRef = useRef<HTMLDivElement>(null);
-  const [cursor, setCursor] = useState<string | null>(selected ?? null);
-  useRowKeys(listRef, { cursor, setCursor, hrefOf: itemHref, closeHref: selected ? "/repositories" : null });
-  const open = entries.find((e) => e.row.repo === selected);
+  // ponytail: with nothing picked the default repo is open, as the canvas always shows one; so nothing closes.
+  const open = entries.find((e) => e.row.repo === selected) ?? entries.find((e) => e.row.is_default) ?? entries[0];
+  const [cursor, setCursor] = useState<string | null>(open?.row.repo ?? null);
+  useRowKeys(listRef, { cursor, setCursor, hrefOf: itemHref, closeHref: null });
   const enabledCount = registry.filter((r) => r.enabled).length;
 
   return (
     <>
-      <PanelHeader title="Repositories" actions={<AddRepository />} />
-      {entries.length === 0 ? (
+      <PanelHeader title="Repositories" actions={canEdit && <AddRepository />} />
+      {!open ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <Empty className="border">
             <EmptyHeader>
@@ -395,17 +404,20 @@ export function Repositories({
           </Empty>
         </div>
       ) : (
-        <div className={cn("grid min-h-0 flex-1", open ? "grid-cols-[minmax(0,1fr)_440px] xl:grid-cols-[minmax(0,1fr)_520px]" : "grid-cols-1")}>
-          <div ref={listRef} className="@container min-h-0 min-w-0 overflow-y-auto">
-            <ul aria-label="Repositories">
+        <div className="flex min-h-0 flex-1 flex-wrap content-start items-start gap-4 overflow-y-auto p-5">
+          <p className="basis-full text-muted-foreground">
+            Hive onboards each repo by itself: an agent writes the setup recipe, opens a PR with it, and a warm sandbox image is built.
+          </p>
+          <div ref={listRef} className="max-w-[300px] min-w-0 flex-[1_1_240px]">
+            <ul aria-label="Repositories" className="flex flex-col gap-1">
               {entries.map((entry) => (
-                <li key={entry.row.repo} className="border-b">
+                <li key={entry.row.repo}>
                   <Row entry={entry} open={entry === open} cursor={cursor === entry.row.repo} onFocus={() => setCursor(entry.row.repo)} />
                 </li>
               ))}
             </ul>
           </div>
-          {open && <Detail key={open.row.repo} entry={open} harnesses={harnesses} panelTakesSecrets={panelTakesSecrets} />}
+          <Detail key={open.row.repo} entry={open} harnesses={harnesses} panelTakesSecrets={panelTakesSecrets} canEdit={canEdit} />
         </div>
       )}
       <PanelFooter

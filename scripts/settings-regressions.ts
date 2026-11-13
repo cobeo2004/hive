@@ -247,12 +247,11 @@ try {
   if (original) await db.insert(settings).values(original);
 }
 
-// R25g: Machines moved into Settings; the old URL is a redirect to its section.
-const { default: MachinesPage } = await import("../app/(panel)/machines/page");
-assert.throws(
-  () => MachinesPage(),
-  (e: { digest?: string }) => e.digest?.split(";")[2] === "/settings#machines",
-  "/machines redirects to Settings → Machines & devices",
-);
+// R25g, Q62: Machines moved into Settings; the old URL sends an admin there and gives an engineer the 403.
+const { machinesRedirect } = await import("../lib/machine");
+const person = (role: string) => ({ email: OWNER, role, twoFactorEnabled: true, setupDoneAt: new Date() }) satisfies SessionUser;
+assert.equal(machinesRedirect(person("admin")), "/settings#machines", "an admin's /machines redirects to Settings → Machines & devices");
+assert.equal(machinesRedirect(person("user")), null, "an engineer's /machines is the 403");
+assert.equal(machinesRedirect(null), null, "no session is the 403");
 
 console.log("settings regressions passed");

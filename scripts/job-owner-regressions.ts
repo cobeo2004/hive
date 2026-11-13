@@ -48,6 +48,16 @@ try {
   assert.equal(await resolveOwner(db, { assigneeEmail: email("alice").toUpperCase() }), uid("alice"), "lookup case differs from stored");
   assert.equal(await resolveOwner(db, { creatorEmail: `mixed.${prefix}@example.com` }), uid("mixed"), "stored mixed case matches lowercase lookup");
 
+  // R27f: a linked GitHub id matches a private-email owner, and beats another user's email.
+  await db
+    .update(user)
+    .set({ githubId: stamp, githubLogin: "private-dana" })
+    .where(eq(user.id, uid("carol")));
+  assert.equal(await resolveOwner(db, { assigneeGithubId: stamp, assigneeEmail: null }), uid("carol"), "linked id, no public email");
+  assert.equal(await resolveOwner(db, { assigneeGithubId: stamp, assigneeEmail: email("alice") }), uid("carol"), "the linked id before the email");
+  assert.equal(await resolveOwner(db, { assigneeGithubId: stamp + 1, assigneeEmail: email("alice") }), uid("alice"), "an unlinked id falls back to email");
+  assert.equal(await resolveOwner(db, { assigneeGithubId: stamp + 1, creatorGithubId: stamp }), uid("carol"), "a linked creator when the assignee is not");
+
   await setHive("lin-hive");
   const hiveHints = { assigneeId: "lin-hive", assigneeEmail: email("hive") };
   assert.equal(await resolveOwner(db, { ...hiveHints, creatorEmail: `none-${prefix}@example.com` }), null, "Hive's Linear user never owns");

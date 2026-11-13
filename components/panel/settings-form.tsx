@@ -317,6 +317,7 @@ export function SettingsForm({
   const nav = [
     ["job-sources", "Job sources"],
     ...(sources !== "github" ? [["linear", "Linear"] as const] : []),
+    ["github-link", "GitHub"],
     ["subs", "Subscriptions"],
     ["access", "Access"],
     ["evidence", "Evidence storage"],
@@ -326,7 +327,7 @@ export function SettingsForm({
 
   return (
     <>
-      <SettingsLayout sub="You’re an admin. Engineers only see Your accounts and the Linear opt-in." nav={nav}>
+      <SettingsLayout sub="You’re an admin. Engineers see GitHub, Your accounts, the team pool (read-only) and the Linear opt-in." nav={nav}>
         <JobSourcesSection saved={sources} forced={githubForced} />
         {sources !== "github" && <LinearSettingsSection saved={linear.saved} userName={linear.userName} />}
         {children}

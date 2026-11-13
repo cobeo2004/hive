@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { harnessSchema, type Harness } from "./harness";
+import { isAdmin, type SessionUser } from "./auth/owner";
 
 export const UNKNOWN = "unknown";
 const known = <T extends z.ZodType>(shape: T) => z.union([shape, z.literal(UNKNOWN)]);
@@ -213,3 +214,6 @@ export function reportedSlack(machines: readonly { last_seen_at: Date; inventory
 export function t3ThreadLink(threadId: string, environmentId: string | null) {
   return environmentId ? `t3code://threads/${encodeURIComponent(environmentId)}/${encodeURIComponent(threadId)}` : "t3code://app";
 }
+
+/** The old /machines URL: an admin goes to Settings → Machines & devices, anyone else gets the 403 (R25g, Q62). */
+export const machinesRedirect = (user: SessionUser | null) => (isAdmin(user) ? "/settings#machines" : null);

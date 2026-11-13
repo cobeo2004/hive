@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { ForbiddenCard } from "@/components/auth/forbidden-card";
 import { LinearSettingsSection } from "@/components/panel/linear-settings";
 import { SettingsForm } from "@/components/panel/settings-form";
+import { GithubLinkSection } from "@/components/panel/github-link";
 import { SettingsGroup, SettingsLayout, SettingsSection } from "@/components/panel/settings-section";
 import { FormSkeleton, PageSkeleton } from "@/components/panel/skeletons";
 import { TeamPoolSection } from "@/components/panel/team-pool";
@@ -33,6 +34,7 @@ async function Panel() {
   const admin = isAdmin(user);
   const teamPool = (
     <>
+      <GithubLinkSection />
       <SettingsGroup id="subs" title="Subscriptions" description="Runs bill to the assignee’s own subscription first, then fall back to the team pool.">
         <SettingsSection id="your-accounts" title="Your accounts" description="Jobs you own run on your own subscriptions first, then on the team pool.">
           <YourAccounts accounts={meters.mine} manage />
@@ -44,8 +46,8 @@ async function Panel() {
   if (!admin)
     return (
       <SettingsLayout
-        sub="Engineers see Your accounts, the team pool and the Linear opt-in; an admin changes the rest."
-        nav={[...(sources !== "github" ? [["linear", "Linear"] as const] : []), ["subs", "Subscriptions"]]}
+        sub="Engineers see GitHub, Your accounts, the team pool and the Linear opt-in; an admin changes the rest."
+        nav={[...(sources !== "github" ? [["linear", "Linear"] as const] : []), ["github-link", "GitHub"], ["subs", "Subscriptions"]]}
       >
         {sources !== "github" && <LinearSettingsSection {...linear} readOnly />}
         {teamPool}

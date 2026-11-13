@@ -1,7 +1,5 @@
 import { connection } from "next/server";
 import { Suspense } from "react";
-import { ForbiddenCard } from "@/components/auth/forbidden-card";
-import { PanelHeader } from "@/components/panel/panel-header";
 import { Repositories } from "@/components/panel/repositories";
 import { PageSkeleton, RowsSkeleton } from "@/components/panel/skeletons";
 import { db } from "@/db/client";
@@ -14,21 +12,13 @@ import { readRegistry, readRepoStats } from "@/lib/repositories";
 
 async function Panel({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await connection();
-  // Repositories is admin-only (R4), so an engineer gets the 403 card instead of a page whose every action refuses them.
-  if (!isAdmin(await currentUser()))
-    return (
-      <>
-        <PanelHeader title="Repositories" />
-        <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-          <ForbiddenCard reason="admin" />
-        </div>
-      </>
-    );
+  // Engineers see Repositories read-only (Q40); admins edit (R4). Every action checks the admin again.
+  const canEdit = isAdmin(await currentUser());
   // load checks the member before anything is read.
   const machines = await load(machinesQuery());
   const [registry, stats, { repo }] = await Promise.all([readRegistry(db), readRepoStats(db), searchParams]);
   const selected = typeof repo === "string" && REPO_NAME.test(repo) ? repo : undefined;
-  return <Repositories registry={registry} stats={stats} machines={machines} selected={selected} panelTakesSecrets={modalEnvConfigured()} />;
+  return <Repositories registry={registry} stats={stats} machines={machines} selected={selected} panelTakesSecrets={modalEnvConfigured()} canEdit={canEdit} />;
 }
 
 export default function RepositoriesPage(props: PageProps<"/repositories">) {
