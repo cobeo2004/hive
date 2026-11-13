@@ -8,7 +8,7 @@ import { eq, inArray } from "drizzle-orm";
 
 const { db } = await import("../db/client");
 const { repoSstackConfig } = await import("../db/schema");
-const { snapshotDeps, snapshotSstack } = await import("../runner/sstack-snapshot");
+const { snapshotDeps, snapshotSstack, WIKI_FILE_MAX, WIKI_TOTAL_MAX } = await import("../runner/sstack-snapshot");
 
 const SSTACK = "acme/sstack";
 const BARE = "acme/bare";
@@ -55,6 +55,11 @@ const WANTED = {
   ".sstack/project.toml": "[test.mobile]\nplatform = 'ios'\n\n\n",
   ".sstack/roles/a.toml": "name = 'a'",
   ".sstack/steps/plan/step.toml": "id = 'plan'\r\n",
+  // The wiki (R41): three linked pages and the generated index.
+  ".sstack/wiki/index.md": "# Wiki index\n\n- [a](a.md) — A\n- [b](b.md) — B\n- [c](c.md) — C\n",
+  ".sstack/wiki/a.md": "---\nsummary: A\n---\n\nSee [b](b.md).\n",
+  ".sstack/wiki/b.md": "---\nsummary: B\n---\n\nSee [c](c.md).\n",
+  ".sstack/wiki/c.md": "---\nsummary: C\n---\n\nSee [a](a.md).\n",
 };
 const first = commit(
   repoDir,
@@ -64,6 +69,7 @@ const first = commit(
     ".sstack/runs/x/plan.md": "# a run\n",
     ".sstack/roles/nested/b.toml": "name = 'b'\n",
     ".sstack/steps/plan/notes.md": "notes\n",
+    ".sstack/wiki/nested/d.md": "nested\n",
     "README.md": "readme\n",
   },
   "first",
@@ -76,9 +82,9 @@ const rowOf = async (repo: string) => (await db.select().from(repoSstackConfig).
 try {
   // 1. a snapshot holds the wanted files, as exact text, with main's sha
   const one = await snapshotSstack(SSTACK);
-  assert.deepEqual(one, { repo: SSTACK, sha: first, files: 4 });
+  assert.deepEqual(one, { repo: SSTACK, sha: first, files: 8 });
   const row1 = (await rowOf(SSTACK))!;
-  assert.deepEqual(row1.files, WANTED, "only config, project, roles/*.toml and steps/*/step.toml, untrimmed");
+  assert.deepEqual(row1.files, WANTED, "only config, project, roles/*.toml, steps/*/step.toml and wiki/*.md, untrimmed");
   assert.equal(row1.sha, first);
 
   // 2. the same sha writes nothing
@@ -90,7 +96,7 @@ try {
   // 3. a new sha replaces the row
   const second = commit(repoDir, { ".sstack/config.toml": "workflow = 'fast'\n" }, "second");
   assert.notEqual(second, first);
-  assert.deepEqual(await snapshotSstack(SSTACK), { repo: SSTACK, sha: second, files: 4 });
+  assert.deepEqual(await snapshotSstack(SSTACK), { repo: SSTACK, sha: second, files: 8 });
   const row3 = (await rowOf(SSTACK))!;
   assert.equal(row3.sha, second);
   assert.equal(row3.files[".sstack/config.toml"], "workflow = 'fast'\n");
@@ -127,7 +133,21 @@ try {
   const after = (await rowOf(SSTACK))!;
   assert.equal(after.sha, before.sha, "the row keeps its sha");
   assert.equal(after.read_at.getTime(), before.read_at.getTime(), "the row keeps its read_at");
-  assert.deepEqual(await snapshotSstack(SSTACK), { repo: SSTACK, sha: fourth, files: 4 }, "with the remote back, the snapshot lands");
+  assert.deepEqual(await snapshotSstack(SSTACK), { repo: SSTACK, sha: fourth, files: 8 }, "with the remote back, the snapshot lands");
+
+  // 7. wiki pages are bounded: one over the per-page cap is left out, and pages past the total cap are too
+  const big = "x".repeat(WIKI_FILE_MAX + 1);
+  const fill = "y".repeat(WIKI_FILE_MAX);
+  const fillers = Object.fromEntries(Array.from({ length: WIKI_TOTAL_MAX / WIKI_FILE_MAX + 1 }, (_, i) => [`.sstack/wiki/f${i}.md`, fill]));
+  commit(repoDir, { ".sstack/wiki/big.md": big, ...fillers }, "big wiki");
+  await snapshotSstack(SSTACK);
+  const bounded = (await rowOf(SSTACK))!.files;
+  assert.equal(bounded[".sstack/wiki/big.md"], undefined, "a page over WIKI_FILE_MAX is not stored");
+  const wikiBytes = Object.entries(bounded)
+    .filter(([path]) => path.startsWith(".sstack/wiki/"))
+    .reduce((sum, [, text]) => sum + Buffer.byteLength(text), 0);
+  assert.ok(wikiBytes <= WIKI_TOTAL_MAX, `wiki total ${wikiBytes} stays within WIKI_TOTAL_MAX`);
+  assert.equal(bounded[".sstack/config.toml"], "workflow = 'newer'\n", "config files are still stored");
 
   console.log("sstack-snapshot regressions passed");
 } catch (error) {

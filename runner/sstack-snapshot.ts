@@ -18,7 +18,11 @@ export const snapshotDeps: {
   now: () => new Date(),
 };
 
-const WANTED = /^\.sstack\/(config\.toml|project\.toml|roles\/[^/]+\.toml|steps\/[^/]+\/step\.toml)$/;
+const WANTED = /^\.sstack\/(config\.toml|project\.toml|roles\/[^/]+\.toml|steps\/[^/]+\/step\.toml|wiki\/[^/]+\.md)$/;
+
+/** Wiki pages are repo-written prose sent whole to the panel: a page over this, or past the total, is left out. */
+export const WIKI_FILE_MAX = 256 * 1024;
+export const WIKI_TOTAL_MAX = 2 * 1024 * 1024;
 
 type Snapshot = { repo: string; skipped: "no checkout" } | { repo: string; sha: string; unchanged: true } | { repo: string; sha: string; files: number };
 
@@ -44,8 +48,27 @@ export async function snapshotSstack(repo: string): Promise<Snapshot> {
     if (stored?.sha === sha) return { repo, sha, unchanged: true as const };
 
     // Read at the resolved sha, so a fetch that lands meanwhile cannot mix two commits.
-    const paths = (await git(["ls-tree", "-r", "-z", "--name-only", sha, "--", ".sstack"])).split("\0").filter((path) => WANTED.test(path));
-    const files = Object.fromEntries(await Promise.all(paths.map(async (path) => [path, await git(["show", `${sha}:${path}`])] as const)));
+    // `-l` gives each blob's size, so an oversized wiki page is never read. Lines are `<mode> <type> <object> <size>\t<path>`.
+    const entries = (await git(["ls-tree", "-r", "-z", "-l", sha, "--", ".sstack"]))
+      .split("\0")
+      .filter(Boolean)
+      .map((line) => {
+        const tab = line.indexOf("\t");
+        return { path: line.slice(tab + 1), size: Number(line.slice(0, tab).trim().split(/\s+/)[3]) };
+      })
+      .filter(({ path }) => WANTED.test(path));
+    let wikiBytes = 0;
+    // ponytail: a dropped page shows as a broken link in the graph; say why in the panel if that confuses anyone.
+    const paths = entries
+      .filter(({ path, size }) => {
+        if (!path.startsWith(".sstack/wiki/")) return true;
+        if (!(size <= WIKI_FILE_MAX) || wikiBytes + size > WIKI_TOTAL_MAX) return false;
+        wikiBytes += size;
+        return true;
+      })
+      .map(({ path }) => path);
+    const files: Record<string, string> = {};
+    for (const path of paths) files[path] = await git(["show", `${sha}:${path}`]);
 
     const read_at = snapshotDeps.now();
     await tx.insert(repoSstackConfig).values({ repo, files, sha, read_at }).onConflictDoUpdate({ target: repoSstackConfig.repo, set: { files, sha, read_at } });
