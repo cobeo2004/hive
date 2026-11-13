@@ -57,6 +57,11 @@ function buildBox(overrides: { claudeCode?: string; verifyExit?: number } = {}) 
   const layer = baseLayers(limits).find((l) => l.includes("cursor-agent"));
   assert.ok(layer?.includes(`https://downloads.cursor.com/lab/${limits.cursorAgentVersion}/linux/`), "cursor-agent comes at the pinned build");
   assert.ok(layer?.includes("/usr/local/bin/cursor-agent"), "on PATH");
+  assert.ok(
+    layer?.includes("sha256sum -c") && layer.includes("be01f42ad334f81d05a9992fcf060a52cc746f52cc451e849eb652146a6e3c91"),
+    "the tarball is checked against its pinned sha256",
+  );
+  assert.throws(() => baseLayers({ ...limits, cursorAgentVersion: "0.0.0-unpinned" }), /no sha256 pinned/, "a version without a pinned sha256 does not build");
   const before = { ...pinned, cursorAgent: undefined };
   assert.equal(rebuildText(imageDrift(before, pinned)), `Rebuild the sandbox image: Cursor CLI missing → ${limits.cursorAgentVersion}`);
 }

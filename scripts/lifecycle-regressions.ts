@@ -257,14 +257,20 @@ try {
     "hibernated with no slot to hand back",
   );
   const allSlots = sandboxRuntime.slots;
+  const accountOf = sandboxRuntime.account;
   sandboxRuntime.slots = () => [];
+  // R27e: a woken sandbox gets the owner's current Cursor key again.
+  sandboxRuntime.account = (async (k, provider, fallback) =>
+    provider === "cursor" ? { id: "cursor-acct", secret: "fake-cursor-key" } : accountOf(k, provider, fallback)) as typeof accountOf;
   try {
     await ensureAwake(clAsleep);
   } finally {
     sandboxRuntime.slots = allSlots;
+    sandboxRuntime.account = accountOf;
   }
   const clAwake = await row(CL);
   const sbClW = sandboxes.get(clAwake.sandbox_id!)!;
+  assert.equal(sbClW.spec!.secrets.CURSOR_API_KEY, "fake-cursor-key", "the woken sandbox gets the owner's Cursor key");
   assert.deepEqual([clAwake.sandbox_snapshot, clAwake.codex_slot], [null, null], "woken from its snapshot without a slot");
   assert.ok(!sbClW.execs.some((e) => e.argv.join(" ") === "codex login status") && !sbClW.files.has(CODEX_AUTH), "and no Codex login goes in");
   await db.update(jobs).set({ stage: "merged" }).where(eq(jobs.key, CL));

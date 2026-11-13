@@ -357,6 +357,7 @@ try {
   await db.insert(agentAccounts).values([
     { id: "sbx-acct-a", owner_id: "sbx-owner-a", provider: "claude", kind: "subscription", label: "a", sealed: sealedFor("sk-ant-oat-of-a") },
     { id: "sbx-acct-b", owner_id: "sbx-owner-b", provider: "claude", kind: "subscription", label: "b", sealed: sealedFor("sk-ant-oat-of-b") },
+    { id: "sbx-acct-a-cursor", owner_id: "sbx-owner-a", provider: "cursor", kind: "api_key", label: "Cursor API key", sealed: sealedFor("fake-cursor-of-a") },
   ]);
   await db.update(jobs).set({ owner_id: "sbx-owner-a" }).where(eq(jobs.key, keys[6]!));
   await db
@@ -367,7 +368,11 @@ try {
   claudeToken = "sk-ant-oat-fake";
   const owned = await row(keys[6]!);
   assert.equal(owned.provider, "claudeAgent", "an owner's own Claude account keeps the lead on Claude Code without a runner token");
-  assert.deepEqual(sandboxes.get(owned.sandbox_id!)!.spec!.secrets, { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-of-a" }, "the sandbox gets the owner's token");
+  assert.deepEqual(
+    sandboxes.get(owned.sandbox_id!)!.spec!.secrets,
+    { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-of-a", CURSOR_API_KEY: "fake-cursor-of-a" },
+    "the sandbox gets the owner's token, and their Cursor key for a lead to hand work to cursor-agent (R27e)",
+  );
   assert.equal(
     (
       await db

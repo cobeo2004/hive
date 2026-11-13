@@ -258,7 +258,9 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
                 <span>Share with the team pool</span>
                 <span className="text-xs text-muted-foreground">
                   Teammates without their own {title} {provider === "cursor" ? "key can hand work to Cursor with it" : "account can run their jobs on it"}.
-                  Turning it off stops new jobs; ones already on it finish.
+                  {provider === "cursor"
+                    ? " Turning it off takes effect when a job next starts or wakes."
+                    : " Turning it off stops new jobs; ones already on it finish."}
                 </span>
               </span>
               <Switch checked={account.shared} disabled={pending} onCheckedChange={share} />
