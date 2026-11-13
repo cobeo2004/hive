@@ -22,14 +22,14 @@ const json = { Accept: "application/json", "Content-Type": "application/json" };
 const keyOf = (secret: string) => Buffer.from(hkdfSync("sha256", secret, "", "hive-github-link-v1", 32));
 function sealHandle(secret: string, data: object) {
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", keyOf(secret), iv);
+  const cipher = createCipheriv("aes-256-gcm", keyOf(secret), iv, { authTagLength: 16 });
   const body = Buffer.concat([cipher.update(JSON.stringify(data)), cipher.final()]);
   return Buffer.concat([iv, cipher.getAuthTag(), body]).toString("base64url");
 }
 function openHandle(secret: string, handle: string) {
   try {
     const raw = Buffer.from(handle, "base64url");
-    const decipher = createDecipheriv("aes-256-gcm", keyOf(secret), raw.subarray(0, 12)).setAuthTag(raw.subarray(12, 28));
+    const decipher = createDecipheriv("aes-256-gcm", keyOf(secret), raw.subarray(0, 12), { authTagLength: 16 }).setAuthTag(raw.subarray(12, 28));
     return z
       .object({ u: z.string(), c: z.string(), e: z.number() })
       .parse(JSON.parse(Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString()));
