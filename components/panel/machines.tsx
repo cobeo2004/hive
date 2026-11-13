@@ -8,7 +8,6 @@ import type { MachineRow } from "@/db/schema";
 import { isOnline, parseHeartbeat, parseInventory, UNKNOWN, type Heartbeat, type Inventory, type Known } from "@/lib/machine";
 import { cn } from "@/lib/utils";
 import { useFeed, type Feed } from "./live-refresh";
-import { PanelFooter, PanelHeader } from "./panel-header";
 import { Time, useNow } from "./time";
 
 const CLOCK_TICK_MS = 30_000;
@@ -219,13 +218,13 @@ function MachineSection({ machine, now }: { machine: MachineRow; now: number | n
   const inventory = parseInventory(machine.inventory);
   const online = now === null ? null : isOnline(machine.last_seen_at, now);
   return (
-    <section aria-label={machine.name} className="flex flex-col gap-4 py-6 first:pt-0 last:pb-0">
+    <section aria-label={machine.name} className="flex flex-col gap-4 rounded-[10px] bg-(--surface-2) p-3.5">
       <header className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className={cn("size-2 shrink-0 rounded-full", online === null ? "bg-faint" : online ? "bg-success" : "bg-muted-foreground/40")} aria-hidden />
-          <h2 className="text-base font-semibold">{machine.name}</h2>
+          <h3 className="font-semibold">{machine.name}</h3>
           {online !== null && (
-            <Badge variant="outline" className={cn("rounded-md font-normal", online ? "text-success" : "text-muted-foreground")}>
+            <Badge variant={online ? "success" : "outline"} className="rounded-full font-medium">
               {online ? "Online" : "Offline"}
             </Badge>
           )}
@@ -245,10 +244,10 @@ function MachineSection({ machine, now }: { machine: MachineRow; now: number | n
   );
 }
 
-export function Machines({ machines }: { machines: Feed<MachineRow> }) {
-  const { rows, status } = useFeed(machines);
+/** Settings → Machines & devices (R25g): every runner Mac, online first. `/machines` redirects here. */
+export function MachineList({ machines }: { machines: Feed<MachineRow> }) {
+  const { rows } = useFeed(machines);
   const now = useNow(CLOCK_TICK_MS);
-  const onlineMachines = now === null ? null : rows.filter((m) => isOnline(m.last_seen_at, now)).length;
   // Online machines first, then the most recently seen.
   const sorted =
     now === null
@@ -257,31 +256,18 @@ export function Machines({ machines }: { machines: Feed<MachineRow> }) {
           (a, b) => Number(isOnline(b.last_seen_at, now)) - Number(isOnline(a.last_seen_at, now)) || b.last_seen_at.getTime() - a.last_seen_at.getTime(),
         );
 
-  return (
-    <>
-      <PanelHeader title="Machines" />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-6xl p-4 md:p-6">
-          {rows.length === 0 ? (
-            <Empty className="border">
-              <EmptyHeader>
-                <EmptyTitle>No machines yet</EmptyTitle>
-                <EmptyDescription>A machine appears here as soon as its runner sends its first heartbeat.</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <div className="flex flex-col divide-y">
-              {sorted.map((machine) => (
-                <MachineSection key={machine.id} machine={machine} now={now} />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-      <PanelFooter
-        status={status}
-        summary={`${rows.length} ${rows.length === 1 ? "machine" : "machines"}${onlineMachines === null ? "" : ` · ${onlineMachines} online`}`}
-      />
-    </>
+  return rows.length === 0 ? (
+    <Empty className="border">
+      <EmptyHeader>
+        <EmptyTitle>No machines yet</EmptyTitle>
+        <EmptyDescription>A machine appears here as soon as its runner sends its first heartbeat.</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  ) : (
+    <div className="flex flex-col gap-3">
+      {sorted.map((machine) => (
+        <MachineSection key={machine.id} machine={machine} now={now} />
+      ))}
+    </div>
   );
 }

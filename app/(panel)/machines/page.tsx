@@ -1,26 +1,6 @@
-import { connection } from "next/server";
-import { Suspense } from "react";
-import { Machines } from "@/components/panel/machines";
-import { PageSkeleton, RowsSkeleton } from "@/components/panel/skeletons";
-import { load, machinesQuery } from "@/lib/live-queries";
+import { redirect } from "next/navigation";
 
-async function Panel() {
-  // Without a search param to make the page dynamic, Next would try to prerender it and log the cookie read as an error.
-  await connection();
-  const machines = await load(machinesQuery());
-  return <Machines machines={machines} />;
-}
-
+/** Machines live in Settings → Machines & devices (R25g, Q62); the old URL still lands there. */
 export default function MachinesPage() {
-  return (
-    <Suspense
-      fallback={
-        <PageSkeleton title="Machines">
-          <RowsSkeleton rows={3} />
-        </PageSkeleton>
-      }
-    >
-      <Panel />
-    </Suspense>
-  );
+  redirect("/settings#machines");
 }

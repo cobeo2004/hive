@@ -21,7 +21,7 @@ const HARNESS = {
 /** Your accounts (R27, R27c): one card per harness, in Settings (`manage` adds Reconnect and Disconnect) and in setup's Agents step. No token reaches the browser. */
 export function YourAccounts({ accounts, manage = false }: { accounts: MeterAccount[]; manage?: boolean }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3">
       {(["claude", "codex"] as const).map((p) => (
         <AccountCard key={p} provider={p} manage={manage} account={accounts.find((a) => a.provider === p && a.kind === "subscription")} />
       ))}
@@ -118,7 +118,7 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
 
   const waiting = loginId && login?.status === "waiting_code" && login.url;
   return (
-    <div className="flex flex-col gap-3 rounded-xl border bg-muted/40 p-4">
+    <div className="flex flex-col gap-2.5 rounded-[10px] bg-(--surface-2) p-3.5">
       <div className="flex items-center justify-between gap-2">
         <b className="font-semibold">{title}</b>
         {account ? <Badge variant="success">Signed in</Badge> : <Badge variant="outline">Team pool</Badge>}

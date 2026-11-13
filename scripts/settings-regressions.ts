@@ -247,4 +247,12 @@ try {
   if (original) await db.insert(settings).values(original);
 }
 
+// R25g: Machines moved into Settings; the old URL is a redirect to its section.
+const { default: MachinesPage } = await import("../app/(panel)/machines/page");
+assert.throws(
+  () => MachinesPage(),
+  (e: { digest?: string }) => e.digest?.split(";")[2] === "/settings#machines",
+  "/machines redirects to Settings → Machines & devices",
+);
+
 console.log("settings regressions passed");
