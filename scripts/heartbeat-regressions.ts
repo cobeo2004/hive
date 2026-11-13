@@ -9,9 +9,9 @@ const { db } = await import("../db/client");
 const { jobs, machines } = await import("../db/schema");
 const { isOnline, heartbeatSchema, inventorySchema, parseHeartbeat } = await import("../lib/machine");
 const { parseConnectStatus, readProjects } = await import("../lib/t3-state");
-const { collectHeartbeat, createBeat, identify, inventoryReporter, parseDf, parseOrigin, parseVmStat, writeHeartbeat, writeInventory } = await import(
-  "../runner/heartbeat"
-);
+const { deviceReadiness, readBrowser, readDevices, T3ToolError } = await import("../lib/t3-client");
+const { collectHeartbeat, collectInventory, createBeat, identify, inventoryReporter, parseDf, parseOrigin, parseVmStat, writeHeartbeat, writeInventory } =
+  await import("../runner/heartbeat");
 const { claimLaunch, releaseLaunch } = await import("../runner/ops");
 const { linearJob } = await import("./fixtures");
 
@@ -132,6 +132,74 @@ const inventoryA = inventorySchema.parse({
   repos: [],
 });
 const inventoryB = { ...inventoryA, connect: "unlinked" as const };
+const stubCollectors = {
+  runnerSha: async () => inventoryA.runnerSha,
+  t3: async () => inventoryA.t3,
+  connect: async () => inventoryA.connect,
+  projects: async () => inventoryA.projects,
+  repos: async () => inventoryA.repos,
+  harnesses: async () => inventoryA.harnesses,
+  sandbox: async () => inventoryA.sandbox,
+  slack: async () => inventoryA.slack,
+  devices: async () => inventoryA.devices,
+  browser: async () => inventoryA.browser,
+};
+
+const deviceList = (agentDeviceInstalled: boolean) => ({
+  hostStatuses: { local: { status: "ready" } },
+  hosts: [
+    {
+      id: "local",
+      platforms: [
+        { platform: "ios", available: true },
+        { platform: "android", available: true },
+      ],
+      agentDeviceInstalled,
+    },
+  ],
+  devices: [
+    { hostId: "local", platform: "ios", booted: true },
+    { hostId: "local", platform: "ios", booted: false },
+    { hostId: "local", platform: "android", booted: false },
+    { hostId: "other-mac", platform: "android", booted: true },
+  ],
+});
+assert.deepEqual(
+  deviceReadiness(deviceList(true)),
+  { ios: { ready: true, devices: 2, booted: 1 }, android: { ready: true, devices: 1, booted: 0 } },
+  "a ready host with both platforms and agent-device is ready, counting only this machine's devices",
+);
+assert.deepEqual(
+  deviceReadiness(deviceList(false)),
+  {
+    ios: { ready: false, reason: "agent-device not installed", devices: 2, booted: 1 },
+    android: { ready: false, reason: "agent-device not installed", devices: 1, booted: 0 },
+  },
+  "without agent-device neither platform is ready",
+);
+
+const stored = (inventory: unknown) => JSON.parse(JSON.stringify(inventory));
+const refusal = "thread-less sessions may not list devices";
+assert.deepEqual(
+  stored(
+    await collectInventory({
+      ...stubCollectors,
+      devices: () =>
+        readDevices(async () => {
+          throw new T3ToolError(refusal);
+        }),
+      browser: () => readBrowser(async () => ({})),
+    }),
+  ),
+  { ...inventoryA, devices: { error: refusal }, browser: { ready: true } },
+  "a T3 refusal is stored as the error and the other fields are unchanged",
+);
+const hangStarted = Date.now();
+const hung = await collectInventory({ ...stubCollectors, devices: () => new Promise<never>(() => {}) }, 50);
+assert.equal(hung.devices, "unknown", "a probe that hangs is unknown after the probe limit");
+assert.ok(Date.now() - hangStarted < 1_000, "the hanging probe does not hold the inventory");
+assert.equal(inventorySchema.parse(stored(inventoryA)).devices, undefined, "an inventory saved before devices and browser still parses");
+assert.equal(inventorySchema.safeParse(stored({ ...inventoryA, devices: { error: refusal }, browser: "unknown" })).success, true);
 const id = `heartbeat-regress-${Date.now()}`;
 await db.insert(jobs).values(linearJob(id, id));
 try {
@@ -189,14 +257,9 @@ try {
     machine: beatMachine,
     heartbeatCollectors: { ...ok, capacity: () => (hangCapacity ? never : ok.capacity()) },
     inventoryCollectors: {
+      ...stubCollectors,
       runnerSha: async () => (hangInventory ? never : inventoryA.runnerSha),
-      t3: async () => inventoryA.t3,
-      connect: async () => inventoryA.connect,
-      projects: async () => inventoryA.projects,
-      repos: async () => inventoryA.repos,
-      harnesses: async () => inventoryA.harnesses,
       sandbox: async () => (sandboxEntered(), await sandboxGate, inventoryA.sandbox),
-      slack: async () => inventoryA.slack,
     },
     inventoryMs: 600_000,
     // Room for the beat's database writes, which a resent packet on a distant link stretches past 200 ms.

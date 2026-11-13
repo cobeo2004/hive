@@ -8,7 +8,9 @@ import { db } from "../db/client";
 import { machines } from "../db/schema";
 import { loadConfig } from "../lib/config";
 import { UNKNOWN, type Heartbeat, type Inventory } from "../lib/machine";
+import { localHost } from "../lib/host";
 import { sandboxReadiness } from "../lib/sandbox";
+import { probeBrowser, probeDevices } from "../lib/t3-client";
 import { connectStatus, readHarnesses, readProjects, readT3Runtime } from "../lib/t3-state";
 import { baseImageBuild } from "./base-image";
 import { message, withTimeout } from "./queue";
@@ -116,11 +118,17 @@ export function inventoryCollectors(): InventoryCollectors {
       return { ...sandboxReadiness(factory.sandbox), ...(imageBuild && { imageBuild }) };
     },
     slack: async () => ({ configured: Boolean(process.env.SLACK_BOT_TOKEN?.trim()), owner: Boolean(process.env.SLACK_OWNER_USER_ID?.trim()) }),
+    devices: () => probeDevices(localHost),
+    browser: () => probeBrowser(localHost),
   };
 }
 
-async function collectInventory(collectors: InventoryCollectors): Promise<Inventory> {
-  const [runnerSha, t3, connect, projects, repos, harnesses, sandbox, slack] = await Promise.all([
+/** A T3 probe that stalls is unknown after this, well inside the 60 s beat. */
+const PROBE_MS = 30_000;
+
+export async function collectInventory(collectors: InventoryCollectors, probeMs = PROBE_MS): Promise<Inventory> {
+  const probe = <T>(collect: () => Promise<T>) => settle(() => withTimeout(collect, probeMs, () => {}));
+  const [runnerSha, t3, connect, projects, repos, harnesses, sandbox, slack, devices, browser] = await Promise.all([
     settle(collectors.runnerSha),
     settle(collectors.t3),
     settle(collectors.connect),
@@ -129,8 +137,10 @@ async function collectInventory(collectors: InventoryCollectors): Promise<Invent
     settle(collectors.harnesses),
     settle(collectors.sandbox),
     settle(collectors.slack),
+    probe(collectors.devices),
+    probe(collectors.browser),
   ]);
-  return { runnerSha, t3, connect, projects, repos, harnesses, sandbox, slack };
+  return { runnerSha, t3, connect, projects, repos, harnesses, sandbox, slack, devices, browser };
 }
 
 export async function writeHeartbeat(machine: Machine, heartbeat: Heartbeat, now: Date) {

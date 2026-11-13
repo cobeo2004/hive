@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { ExecOptions } from "./exec";
 import { HostAsleepError, HostGoneError, localHost, type JobHost } from "./host";
+import type { BrowserReadiness, DevicesReadiness, PlatformReadiness } from "./machine";
 import { SANDBOX_HOME } from "./sandbox";
 import { forbidInTest } from "./test-mode";
 
@@ -17,7 +18,7 @@ const LIST_SUBAGENTS_PAGES = 20;
 const CLI = { timeoutMs: 60_000, maxBuffer: 16 * 1024 * 1024 };
 
 /** A tool T3 answered with its failure, such as runtime_mode_escalation_denied; carries T3's message. */
-class T3ToolError extends Error {}
+export class T3ToolError extends Error {}
 
 export type SubagentThread = { threadId: string; status: string; latestRunId: string | null };
 export type InterruptOutcome = { kind: "requested" } | { kind: "idle" } | { kind: "refused"; reason: string };
@@ -251,3 +252,57 @@ export async function readDeviceFrame(call: DeviceCall): Promise<Buffer | null> 
 
 /** One bearer session for both tools, not two. */
 export const deviceFrame = (host: JobHost) => withMcp(host, ["orchestration:read"], (call) => readDeviceFrame(call));
+
+const LOCAL_DEVICE_HOST = "local";
+const deviceList = z.object({
+  hostStatuses: z.record(z.string(), z.object({ status: z.string() })),
+  hosts: z.array(
+    z.object({
+      id: z.string(),
+      platforms: z.array(z.object({ platform: z.string(), available: z.boolean() })),
+      agentDeviceInstalled: z.boolean(),
+    }),
+  ),
+  devices: z.array(z.object({ hostId: z.string(), platform: z.string(), booted: z.boolean() })),
+});
+
+/** This machine's iOS and Android readiness from a device_list result; other device hosts do not count. */
+export function deviceReadiness(list: unknown): { ios: PlatformReadiness; android: PlatformReadiness } {
+  const { hostStatuses, hosts, devices } = deviceList.parse(list);
+  const status = hostStatuses[LOCAL_DEVICE_HOST]?.status ?? "missing";
+  const host = hosts.find((h) => h.id === LOCAL_DEVICE_HOST);
+  const platform = (name: "ios" | "android"): PlatformReadiness => {
+    const own = devices.filter((d) => d.hostId === LOCAL_DEVICE_HOST && d.platform === name);
+    const reason =
+      status !== "ready"
+        ? `device host ${status}`
+        : !host?.platforms.some((p) => p.platform === name && p.available)
+          ? `${name} not available`
+          : !host.agentDeviceInstalled
+            ? "agent-device not installed"
+            : own.length === 0
+              ? `no ${name} devices`
+              : undefined;
+    return { ready: !reason, ...(reason && { reason }), devices: own.length, booted: own.filter((d) => d.booted).length };
+  };
+  return { ios: platform("ios"), android: platform("android") };
+}
+
+type ProbeCall = (tool: "device_list" | "preview_status", args: Record<string, unknown>) => Promise<unknown>;
+
+/** T3 refusing the call (a thread-less session, a missing scope) is the answer, stored as `{error}`. */
+const refused = <T>(probe: () => Promise<T>) =>
+  probe().catch((error: unknown) => {
+    if (error instanceof T3ToolError) return { error: error.message };
+    throw error;
+  });
+
+export const readDevices = (call: ProbeCall): Promise<DevicesReadiness> => refused(async () => deviceReadiness(await call("device_list", {})));
+export const readBrowser = (call: ProbeCall): Promise<BrowserReadiness> =>
+  refused(async () => {
+    await call("preview_status", {});
+    return { ready: true as const };
+  });
+// ponytail: no simctl fallback when T3 refuses a thread-less session; add one when a deploy shows the refusal.
+export const probeDevices = (host: JobHost) => withMcp(host, ["orchestration:read"], readDevices);
+export const probeBrowser = (host: JobHost) => withMcp(host, ["orchestration:read"], readBrowser);
