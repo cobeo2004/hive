@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { cpus, hostname, loadavg, totalmem } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { machines } from "../db/schema";
 import { loadConfig } from "../lib/config";
@@ -172,19 +172,25 @@ export async function writeHeartbeat(machine: Machine, heartbeat: Heartbeat, now
     .onConflictDoUpdate({ target: machines.id, set: { name: machine.name, last_seen_at: now, heartbeat } });
 }
 
-export async function writeInventory(machineId: string, inventory: Inventory, now: Date) {
-  const updated = await db.update(machines).set({ inventory, inventory_at: now }).where(eq(machines.id, machineId)).returning({ id: machines.id });
+/**
+ * `fill` is whether inventory_at was already null when this collection began. Only then does the write answer
+ * a "Check now"; a click that nulled it mid-collection is still owed an inventory, so the write keeps the null.
+ */
+export async function writeInventory(machineId: string, inventory: Inventory, now: Date, fill = true) {
+  const at = fill ? now : sql`case when ${machines.inventory_at} is null then null else ${now.toISOString()}::timestamptz end`;
+  const updated = await db.update(machines).set({ inventory, inventory_at: at }).where(eq(machines.id, machineId)).returning({ id: machines.id });
   return updated.length > 0;
 }
 
 const hashOf = (inventory: Inventory) => createHash("sha256").update(JSON.stringify(inventory)).digest("hex");
 
-export function inventoryReporter(write: (inventory: Inventory) => Promise<boolean>) {
+export function inventoryReporter(write: (inventory: Inventory, fill: boolean) => Promise<boolean>) {
   let written: string | undefined;
-  return async (inventory: Inventory): Promise<"written" | "unchanged" | "missing"> => {
+  /** `fill` writes an unchanged inventory too, so a "Check now" always lands a new inventory_at. */
+  return async (inventory: Inventory, fill = false): Promise<"written" | "unchanged" | "missing"> => {
     const hash = hashOf(inventory);
-    if (hash === written) return "unchanged";
-    if (!(await write(inventory))) return "missing";
+    if (hash === written && !fill) return "unchanged";
+    if (!(await write(inventory, fill))) return "missing";
     written = hash;
     return "written";
   };
@@ -210,12 +216,15 @@ export function createBeat({
   log: Log;
   now?: () => number;
 }) {
-  const report = inventoryReporter((value) => writeInventory(machine.id, value, new Date(now())));
+  const report = inventoryReporter((value, fill) => writeInventory(machine.id, value, new Date(now()), fill));
   let running = false;
   let inventoryAt: number | undefined;
   /** Bumped by each fresh request, so an inventory collected before it does not count as fresh. */
   let freshAsked = 0;
+  /** Bumped as each beat ends, timed out or not, so an abandoned beat that finishes late writes no inventory. */
+  let beats = 0;
   async function beatOnce(withInventory: boolean) {
+    const beatNo = beats;
     const started = now();
     const heartbeat = await collectHeartbeat(heartbeatCollectors);
     await writeHeartbeat(machine, heartbeat, new Date(now()));
@@ -228,7 +237,12 @@ export function createBeat({
     if (!withInventory || (inventoryAt !== undefined && now() - inventoryAt < inventoryMs)) return;
     const collectedAt = now();
     const asked = freshAsked;
-    const result = await report(await collectInventory(inventory));
+    // Read before collecting: a Check now (or a new machine's row) already null now is answered by this collection.
+    const fill = await inventoryStale(machine.id);
+    const collected = await collectInventory(inventory);
+    // ponytail: a write already sent when the timeout fires can still land; the window is one UPDATE.
+    if (beatNo !== beats) return log("inventory", { ms: now() - collectedAt, result: "abandoned" });
+    const result = await report(collected, fill);
     if (result !== "missing" && asked === freshAsked) inventoryAt = collectedAt;
     log("inventory", { ms: now() - collectedAt, result });
   }
@@ -244,7 +258,7 @@ export function createBeat({
     }
     if (running) {
       log("heartbeat:skipped", { reason: "the previous beat is still running" });
-      return;
+      return false;
     }
     running = true;
     try {
@@ -256,7 +270,40 @@ export function createBeat({
     } catch (error) {
       log("heartbeat:error", { error: message(error) });
     } finally {
+      beats++;
       running = false;
     }
+    return true;
   };
+}
+
+/** True when the panel's "Check now" nulled this machine's inventory_at and no inventory has landed since. */
+export async function inventoryStale(machineId: string) {
+  const [row] = await db.select({ at: machines.inventory_at }).from(machines).where(eq(machines.id, machineId));
+  return row !== undefined && row.at === null;
+}
+
+/**
+ * The runner's handler for a machines notification. hive_changes names only the table, so it reads its own
+ * row and another machine's change runs nothing here. One check at a time, so the heartbeats that notify
+ * while the fresh inventory runs start no second one.
+ */
+export function checkNowWatcher(
+  stale: () => Promise<boolean>,
+  /** False when it was skipped because a beat was already running; that beat's write notifies again. */
+  beat: (options: { fresh: true }) => Promise<boolean>,
+  log: Log,
+  { now = Date.now, retryMs = 60_000 } = {},
+) {
+  let checking: Promise<unknown> | undefined;
+  let failedAt = Number.NEGATIVE_INFINITY;
+  return () =>
+    (checking ??= (async () => {
+      if (now() - failedAt < retryMs || !(await stale())) return;
+      // A fresh inventory that ran and still did not land (a failing write) waits retryMs before the next
+      // try, so the heartbeats' own notifications do not loop it.
+      if ((await beat({ fresh: true })) && (await stale())) failedAt = now();
+    })()
+      .catch((error) => log("checkNow:error", { error: message(error) }))
+      .finally(() => (checking = undefined)));
 }

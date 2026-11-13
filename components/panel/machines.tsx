@@ -1,11 +1,25 @@
 "use client";
 
 import { ChevronDownIcon, FolderGit2Icon, FolderIcon } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition, type ReactNode } from "react";
+import { checkMachineNow } from "@/app/actions/machines";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import type { MachineRow } from "@/db/schema";
-import { isOnline, parseHeartbeat, parseInventory, UNKNOWN, type Heartbeat, type Inventory, type Known } from "@/lib/machine";
+import {
+  deviceChips,
+  isOnline,
+  parseHeartbeat,
+  parseInventory,
+  sandboxChips,
+  UNKNOWN,
+  type DeviceChip,
+  type Heartbeat,
+  type Inventory,
+  type Known,
+} from "@/lib/machine";
 import { cn } from "@/lib/utils";
 import { useFeed, type Feed } from "./live-refresh";
 import { Time, useNow } from "./time";
@@ -213,6 +227,55 @@ function Facts({ machine, inventory, heartbeat }: { machine: MachineRow; invento
   );
 }
 
+const CHIP_VARIANT = { ready: "success", warn: "warning", none: "outline" } as const;
+
+function Chips({ title, chips }: { title: string; chips: DeviceChip[] }) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
+      <span className="text-muted-foreground">{title}</span>
+      {chips.map((chip) => (
+        <Badge key={chip.label} variant={CHIP_VARIANT[chip.tone]} className="max-w-full gap-1 rounded-full font-normal" title={chip.text}>
+          <span className="font-medium">{chip.label}</span>
+          <span className="truncate">{chip.text}</span>
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+/** Browser, iOS and Android readiness, and "Check now", which shows checking until the runner writes a new inventory. */
+function Devices({ machine, inventory }: { machine: MachineRow; inventory: Inventory | null }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [failure, setFailure] = useState<string | null>(null);
+  const checking = pending || machine.inventory_at === null;
+  const sandbox = sandboxChips(inventory);
+  const check = () =>
+    startTransition(async () => {
+      const outcome = await checkMachineNow(machine.id);
+      setFailure(outcome.ok ? null : outcome.message);
+      if (outcome.ok) router.refresh();
+    });
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <Chips title="Devices" chips={deviceChips(inventory)} />
+          {sandbox && <Chips title="Cloud sandbox" chips={sandbox} />}
+        </div>
+        <Button size="xs" variant="outline" className="shrink-0" onClick={check} disabled={checking}>
+          {checking ? "Checking…" : "Check now"}
+        </Button>
+      </div>
+      {failure && (
+        <span role="alert" className="text-xs text-destructive">
+          {failure}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function MachineSection({ machine, now }: { machine: MachineRow; now: number | null }) {
   const heartbeat = parseHeartbeat(machine.heartbeat);
   const inventory = parseInventory(machine.inventory);
@@ -234,6 +297,7 @@ function MachineSection({ machine, now }: { machine: MachineRow; now: number | n
           </span>
         </div>
         <Facts machine={machine} inventory={inventory} heartbeat={heartbeat} />
+        <Devices machine={machine} inventory={inventory} />
       </header>
       {/* An offline machine's numbers are its last heartbeat's, so they fade. */}
       <div className={cn(online === false && "opacity-60")}>

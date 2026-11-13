@@ -248,3 +248,44 @@ export function t3ThreadLink(threadId: string, environmentId: string | null) {
 
 /** The old /machines URL: an admin goes to Settings → Machines & devices, anyone else gets the 403 (R25g, Q62). */
 export const machinesRedirect = (user: SessionUser | null) => (isAdmin(user) ? "/settings#machines" : null);
+
+/** One readiness chip on a machine row: green ready, amber not ready, grey not known. */
+export type DeviceChip = { label: string; tone: "ready" | "warn" | "none"; text: string };
+
+const devicesText = (p: PlatformReadiness) => `${p.devices} device${p.devices === 1 ? "" : "s"} · ${p.booted} booted`;
+
+const platformChip = (label: string, devices: Inventory["devices"], platform: "ios" | "android"): DeviceChip => {
+  if (devices === undefined) return { label, tone: "none", text: "not checked yet" };
+  if (devices === UNKNOWN) return { label, tone: "none", text: UNKNOWN };
+  if ("error" in devices) return { label, tone: "warn", text: devices.error };
+  const p = devices[platform];
+  return p.ready ? { label, tone: "ready", text: devicesText(p) } : { label, tone: "warn", text: p.reason ?? "not ready" };
+};
+
+/** Browser, iOS and Android on this Mac. `answers` only says T3's preview tools respond, not that a page renders. */
+export function deviceChips(inventory: Inventory | null): DeviceChip[] {
+  const browser = inventory?.browser;
+  return [
+    browser === undefined
+      ? { label: "Browser", tone: "none", text: "not checked yet" }
+      : browser === UNKNOWN
+        ? { label: "Browser", tone: "none", text: UNKNOWN }
+        : "error" in browser
+          ? { label: "Browser", tone: "warn", text: browser.error }
+          : { label: "Browser", tone: "ready", text: "T3 preview answers" },
+    platformChip("iOS", inventory?.devices, "ios"),
+    platformChip("Android", inventory?.devices, "android"),
+  ];
+}
+
+/** The Modal sandbox this Mac launches: a browser through Playwright MCP, never a simulator. Null when it reports no Modal. */
+export function sandboxChips(inventory: Inventory | null): DeviceChip[] | null {
+  const sandbox = inventory?.sandbox;
+  if (!sandbox || sandbox === UNKNOWN || !sandbox.modal) return null;
+  const playwright = sandbox.imageInfo?.versions?.playwrightMcp;
+  return [
+    playwright ? { label: "Browser", tone: "ready", text: `Playwright MCP ${playwright}` } : { label: "Browser", tone: "none", text: "no image yet" },
+    { label: "iOS", tone: "none", text: "not on this machine" },
+    { label: "Android", tone: "none", text: "not on this machine" },
+  ];
+}
