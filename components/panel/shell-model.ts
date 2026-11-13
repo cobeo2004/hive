@@ -16,10 +16,17 @@ export function workingJobs<J extends ShellJob>(rows: readonly J[]): J[] {
     .sort((a, b) => b.claimed_at.getTime() - a.claimed_at.getTime());
 }
 
-/** `waiting` is the Inbox badge's number; `settled` counts finished jobs that are not archived, across everyone. */
-export function sidebarCounts(rows: readonly ShellJob[], me: Viewer | null) {
-  const { shown } = splitArchived(rows);
-  return { waiting: inboxItems(ownedBy(shown, "mine", me)).length, settled: shown.filter((j) => isFinished(j.stage)).length };
+/** The viewer's own Inbox items' jobs outside the archive, in the Inbox's order; its length is the Inbox badge's number. */
+export function waitingJobs<J extends ShellJob>(rows: readonly J[], me: Viewer | null): J[] {
+  return inboxItems(ownedBy(splitArchived(rows).shown, "mine", me)).map((item) => item.job);
+}
+
+/** Finished jobs outside the archive, across everyone, most recently finished first. */
+export function settledJobs<J extends ShellJob>(rows: readonly J[]): J[] {
+  const at = (j: J) => (j.stage_at ?? j.updated_at).getTime();
+  return splitArchived(rows)
+    .shown.filter((j) => isFinished(j.stage))
+    .sort((a, b) => at(b) - at(a));
 }
 
 const CRUMBS: Record<string, string> = {
