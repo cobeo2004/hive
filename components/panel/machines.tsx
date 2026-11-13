@@ -258,18 +258,20 @@ function Devices({ machine, inventory }: { machine: MachineRow; inventory: Inven
     });
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <Chips title="Devices" chips={deviceChips(inventory)} />
-        <Button size="xs" variant="outline" onClick={check} disabled={checking}>
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <Chips title="Devices" chips={deviceChips(inventory)} />
+          {sandbox && <Chips title="Cloud sandbox" chips={sandbox} />}
+        </div>
+        <Button size="xs" variant="outline" className="shrink-0" onClick={check} disabled={checking}>
           {checking ? "Checking…" : "Check now"}
         </Button>
-        {failure && (
-          <span role="alert" className="text-xs text-destructive">
-            {failure}
-          </span>
-        )}
       </div>
-      {sandbox && <Chips title="Cloud sandbox" chips={sandbox} />}
+      {failure && (
+        <span role="alert" className="text-xs text-destructive">
+          {failure}
+        </span>
+      )}
     </div>
   );
 }
