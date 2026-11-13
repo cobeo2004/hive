@@ -48,6 +48,7 @@ const itemHref = (repo: string) => `/repositories?${new URLSearchParams({ repo }
 const githubUrl = (repo: string) => `https://github.com/${repo}`;
 /** The repo's Workflow page (Q41); the segment is the encoded `owner/name`. */
 export const workflowHref = (repo: string) => `/repositories/${encodeURIComponent(repo)}/workflow`;
+const wikiHref = (repo: string) => `/repositories/${encodeURIComponent(repo)}/wiki`;
 
 /**
  * Where a repo's jobs can launch. Modal needs a runner that can launch there and, for an onboarded
@@ -251,6 +252,16 @@ function Detail({
             </Button>
             <FieldDescription>
               sstack roles in <span className="font-mono">.sstack/roles/</span>.
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel>Wiki</FieldLabel>
+            <Button render={<Link href={wikiHref(row.repo)} />} variant="outline" className="w-full justify-between">
+              View wiki
+              <span aria-hidden>→</span>
+            </Button>
+            <FieldDescription>
+              sstack wiki in <span className="font-mono">.sstack/wiki/</span> on main.
             </FieldDescription>
           </Field>
           <div className="contents">

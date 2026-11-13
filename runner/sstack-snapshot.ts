@@ -18,7 +18,7 @@ export const snapshotDeps: {
   now: () => new Date(),
 };
 
-const WANTED = /^\.sstack\/(config\.toml|project\.toml|roles\/[^/]+\.toml|steps\/[^/]+\/step\.toml)$/;
+const WANTED = /^\.sstack\/(config\.toml|project\.toml|roles\/[^/]+\.toml|steps\/[^/]+\/step\.toml|wiki\/[^/]+\.md)$/;
 
 type Snapshot = { repo: string; skipped: "no checkout" } | { repo: string; sha: string; unchanged: true } | { repo: string; sha: string; files: number };
 
