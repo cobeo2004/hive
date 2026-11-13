@@ -30,7 +30,7 @@ export function GithubLinkCard({ login }: { login: string | null }) {
       const polled = await pollGithubLink(code.handle).catch(() => ({ status: "failed" as const }));
       if (!live) return;
       if (polled.status === "pending") {
-        wait = Math.max(wait, polled.interval);
+        wait = Math.max(polled.slowDown ? wait + 5 : wait, polled.interval);
         timer = setTimeout(tick, wait * 1000);
         return;
       }

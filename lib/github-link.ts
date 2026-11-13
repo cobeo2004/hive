@@ -11,7 +11,10 @@ import { GITHUB_API } from "./github/app";
 
 type Db = Pick<NodePgDatabase<typeof schema>, "update">;
 type LinkDeps = { db: Db; clientId: string; secret: string; fetch?: typeof fetch; now?: () => number };
-export type LinkPoll = { status: "pending"; interval: number } | { status: "linked"; login: string } | { status: "expired" | "denied" | "taken" | "failed" };
+export type LinkPoll =
+  | { status: "pending"; interval: number; slowDown?: true }
+  | { status: "linked"; login: string }
+  | { status: "expired" | "denied" | "taken" | "failed" };
 
 const GITHUB = "https://github.com";
 const json = { Accept: "application/json", "Content-Type": "application/json" };
@@ -61,7 +64,9 @@ export async function pollLink(d: LinkDeps, userId: string, handle: string): Pro
   const got = z
     .object({ access_token: z.string().optional(), error: z.string().optional(), interval: z.number().optional() })
     .safeParse(await res.json().catch(() => null)).data;
-  if (got?.error === "authorization_pending" || got?.error === "slow_down") return { status: "pending", interval: got.interval ?? 5 };
+  if (got?.error === "authorization_pending") return { status: "pending", interval: got.interval ?? 5 };
+  // GitHub: each slow_down adds 5 s to the wait; the client keeps the running interval.
+  if (got?.error === "slow_down") return { status: "pending", interval: got.interval ?? 5, slowDown: true };
   if (got?.error === "expired_token") return { status: "expired" };
   if (got?.error === "access_denied") return { status: "denied" };
   if (!got?.access_token) return { status: "failed" };

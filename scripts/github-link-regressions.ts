@@ -42,6 +42,12 @@ try {
 
   assert.deepEqual(await pollLink(deps, ids[0]!, started.handle), { status: "pending", interval: 5 }, "waiting on the user");
   assert.equal(JSON.parse(calls.at(-1)!.body!).device_code, "dev-code-secret", "the server polls with the device code");
+  tokenReply = { error: "slow_down", interval: 10 };
+  assert.deepEqual(await pollLink(deps, ids[0]!, started.handle), { status: "pending", interval: 10, slowDown: true }, "slow_down backs off");
+  tokenReply = { error: "access_denied" };
+  assert.deepEqual(await pollLink(deps, ids[0]!, started.handle), { status: "denied" }, "a refused code is denied");
+  tokenReply = { error: "unsupported_grant_type" };
+  assert.deepEqual(await pollLink(deps, ids[0]!, started.handle), { status: "failed" }, "other errors fail");
   assert.deepEqual(await pollLink(deps, ids[1]!, started.handle), { status: "failed" }, "another user's handle is refused");
   assert.deepEqual(await pollLink(deps, ids[0]!, `${started.handle.slice(0, -4)}AAAA`), { status: "failed" }, "a tampered handle is refused");
 
