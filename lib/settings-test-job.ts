@@ -67,7 +67,8 @@ export async function testJobStatus(db: Db): Promise<TestJobStatus> {
     ? await db.select({ file: jobMedia.file, bytes: jobMedia.bytes }).from(jobMedia).where(eq(jobMedia.stage_event_id, job.assessment_event_id))
     : [];
   // The PR head the merge decision read, so evidence that passed at an older commit does not count for a newer head.
-  const sha = job.merge_decision?.headSha ?? job.evidence?.sha;
+  // A decision that did not ask GitHub (headSha null) leaves the head unknown: unverified, not the evidence's sha.
+  const sha = job.merge_decision ? job.merge_decision.headSha : job.evidence?.sha;
   const [evidence] = sha
     ? await db
         .select()

@@ -135,7 +135,7 @@ await db
     pr_url: "https://github.com/o/r/pull/1",
     assessment_event_id: "ev-pr",
     evidence: { sha: "b".repeat(40), attempt: 1, clean: true, producer: "agent", source: "project.toml", at: at.toISOString(), checks: [check] },
-    merge_decision: { outcome: "handover", reasons: ["Has the review label."] } as never,
+    merge_decision: { outcome: "handover", reasons: ["Has the review label."], headSha: "b".repeat(40) } as never,
   })
   .where(eq(jobs.key, "FAC-1"));
 const settled = (await testJobStatus(db)).last;
@@ -158,6 +158,14 @@ await db
 assert.ok(
   (await testJobStatus(db)).last?.checks?.some((c) => !c.ok),
   "evidence that passed at an older commit does not count for the PR's head",
+);
+await db
+  .update(jobs)
+  .set({ merge_decision: { outcome: "handover", reasons: [], headSha: null } as never })
+  .where(eq(jobs.key, "FAC-1"));
+assert.ok(
+  (await testJobStatus(db)).last?.checks?.some((c) => !c.ok),
+  "nor when the decision did not learn the head",
 );
 const next = await run(admin);
 assert.equal(next.ok && !next.existing && filed.length, 1, "after it settles, a click files a new one");
