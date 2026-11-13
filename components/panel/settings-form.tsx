@@ -3,7 +3,7 @@
 import { CheckIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { saveSettings } from "@/app/actions/settings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
@@ -32,8 +32,9 @@ import { LinearSettingsSection } from "./linear-settings";
 import { MembersSection } from "./members-section";
 import { NotificationsCard } from "./notifications-card";
 import { useFeed, type Feed } from "./live-refresh";
-import { PanelFooter, PanelHeader } from "./panel-header";
-import { SettingsSection } from "./settings-section";
+import { MachineList } from "./machines";
+import { PanelFooter } from "./panel-header";
+import { SettingsGroup, SettingsLayout, SettingsSection } from "./settings-section";
 import { useAfterHydration, useNow } from "./time";
 
 const CLOCK_TICK_MS = 30_000;
@@ -270,6 +271,10 @@ export function SettingsForm({
 }) {
   const router = useRouter();
   const { rows, status } = useFeed(machines);
+  // The sections stream in after the browser looked for the #hash (e.g. /machines → #machines), so scroll to it once they are here.
+  useEffect(() => {
+    document.getElementById(location.hash.slice(1))?.scrollIntoView();
+  }, []);
   const now = useNow(CLOCK_TICK_MS);
   const reported = reportedHarnesses(rows, now ?? 0);
   const harnesses = reported?.filter((h) => h.enabled) ?? [];
@@ -309,14 +314,30 @@ export function SettingsForm({
     });
   };
 
+  const nav = [
+    ["job-sources", "Job sources"],
+    ...(sources !== "github" ? [["linear", "Linear"] as const] : []),
+    ["github-link", "GitHub"],
+    ["subs", "Subscriptions"],
+    ["access", "Access"],
+    ["evidence", "Evidence storage"],
+    ["machines", "Machines & devices"],
+    ["notifications", "Notifications"],
+  ] as const;
+
   return (
     <>
-      <PanelHeader title="Settings" />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-6xl flex-col divide-y p-4 md:p-8">
-          <JobSourcesSection saved={sources} forced={githubForced} />
-          {sources !== "github" && <LinearSettingsSection saved={linear.saved} userName={linear.userName} />}
-          {children}
+      <SettingsLayout sub="You’re an admin. Engineers see GitHub, Your accounts, the team pool (read-only) and the Linear opt-in." nav={nav}>
+        <JobSourcesSection saved={sources} forced={githubForced} />
+        {sources !== "github" && <LinearSettingsSection saved={linear.saved} userName={linear.userName} />}
+        {children}
+        <SettingsGroup id="access" title="Access" description="Members only: invites, roles and password resets.">
+          <MembersSection members={members} />
+        </SettingsGroup>
+        <SettingsSection id="evidence" title="Evidence storage">
+          <p>PR media: sstack-media branch · panel copies kept 30 days</p>
+        </SettingsSection>
+        <SettingsGroup id="machines" title="Machines & devices" description="Where new jobs run, and the runner Macs that report in.">
           <SettingsSection
             id="new-jobs"
             title="New jobs"
@@ -430,10 +451,12 @@ export function SettingsForm({
               )}
             </Card>
           </SettingsSection>
-          <NotificationsCard saved={notifications} slack={slack} />
-          <MembersSection members={members} />
-        </div>
-      </div>
+          <SettingsSection id="machine-list" title="Machines" description="Each runner Mac: its last heartbeat, resources and T3 workspaces.">
+            <MachineList machines={machines} />
+          </SettingsSection>
+        </SettingsGroup>
+        <NotificationsCard saved={notifications} slack={slack} />
+      </SettingsLayout>
       <PanelFooter status={status} />
     </>
   );

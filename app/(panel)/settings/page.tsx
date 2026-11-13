@@ -2,10 +2,9 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { ForbiddenCard } from "@/components/auth/forbidden-card";
 import { LinearSettingsSection } from "@/components/panel/linear-settings";
-import { PanelHeader } from "@/components/panel/panel-header";
 import { SettingsForm } from "@/components/panel/settings-form";
 import { GithubLinkSection } from "@/components/panel/github-link";
-import { SettingsSection } from "@/components/panel/settings-section";
+import { SettingsGroup, SettingsLayout, SettingsSection } from "@/components/panel/settings-section";
 import { FormSkeleton, PageSkeleton } from "@/components/panel/skeletons";
 import { TeamPoolSection } from "@/components/panel/team-pool";
 import { YourAccounts } from "@/components/panel/your-accounts";
@@ -36,23 +35,23 @@ async function Panel() {
   const teamPool = (
     <>
       <GithubLinkSection />
-      <SettingsSection id="your-accounts" title="Your accounts" description="Jobs you own run on your own subscriptions first, then on the team pool.">
-        <YourAccounts accounts={meters.mine} manage />
-      </SettingsSection>
-      <TeamPoolSection accounts={accounts} pool={loadLimits().pool} readOnly={!admin} />
+      <SettingsGroup id="subs" title="Subscriptions" description="Runs bill to the assignee’s own subscription first, then fall back to the team pool.">
+        <SettingsSection id="your-accounts" title="Your accounts" description="Jobs you own run on your own subscriptions first, then on the team pool.">
+          <YourAccounts accounts={meters.mine} manage />
+        </SettingsSection>
+        <TeamPoolSection accounts={accounts} pool={loadLimits().pool} readOnly={!admin} />
+      </SettingsGroup>
     </>
   );
   if (!admin)
     return (
-      <>
-        <PanelHeader title="Settings" />
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-6xl flex-col divide-y p-4 md:p-8">
-            {sources !== "github" && <LinearSettingsSection {...linear} readOnly />}
-            {teamPool}
-          </div>
-        </div>
-      </>
+      <SettingsLayout
+        sub="Engineers see GitHub, Your accounts, the team pool and the Linear opt-in; an admin changes the rest."
+        nav={[...(sources !== "github" ? [["linear", "Linear"] as const] : []), ["github-link", "GitHub"], ["subs", "Subscriptions"]]}
+      >
+        {sources !== "github" && <LinearSettingsSection {...linear} readOnly />}
+        {teamPool}
+      </SettingsLayout>
     );
   // load checks the member before anything is read.
   const [machines, members] = await Promise.all([load(machinesQuery()), listMembers()]);
