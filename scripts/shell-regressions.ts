@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { JobRow } from "../db/schema";
 
 // R25b: the sidebar's Working list and counts, the breadcrumb and the small chips are pure rules.
-const { crumbsOf, elapsed, harnessChip, repoBadge, sidebarCounts, workingJobs } = await import("../components/panel/shell-model");
+const { crumbsOf, elapsed, everyRepo, harnessChip, repoBadge, settledJobs, waitingJobs, workingJobs } = await import("../components/panel/shell-model");
 
 const T = (minutes: number) => new Date(1_800_000_000_000 + minutes * 60_000);
 const job = (key: string, over: Partial<JobRow>) =>
@@ -44,8 +44,18 @@ assert.deepEqual(
   "a job that moves to implementing appears at once",
 );
 
-assert.deepEqual(sidebarCounts(rows, me), { waiting: 1, settled: 2 }, "waiting is the inbox's mine count; settled skips archived jobs");
-assert.deepEqual(sidebarCounts(rows, null), { waiting: 0, settled: 2 }, "no viewer has nothing waiting");
+// The sidebar's dropdowns show these lists, and their counts are the lists' lengths.
+const keys = (jobs: readonly JobRow[]) => jobs.map((j) => j.key);
+const shared = [
+  ...rows,
+  job("A-9", { stage: "waiting", question: "theirs?", owner_id: "someone-else" }),
+  job("A-10", { stage: "failed", stage_at: T(3), owner_id: "someone-else" }),
+];
+assert.deepEqual(keys(waitingJobs(shared, me)), ["A-4"], "waiting is only the viewer's own inbox items");
+assert.deepEqual(keys(waitingJobs(shared, { id: "someone-else", admin: false })), ["A-9", "A-10"], "and another viewer sees theirs");
+assert.deepEqual(keys(waitingJobs(shared, null)), [], "no viewer has nothing waiting");
+assert.deepEqual(keys(settledJobs(shared)), ["A-10", "A-5", "A-7"], "settled is every finished job, newest first, archived ones left out");
+assert.ok(!keys(settledJobs(shared)).includes("A-6"), "the archived merge is not settled");
 
 assert.deepEqual(crumbsOf("/"), ["Unibuz", "Jobs"]);
 assert.deepEqual(crumbsOf("/inbox"), ["Unibuz", "Inbox"]);
@@ -68,3 +78,12 @@ assert.equal(elapsed(3 * 3600e3), "3h");
 assert.equal(elapsed(2 * 86400e3), "2d");
 
 console.log("shell regressions passed");
+
+// The sidebar's View all links show every repo even when the cookie remembers one.
+const { repoFilter } = await import("../lib/repo-filter");
+const { inboxHref, jobsHref } = await import("../components/panel/job-view");
+for (const href of [everyRepo(inboxHref()), everyRepo(jobsHref("list"))]) {
+  const params = new URL(href, "http://x").searchParams;
+  assert.equal(repoFilter(params.get("repo"), "cobeo2004/hive"), null, `${href} overrides a remembered repo`);
+}
+assert.equal(everyRepo(jobsHref("list")), "/?view=list&repo=all");
