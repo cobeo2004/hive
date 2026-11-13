@@ -9,7 +9,7 @@ type Db = Pick<NodePgDatabase<typeof schema>, "select">;
 export type Reading = { usedPct: number; resetsAt: Date | null; readAt: Date };
 export type MeterAccount = {
   id: string;
-  provider: "claude" | "codex";
+  provider: "claude" | "codex" | "cursor";
   kind: "subscription" | "api_key";
   label: string;
   /** Null for a team pool account. */

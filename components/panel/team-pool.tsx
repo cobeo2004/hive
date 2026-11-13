@@ -93,7 +93,7 @@ export function TeamPoolSection({ accounts, pool, readOnly = false }: Props) {
                     <>
                       <span className="min-w-40 flex-1 break-all font-mono text-sm">{a.label}</span>
                       <span className="text-sm text-muted-foreground">
-                        {`${PROVIDERS[a.provider]} · ${keyed ? "API key" : "Subscription"}${a.ownerId === null ? "" : ` · shared by ${a.ownerName ?? "a teammate"}`}`}
+                        {`${a.provider === "cursor" ? "Cursor" : PROVIDERS[a.provider]} · ${keyed ? "API key" : "Subscription"}${a.ownerId === null ? "" : ` · shared by ${a.ownerName ?? "a teammate"}`}`}
                       </span>
                       {keyed ? (
                         <span className="w-32 text-sm text-muted-foreground">No meter</span>

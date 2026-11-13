@@ -2,7 +2,15 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { accountLogin, cancelAccountLogin, disconnectMyAccount, shareMyAccount, startAccountLogin, submitLoginCode } from "@/app/actions/accounts";
+import {
+  accountLogin,
+  cancelAccountLogin,
+  connectMyApiKey,
+  disconnectMyAccount,
+  shareMyAccount,
+  startAccountLogin,
+  submitLoginCode,
+} from "@/app/actions/accounts";
 import { CopyButton } from "@/components/copy-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,19 +20,29 @@ import { Switch } from "@/components/ui/switch";
 import type { MeterAccount, Reading } from "@/lib/account-meters";
 import { MeterBar } from "./usage-meter";
 
-type Provider = "claude" | "codex";
+type Provider = "claude" | "codex" | "cursor";
 type Login = Awaited<ReturnType<typeof accountLogin>>;
 const HARNESS = {
   claude: { title: "Claude", note: "Your Claude subscription, used by Claude Code", hint: "Open the link, sign in, then paste the code Claude shows you." },
   codex: { title: "ChatGPT", note: "Your ChatGPT subscription, used by Codex", hint: "Open the link, sign in and enter this code." },
+  cursor: {
+    title: "Cursor",
+    note: "Your Cursor API key, used by Cursor",
+    hint: "Paste an API key from your Cursor dashboard. It is sealed and never shown again.",
+  },
 } as const;
 
 /** Your accounts (R27, R27c): one card per harness, in Settings (`manage` adds Reconnect and Disconnect) and in setup's Agents step. No token reaches the browser. */
 export function YourAccounts({ accounts, manage = false }: { accounts: MeterAccount[]; manage?: boolean }) {
   return (
     <div className="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3">
-      {(["claude", "codex"] as const).map((p) => (
-        <AccountCard key={p} provider={p} manage={manage} account={accounts.find((a) => a.provider === p && a.kind === "subscription")} />
+      {(["claude", "codex", "cursor"] as const).map((p) => (
+        <AccountCard
+          key={p}
+          provider={p}
+          manage={manage}
+          account={accounts.find((a) => a.provider === p && a.kind === (p === "cursor" ? "api_key" : "subscription"))}
+        />
       ))}
     </div>
   );
@@ -52,6 +70,8 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
   const [pasted, setPasted] = useState("");
   const [checking, setChecking] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // Cursor: the key being pasted, null when the form is closed. It goes to the server action and is cleared; nothing reads it back.
+  const [apiKey, setApiKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -93,11 +113,20 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
     });
   };
   const connect = () =>
+    provider === "cursor"
+      ? setApiKey("")
+      : act(async () => {
+          setLogin(null);
+          setPasted("");
+          setChecking(false);
+          setLoginId((await startAccountLogin(provider)).loginId);
+        });
+  const saveKey = () =>
     act(async () => {
-      setLogin(null);
-      setPasted("");
-      setChecking(false);
-      setLoginId((await startAccountLogin(provider)).loginId);
+      const outcome = await connectMyApiKey(apiKey ?? "");
+      if (!outcome.ok) return setError(outcome.message);
+      setApiKey(null);
+      router.refresh();
     });
   const cancel = () =>
     act(async () => {
@@ -128,10 +157,36 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
     <div className="flex flex-col gap-2.5 rounded-[10px] bg-(--surface-2) p-3.5">
       <div className="flex items-center justify-between gap-2">
         <b className="font-semibold">{title}</b>
-        {account ? <Badge variant="success">Signed in</Badge> : <Badge variant="outline">Team pool</Badge>}
+        {account ? <Badge variant="success">{provider === "cursor" ? "Connected" : "Signed in"}</Badge> : <Badge variant="outline">Team pool</Badge>}
       </div>
       <span className="text-xs text-muted-foreground">{note}</span>
-      {loginId ? (
+      {apiKey !== null ? (
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveKey();
+          }}
+        >
+          <span className="text-sm">{hint}</span>
+          <Input
+            type="password"
+            autoComplete="off"
+            aria-label="Cursor API key"
+            placeholder="Paste your Cursor API key"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" type="submit" loading={pending} disabled={!apiKey.trim()}>
+              Save key
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setApiKey(null)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : loginId ? (
         waiting ? (
           <div className="flex flex-col gap-2">
             <span className="text-sm">{hint}</span>
@@ -218,7 +273,7 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
             ) : (
               <div className="flex gap-2">
                 <Button size="sm" variant="secondary" loading={pending} onClick={connect}>
-                  Reconnect
+                  {provider === "cursor" ? "Replace key" : "Reconnect"}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setConfirming(true)}>
                   Disconnect
