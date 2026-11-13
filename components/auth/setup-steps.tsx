@@ -11,7 +11,6 @@ import { saveLinearOptIns, saveName } from "@/app/actions/setup";
 import { CopyButton } from "@/components/copy-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { SourceChoiceField } from "@/components/source-choice-field";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -22,6 +21,7 @@ import type { MeterAccount } from "@/lib/account-meters";
 import type { OptIns } from "@/lib/opt-ins";
 import { setupSteps, type SourceChoice } from "@/lib/source-choice";
 import { cn } from "@/lib/utils";
+import { HiveMark } from "./auth-frame";
 
 type SetupUser = { name: string; email: string; role: "admin" | "engineer"; twoFactorEnabled: boolean; slackMatched: boolean };
 type LinearCard = { matched: boolean; note: string };
@@ -61,12 +61,15 @@ export function SetupSteps({
   const go = (by: 1 | -1) => setStep(steps[at + by] ?? step);
 
   return (
-    <Card className="w-full max-w-3xl">
+    <section
+      aria-label="Set up Hive"
+      className="flex w-full max-w-[720px] flex-col rounded-[18px] border bg-card shadow-[0_8px_30px_rgba(0,0,0,.08)] dark:shadow-[0_12px_40px_rgba(0,0,0,.6)]"
+    >
       <header className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b px-6 py-4">
         <div className="flex items-center gap-2">
-          <span className="grid size-5 place-items-center rounded-[5px] bg-primary text-[11px] font-semibold text-primary-foreground">H</span>
-          <b className="font-semibold">Hive</b>
-          <span className="text-muted-foreground">setup</span>
+          <HiveMark />
+          <b className="text-[15px] font-bold tracking-tight">Hive</b>
+          <span className="text-[15px] font-medium text-muted-foreground">setup</span>
         </div>
         <nav aria-label="Setup steps" className="ms-auto flex flex-wrap gap-1">
           {steps.map((label, i) => (
@@ -75,7 +78,7 @@ export function SetupSteps({
         </nav>
       </header>
 
-      <div className="flex min-h-[26rem] flex-col gap-[18px] px-6 pt-7 pb-2">
+      <div className="flex min-h-[440px] flex-col gap-[18px] px-6 pt-7 pb-2">
         {step === "Account" ? (
           <Account enrolled={enrolled} name={name} onEnrolled={() => setEnrolled(true)} saved={saved} setSaved={setSaved} setName={setName} user={user} />
         ) : step === "Sources" ? (
@@ -84,8 +87,8 @@ export function SetupSteps({
           <Linear linear={linear} optIns={optIns} pending={pending} setOptIns={setOptIns} />
         ) : step === "Agents" ? (
           <>
-            <h1 className="text-2xl font-semibold tracking-[-0.015em]">Connect your agents</h1>
-            <p className="text-sm text-muted-foreground">
+            <h1 className="text-2xl/[30px] font-semibold tracking-[-0.015em]">Connect your agents</h1>
+            <p className="-mt-2 max-w-[60ch] text-sm/[21px] text-muted-foreground">
               Jobs you own run on your own subscriptions first, then on the team pool. You can add more later in Settings.
             </p>
             <YourAccounts accounts={accounts} />
@@ -175,7 +178,7 @@ export function SetupSteps({
           </>
         )}
       </footer>
-    </Card>
+    </section>
   );
 }
 
@@ -201,6 +204,16 @@ function StepChip({ n, name, state }: { n: number; name: string; state: "todo" |
         {state === "done" ? <CheckIcon className="size-3" /> : n}
       </span>
       {name}
+    </span>
+  );
+}
+
+/** hive.css .ready: a green check and a word, where a step or a link is done. */
+function Ready({ children }: { children: ReactNode }) {
+  return (
+    <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-success">
+      <CheckIcon className="size-3.5 shrink-0" />
+      {children}
     </span>
   );
 }
@@ -245,8 +258,8 @@ function Account({
   const role = ROLE_COPY[user.role];
   return (
     <>
-      <h1 className="text-2xl font-semibold tracking-[-0.015em]">Welcome, {firstName(name) || "there"}</h1>
-      <p className="text-sm text-muted-foreground">
+      <h1 className="text-2xl/[30px] font-semibold tracking-[-0.015em]">Welcome, {firstName(name) || "there"}</h1>
+      <p className="-mt-2 max-w-[60ch] text-sm/[21px] text-muted-foreground">
         {user.role === "admin"
           ? "You're the first person here, so you're the admin. Check your details, then turn on two-factor authentication."
           : "An admin added you as an engineer. Check your details, then turn on two-factor authentication."}
@@ -260,16 +273,7 @@ function Account({
           title={user.role === "admin" ? "Admin" : "Engineer"}
         />
         <Row
-          aside={
-            user.slackMatched ? (
-              <span className="flex items-center gap-1.5 text-sm text-success">
-                <CheckIcon className="size-4 shrink-0" />
-                Matched by email
-              </span>
-            ) : (
-              <span className="text-sm text-muted-foreground">Not found in Slack</span>
-            )
-          }
+          aside={user.slackMatched ? <Ready>Matched by email</Ready> : <span className="text-xs text-muted-foreground">Not found in Slack</span>}
           mark="SL"
           note="Questions and PRs for you arrive as DMs, with buttons."
           title="Slack"
@@ -489,8 +493,8 @@ function BackupCodes({ codes, saved, setSaved }: { codes: string[]; saved: boole
 function Sources({ choice, pending, setChoice }: { choice: SourceChoice; pending: boolean; setChoice: (choice: SourceChoice) => void }) {
   return (
     <>
-      <h1 className="text-2xl font-semibold tracking-[-0.015em]">Where do jobs come from?</h1>
-      <p className="text-sm text-muted-foreground">Pick the trackers Hive reads. You can change this later in Settings.</p>
+      <h1 className="text-2xl/[30px] font-semibold tracking-[-0.015em]">Where do jobs come from?</h1>
+      <p className="-mt-2 max-w-[60ch] text-sm/[21px] text-muted-foreground">Pick the trackers Hive reads. You can change this later in Settings.</p>
       <SourceChoiceField disabled={pending} onChange={setChoice} value={choice} />
     </>
   );
@@ -502,22 +506,12 @@ const hiveLabel = <code className="rounded bg-muted px-1 py-0.5 font-mono text-x
 function Linear({ linear, optIns, pending, setOptIns }: { linear: LinearCard; optIns: OptIns; pending: boolean; setOptIns: (optIns: OptIns) => void }) {
   return (
     <>
-      <h1 className="text-2xl font-semibold tracking-[-0.015em]">Hand work to Hive</h1>
-      <p className="text-sm text-muted-foreground">Link Linear so Hive can pick up issues for you. Nothing runs until you assign or label one.</p>
+      <h1 className="text-2xl/[30px] font-semibold tracking-[-0.015em]">Hand work to Hive</h1>
+      <p className="-mt-2 max-w-[60ch] text-sm/[21px] text-muted-foreground">
+        Link Linear so Hive can pick up issues for you. Nothing runs until you assign or label one.
+      </p>
       <div className="flex flex-col rounded-xl border">
-        <Row
-          aside={
-            linear.matched && (
-              <span className="flex items-center gap-1.5 text-sm text-success">
-                <CheckIcon className="size-4 shrink-0" />
-                Linked
-              </span>
-            )
-          }
-          mark="LN"
-          note={linear.note}
-          title="Linear"
-        />
+        <Row aside={linear.matched && <Ready>Linked</Ready>} mark="LN" note={linear.note} title="Linear" />
       </div>
       <div className="flex flex-col">
         <OptIn
@@ -535,7 +529,7 @@ function Linear({ linear, optIns, pending, setOptIns }: { linear: LinearCard; op
           title="Approve plans before code is written"
         />
       </div>
-      <p className="text-sm text-muted-foreground">Labelling an issue {hiveLabel} works for anyone, whoever it is assigned to.</p>
+      <p className="text-xs text-muted-foreground">Labelling an issue {hiveLabel} works for anyone, whoever it is assigned to.</p>
     </>
   );
 }
@@ -567,16 +561,16 @@ function OptIn({
 function Done({ user, name, choice, labelNote }: { user: SetupUser; name: string; choice: SourceChoice; labelNote?: string }) {
   return (
     <>
-      <h1 className="text-2xl font-semibold tracking-[-0.015em]">You&apos;re set up</h1>
-      <p className="text-sm text-muted-foreground">
+      <h1 className="text-2xl/[30px] font-semibold tracking-[-0.015em]">You&apos;re set up</h1>
+      <p className="-mt-2 max-w-[60ch] text-sm/[21px] text-muted-foreground">
         {choice === "github" ? "Label a GitHub issue" : "Assign a Linear issue to Hive or label it"}{" "}
         <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">hive</code>
         {choice === "github" ? " in a registered repository" : ""}, and it shows up under Jobs within a minute.
       </p>
       <div className="flex flex-col rounded-xl border">
-        <Row aside={<Badge variant="success">Ready</Badge>} mark="2F" note="Password and an authenticator code" title="Two-factor authentication" />
+        <Row aside={<Ready>Ready</Ready>} mark="2F" note="Password and an authenticator code" title="Two-factor authentication" />
         <Row
-          aside={<Badge variant={user.role === "admin" ? "info" : "outline"}>{user.role === "admin" ? "Admin" : "Engineer"}</Badge>}
+          aside={<Badge variant="secondary">{user.role === "admin" ? "Admin" : "Engineer"}</Badge>}
           mark={user.role === "admin" ? "AD" : "EN"}
           note={user.email}
           title={name.trim() || user.email}
@@ -588,8 +582,8 @@ function Done({ user, name, choice, labelNote }: { user: SetupUser; name: string
         </p>
       )}
       {user.role === "admin" && (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-muted/40 px-4 py-3">
-          <span className="flex-1 basis-80 text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg bg-muted p-3.5">
+          <span className="flex-1 basis-80 text-sm text-foreground/80">
             As the admin, connect GitHub and add your first repository next: Hive onboards it and opens a PR with the recipe.
           </span>
           <FinishTo label="Add a repository" pendingLabel="Opening Repositories" to="/repositories" variant="outline" />

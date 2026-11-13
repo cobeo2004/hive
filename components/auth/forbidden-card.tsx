@@ -3,8 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { authClient } from "@/lib/auth/client";
+import { AuthHeading } from "./auth-frame";
 
 const COPY = {
   admin: {
@@ -33,21 +33,16 @@ export function ForbiddenCard({ reason }: { reason: keyof typeof COPY }) {
   }
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle>{copy.title}</CardTitle>
-        <CardDescription>{copy.description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button className="w-full" onClick={switchAccount} disabled={pending}>
-          {copy.action}
-        </Button>
-        {failure && (
-          <p role="alert" className="mt-3 text-sm text-destructive">
-            {failure}
-          </p>
-        )}
-      </CardContent>
-    </Card>
+    <>
+      <AuthHeading description={copy.description} title={copy.title} />
+      <Button className="w-full" onClick={switchAccount} disabled={pending} size="lg">
+        {copy.action}
+      </Button>
+      {failure && (
+        <p role="alert" className="text-sm text-destructive">
+          {failure}
+        </p>
+      )}
+    </>
   );
 }

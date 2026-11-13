@@ -7,10 +7,10 @@ import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth/client";
+import { AuthHeading } from "./auth-frame";
 import { attempt } from "./attempt";
 
 const credentials = z.object({ email: z.email("Enter a valid email address"), password: z.string().min(1, "Enter your password") });
@@ -44,56 +44,51 @@ export function CredentialsForm() {
   }
 
   return (
-    <div className="flex w-full max-w-sm flex-col gap-4">
+    <>
       {needsCode ? (
         <CodeForm onDone={done} />
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>Hive, Unibuz&apos;s software factory.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
-              <div className="flex flex-col gap-5">
-                <Controller
-                  name="email"
-                  control={form.control}
-                  render={({ field, fieldState }) => (
-                    <Field invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor="email">Email</FieldLabel>
-                      <Input {...field} id="email" type="email" autoComplete="email" aria-invalid={fieldState.invalid} />
-                      {fieldState.error && <FieldError match>{fieldState.error.message}</FieldError>}
-                    </Field>
-                  )}
-                />
-                <Controller
-                  name="password"
-                  control={form.control}
-                  render={({ field, fieldState }) => (
-                    <Field invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor="password">Password</FieldLabel>
-                      <Input {...field} id="password" type="password" autoComplete="current-password" aria-invalid={fieldState.invalid} />
-                      {fieldState.error && <FieldError match>{fieldState.error.message}</FieldError>}
-                    </Field>
-                  )}
-                />
-                {form.formState.errors.root && (
-                  <Alert variant="error">
-                    <AlertTitle>Sign-in failed</AlertTitle>
-                    <AlertDescription>{form.formState.errors.root.message}</AlertDescription>
-                  </Alert>
+        <>
+          <AuthHeading description="Hive, Unibuz's software factory." title="Sign in to Hive" />
+          <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            <div className="flex flex-col gap-5">
+              <Controller
+                name="email"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="email">Email</FieldLabel>
+                    <Input {...field} id="email" type="email" autoComplete="email" aria-invalid={fieldState.invalid} />
+                    {fieldState.error && <FieldError match>{fieldState.error.message}</FieldError>}
+                  </Field>
                 )}
-                <Button type="submit" disabled={form.formState.isSubmitting}>
-                  {form.formState.isSubmitting ? "Signing in" : "Sign in"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+              />
+              <Controller
+                name="password"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="password">Password</FieldLabel>
+                    <Input {...field} id="password" type="password" autoComplete="current-password" aria-invalid={fieldState.invalid} />
+                    {fieldState.error && <FieldError match>{fieldState.error.message}</FieldError>}
+                  </Field>
+                )}
+              />
+              {form.formState.errors.root && (
+                <Alert variant="error">
+                  <AlertTitle>Sign-in failed</AlertTitle>
+                  <AlertDescription>{form.formState.errors.root.message}</AlertDescription>
+                </Alert>
+              )}
+              <Button className="w-full" size="lg" type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting ? "Signing in" : "Sign in"}
+              </Button>
+            </div>
+          </form>
+        </>
       )}
-      <p className="text-center text-sm text-muted-foreground">No account? Ask an admin for an invite.</p>
-    </div>
+      <p className="text-xs text-muted-foreground">No account? Ask an admin for an invite.</p>
+    </>
   );
 }
 
@@ -127,47 +122,45 @@ function CodeForm({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Two-factor authentication</CardTitle>
-        <CardDescription>{backup ? "Enter one of the backup codes you saved." : "Enter the 6-digit code from your authenticator app."}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={submit} className="flex flex-col gap-5">
-          <Field invalid={!!error}>
-            <FieldLabel htmlFor="code">{backup ? "Backup code" : "Code"}</FieldLabel>
-            <Input
-              autoComplete="one-time-code"
-              className="font-mono tracking-[0.2em]"
-              id="code"
-              inputMode={backup ? "text" : "numeric"}
-              maxLength={backup ? undefined : 6}
-              onChange={(event) => setCode(event.target.value)}
-              value={code}
-            />
-            <FieldDescription>A backup code works once.</FieldDescription>
-          </Field>
-          {error && (
-            <Alert variant="error">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <Button type="submit" disabled={pending}>
-            {pending ? "Checking" : "Verify"}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              setBackup(!backup);
-              setCode("");
-              setError(null);
-            }}
-          >
-            {backup ? "Use an authenticator code" : "Use a backup code"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <>
+      <AuthHeading
+        description={backup ? "Enter one of the backup codes you saved." : "Enter the 6-digit code from your authenticator app."}
+        title="Two-factor authentication"
+      />
+      <form onSubmit={submit} className="flex flex-col gap-5">
+        <Field invalid={!!error}>
+          <FieldLabel htmlFor="code">{backup ? "Backup code" : "Code"}</FieldLabel>
+          <Input
+            autoComplete="one-time-code"
+            className="font-mono tracking-[0.2em]"
+            id="code"
+            inputMode={backup ? "text" : "numeric"}
+            maxLength={backup ? undefined : 6}
+            onChange={(event) => setCode(event.target.value)}
+            value={code}
+          />
+          <FieldDescription>A backup code works once.</FieldDescription>
+        </Field>
+        {error && (
+          <Alert variant="error">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <Button className="w-full" size="lg" type="submit" disabled={pending}>
+          {pending ? "Checking" : "Verify"}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => {
+            setBackup(!backup);
+            setCode("");
+            setError(null);
+          }}
+        >
+          {backup ? "Use an authenticator code" : "Use a backup code"}
+        </Button>
+      </form>
+    </>
   );
 }

@@ -4,24 +4,19 @@ import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { acceptInviteLink, acceptSetupLink, resetPassword } from "@/app/actions/access";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { AuthFrame, AuthHeading } from "./auth-frame";
 
 type Result = { ok: true } | { ok: false; message: string };
 
-/** The frame the three link pages share: one card in the middle of the page. */
+/** The frame the three link pages share: sign-in's page, its heading, then the form. */
 export function AuthShell({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }) {
   return (
-    <main className="flex min-h-svh items-center justify-center p-6">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
-        </CardHeader>
-        <CardContent>{children}</CardContent>
-      </Card>
-    </main>
+    <AuthFrame>
+      <AuthHeading description={description} title={title} />
+      {children}
+    </AuthFrame>
   );
 }
 
@@ -87,7 +82,7 @@ function LinkForm({
           {error}
         </p>
       )}
-      <Button type="submit" disabled={pending}>
+      <Button className="w-full" size="lg" type="submit" disabled={pending}>
         {pending ? "Saving" : submitLabel}
       </Button>
     </form>

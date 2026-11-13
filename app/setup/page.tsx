@@ -27,7 +27,7 @@ export default async function SetupPage() {
     accountMeters(db, viewerOf(user)),
   ]);
   return (
-    <main className="flex min-h-svh justify-center px-4 pt-16 pb-12">
+    <main className="flex min-h-svh items-start justify-center px-4 pt-18 pb-12">
       <SetupSteps
         accounts={meters.mine}
         linear={{ matched: linear === "matched", note: linearCardNote(linear, user.email) }}
