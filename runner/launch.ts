@@ -47,6 +47,7 @@ import { announceFallbacks, capabilities, overrideRuntime, planLaunch, splitByEx
 import {
   CodexLoginError,
   createJobSandbox,
+  cursorKey,
   ingestConfig,
   needsCodexSlot,
   sandboxHarness,
@@ -597,6 +598,7 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
       if ("blocked" in start) throw new SandboxSetupError(start.blocked);
       let host: JobHost;
       let ran: HarnessChoice;
+      const cursor = await cursorKey(entry.key);
       try {
         const codex = lease.codex
           ? { slot: `account:${lease.codex.id}`, auth: lease.codex.secret, marked: lease.codex.kind !== "api_key" }
@@ -612,6 +614,7 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
           imageId: start.imageId,
           limits,
           claudeToken: lease.claude?.secret,
+          cursorKey: cursor,
           namedSecrets: start.namedSecrets,
         });
         try {
@@ -650,7 +653,7 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
       } catch (error) {
         // A login from an account is no slot: nothing to mark unusable.
         if (error instanceof CodexLoginError && !error.slot.startsWith("account:")) await loginFailed(entry.key, error.slot);
-        const text = scrubbed(error, [lease.claude?.secret ?? "", lease.codex?.secret ?? ""]).message;
+        const text = scrubbed(error, [lease.claude?.secret ?? "", lease.codex?.secret ?? "", cursor ?? ""]).message;
         throw new SandboxSetupError(`sandbox setup failed: ${text.split("\n")[0]}`);
       }
       // Images stay on this machine for now; the thread gets the issue text with their links.

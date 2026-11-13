@@ -1,23 +1,32 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, or } from "drizzle-orm";
+import { fakeModal, sandboxes } from "./fake-modal";
 
 // R27c/R27e: a pasted Cursor key is sealed at rest, never comes back out, reconnects in place, and only its owner disconnects it.
 const { db } = await import("../db/client");
-const { agentAccounts, intents, user } = await import("../db/schema");
+const { agentAccounts, intents, jobs, user } = await import("../db/schema");
 const { connectApiKey, disconnectOwnAccount, setAccountShared } = await import("../lib/account-logins");
 const { accountMeters } = await import("../lib/account-meters");
-const { newKeyPair, pickAccount, unseal } = await import("../lib/creds");
+const { accountFor, newKeyPair, pickAccount, seal, unseal } = await import("../lib/creds");
+const { factorySchema } = await import("../lib/config");
+const { modal } = await import("../lib/modal-host");
+const { createJobSandbox, cursorKey, sandboxRuntime } = await import("../runner/sandbox");
+const { linearJob } = await import("./fixtures");
 
 const pair = newKeyPair();
 const KEY = "key_fake-cursor-regression-0001";
 const NEW_KEY = "key_fake-cursor-regression-0002";
 const users = ["cursor-me", "cursor-other"];
 const own = (id: string) => db.select().from(agentAccounts).where(eq(agentAccounts.owner_id, id));
-const leaks = (text: string) => [KEY, NEW_KEY].some((k) => text.includes(k));
+const POOL_KEY = "key_fake-cursor-regression-pool";
+const leaks = (text: string) => [KEY, NEW_KEY, POOL_KEY].some((k) => text.includes(k));
+const [mine, theirs] = [`CUR-ME-${Date.now()}`, `CUR-OTHER-${Date.now()}`];
+const poolId = `cursor-pool-${Date.now()}`;
 
 const clean = async () => {
-  await db.delete(agentAccounts).where(inArray(agentAccounts.owner_id, users));
+  await db.delete(agentAccounts).where(or(inArray(agentAccounts.owner_id, users), eq(agentAccounts.id, poolId)));
+  await db.delete(jobs).where(inArray(jobs.key, [mine, theirs]));
   await db.delete(user).where(inArray(user.id, users));
 };
 await clean();
@@ -73,6 +82,49 @@ try {
   assert.deepEqual(await connectApiKey(db, "cursor-me", KEY, pair.publicKey), { ok: true });
   const [back] = await own("cursor-me");
   assert.deepEqual([back!.id, back!.disconnected_at, back!.shared, unseal(back!.sealed, pair.privateKey)], [row!.id, null, false, KEY]);
+
+  // m3-09e: a sandbox job gets its owner's Cursor key, else the pool's, only as CURSOR_API_KEY; none still launches without it.
+  modal.api = fakeModal;
+  process.env.HIVE_CREDS_PRIVATE_KEY = pair.privateKey;
+  const logs: string[] = [];
+  sandboxRuntime.log = (event, detail) => void logs.push(`${event} ${JSON.stringify(detail)}`);
+  await db.insert(jobs).values([linearJob(mine, mine, { owner_id: "cursor-me" }), linearJob(theirs, theirs, { owner_id: "cursor-other" })]);
+  const limits = factorySchema.parse({}).sandbox;
+  const envOf = async (key: string) => {
+    const made = { key, attempt: 1, label: "hive", machineId: "m", imageId: "im-test", limits, claudeToken: "claude-fake" };
+    const { sandboxId } = await createJobSandbox({ ...made, cursorKey: await cursorKey(key) });
+    return sandboxes.get(sandboxId)!.spec!.secrets;
+  };
+  assert.deepEqual(await envOf(mine), { CLAUDE_CODE_OAUTH_TOKEN: "claude-fake", CURSOR_API_KEY: KEY }, "the owner's own key");
+  assert.deepEqual(await envOf(theirs), { CLAUDE_CODE_OAUTH_TOKEN: "claude-fake" }, "no Cursor account: the job launches without CURSOR_API_KEY");
+  assert.deepEqual(await setAccountShared(db, "cursor-me", row!.id, true), { ok: true });
+  assert.equal((await envOf(theirs)).CURSOR_API_KEY, KEY, "a teammate's shared key");
+  await setAccountShared(db, "cursor-me", row!.id, false);
+  await db
+    .insert(agentAccounts)
+    .values({ id: poolId, owner_id: null, provider: "cursor", kind: "api_key", label: "pool", sealed: seal(POOL_KEY, pair.publicKey) });
+  assert.equal((await envOf(theirs)).CURSOR_API_KEY, POOL_KEY, "an unowned pool key");
+  assert.equal((await envOf(mine)).CURSOR_API_KEY, KEY, "the owner's own key beats the pool");
+  // A Claude or Codex lease never picks a Cursor key.
+  for (const lead of ["claude", "codex"] as const) {
+    const leased = await accountFor(mine, lead, undefined);
+    assert.ok(leased === null || leased === "wait" || ![row!.id, poolId].includes(leased.id!), `no Cursor key for a ${lead} lease`);
+  }
+  // A key that will not open is logged in fixed text and the job launches without it.
+  process.env.HIVE_CREDS_PRIVATE_KEY = newKeyPair().privateKey;
+  assert.equal(await cursorKey(mine), undefined);
+  assert.ok(
+    logs.some((l) => l.startsWith("sandbox:no-cursor-key")),
+    "the failure is logged",
+  );
+  process.env.HIVE_CREDS_PRIVATE_KEY = pair.privateKey;
+  const jobRows = JSON.stringify(
+    await db
+      .select()
+      .from(jobs)
+      .where(inArray(jobs.key, [mine, theirs])),
+  );
+  assert.ok(!leaks(jobRows) && !logs.some(leaks), "no key in the job rows or the logged events");
 
   // A pasted key writes no intent: nothing a runner logs carries it.
   const after = await db.select({ detail: intents.detail }).from(intents);

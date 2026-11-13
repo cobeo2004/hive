@@ -66,7 +66,7 @@ export const sandboxImageSchema = z.object({
 });
 export type SandboxImage = z.infer<typeof sandboxImageSchema>;
 
-type Pins = Pick<SandboxLimits, "t3Version" | "claudeCodeVersion" | "codexVersion" | "playwrightMcpVersion" | "pstack">;
+type Pins = Pick<SandboxLimits, "t3Version" | "claudeCodeVersion" | "codexVersion" | "cursorAgentVersion" | "playwrightMcpVersion" | "pstack">;
 
 /** The playbooks the factory ships with its image, by file name under playbooks/. */
 export const PLAYBOOK_FILES = ["factory.md", "onboarding.md"] as const;
@@ -102,6 +102,7 @@ export const pinnedVersions = (limits: Pins): Required<ImageVersions> => ({
   t3: limits.t3Version,
   claudeCode: limits.claudeCodeVersion,
   codex: limits.codexVersion,
+  cursorAgent: limits.cursorAgentVersion,
   playwrightMcp: limits.playwrightMcpVersion,
   pstack: pstackVersion(limits.pstack),
   playbooks: playbooksVersion(),
@@ -119,6 +120,8 @@ export function parseVersion(component: Exclude<ImageComponent, "pstack" | "play
         return /^(\S+) \(Claude Code\)$/m;
       case "codex":
         return /^codex-cli (\S+)$/m;
+      case "cursorAgent":
+        return /^(\d{4}\.\d+\.\d+-[0-9a-f]+)$/m;
       case "playwrightMcp":
         return /^Version (\S+)$/m;
       default: {
@@ -208,7 +211,7 @@ export function sandboxReadiness(
 ): SandboxReadiness {
   const loggedIn = limits.codexSlots.filter((slot) => existsSync(slotAuthPath(slot)));
   const unusable = loggedIn.filter((slot) => slotUnusable(health, slot, slotAuthMtime(slot))).length;
-  const { t3Version, claudeCodeVersion, codexVersion, playwrightMcpVersion, pstack } = limits;
+  const { t3Version, claudeCodeVersion, codexVersion, cursorAgentVersion, playwrightMcpVersion, pstack } = limits;
   return {
     modal: Boolean(env.MODAL_TOKEN_ID) || existsSync(join(homedir(), ".modal.toml")),
     claude: Boolean(runnerDefaultClaudeToken(env)),
@@ -221,8 +224,9 @@ export function sandboxReadiness(
     ...(t3Version &&
       claudeCodeVersion &&
       codexVersion &&
+      cursorAgentVersion &&
       playwrightMcpVersion &&
-      pstack && { pinnedVersions: pinnedVersions({ t3Version, claudeCodeVersion, codexVersion, playwrightMcpVersion, pstack }) }),
+      pstack && { pinnedVersions: pinnedVersions({ t3Version, claudeCodeVersion, codexVersion, cursorAgentVersion, playwrightMcpVersion, pstack }) }),
     ...(limits.maxParallel && { maxParallel: limits.maxParallel }),
   };
 }

@@ -24,6 +24,7 @@ import { isolated } from "./reconcile";
 import {
   CodexLoginError,
   createJobSandbox,
+  cursorKey,
   installCodexLogin,
   markInstalled,
   markSlotUnusable,
@@ -449,11 +450,13 @@ async function wakeInRoom(row: JobRow, snapshot: string, asleep: SQL | undefined
   if (slot === undefined) throw new WakeDeferredError(`no free Codex login slot to wake ${row.key}`);
   let sandboxId: string | undefined;
   let claude: Account | null = null;
+  let cursor: string | undefined;
   try {
     const picked = needsCodexSlot(row.provider) ? null : await sandboxRuntime.account(row.key, "claude", sandboxRuntime.claudeToken());
     if (picked === "wait") throw new WakeDeferredError(`${row.key} waits to wake: the team pool is at its threshold`);
     claude = picked;
     const claudeToken = claude?.secret;
+    cursor = await cursorKey(row.key);
     const [repoRow] = await db.select().from(repoSettings).where(eq(repoSettings.repo, row.repo));
     const created = await createJobSandbox({
       namedSecrets: repoRow && (parseDetail(repoRow.onboarding_detail).secretsSet ?? []).length > 0 ? [modalSecretName(row.repo)] : [],
@@ -464,6 +467,7 @@ async function wakeInRoom(row: JobRow, snapshot: string, asleep: SQL | undefined
       imageId: snapshot,
       limits,
       claudeToken,
+      cursorKey: cursor,
     }).catch((error: unknown) => {
       throw isModalGone(error) ? new HostGoneError(`${row.key}'s snapshot ${snapshot} is gone: ${message(error)}`) : error;
     });
@@ -493,7 +497,8 @@ async function wakeInRoom(row: JobRow, snapshot: string, asleep: SQL | undefined
       .update(jobs)
       .set({ sandbox_id: null, codex_slot: null })
       .where(and(eq(jobs.key, row.key), eq(jobs.sandbox_snapshot, snapshot)));
-    if (error instanceof Error && !(error instanceof HostGoneError)) error.message = scrubbed(error, [claude?.secret ?? "", codex?.secret ?? ""]).message;
+    if (error instanceof Error && !(error instanceof HostGoneError))
+      error.message = scrubbed(error, [claude?.secret ?? "", codex?.secret ?? "", cursor ?? ""]).message;
     throw error;
   }
 }
