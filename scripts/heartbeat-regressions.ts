@@ -191,13 +191,41 @@ assert.deepEqual(
       browser: () => readBrowser(async () => ({})),
     }),
   ),
-  { ...inventoryA, devices: { error: refusal }, browser: { ready: true } },
+  { ...inventoryA, devices: { error: refusal }, browser: { answers: true } },
   "a T3 refusal is stored as the error and the other fields are unchanged",
 );
+// Odd answers degrade to an error instead of throwing; another host's odd entry does not spoil this machine's.
+for (const odd of [null, {}, { hosts: "x", devices: [], hostStatuses: {} }])
+  assert.deepEqual(deviceReadiness(odd), { error: "device_list answered in an unexpected shape" }, `device_list ${JSON.stringify(odd)}`);
+const withOddRemote = deviceList(true);
+withOddRemote.hosts.push({ id: "other-mac" } as (typeof withOddRemote.hosts)[number]);
+(withOddRemote.devices as unknown[]).push({ hostId: "other-mac" });
+assert.deepEqual(deviceReadiness(withOddRemote), deviceReadiness(deviceList(true)), "a malformed remote host is ignored");
+// preview_status answering is all the browser probe claims; a non-object answer is an error.
+assert.deepEqual(await readBrowser(async () => ({ available: false })), { answers: true });
+assert.deepEqual(await readBrowser(async () => null), { error: "preview_status answered in an unexpected shape" });
+
 const hangStarted = Date.now();
 const hung = await collectInventory({ ...stubCollectors, devices: () => new Promise<never>(() => {}) }, 50);
 assert.equal(hung.devices, "unknown", "a probe that hangs is unknown after the probe limit");
 assert.ok(Date.now() - hangStarted < 1_000, "the hanging probe does not hold the inventory");
+// A probe still running from the last beat is not started again: unknown, and no second T3 session.
+let calls = 0;
+let release: (value: unknown) => void = () => {};
+const slow = () => {
+  calls += 1;
+  return new Promise<never>((resolve) => {
+    release = resolve as (value: unknown) => void;
+  });
+};
+const slowCollectors = { ...stubCollectors, devices: slow };
+assert.equal((await collectInventory(slowCollectors, 20)).devices, "unknown");
+assert.equal((await collectInventory(slowCollectors, 20)).devices, "unknown");
+assert.equal(calls, 1, "an overlapping beat does not start a second probe");
+release({ error: "late" });
+await new Promise((r) => setTimeout(r, 0));
+await collectInventory(slowCollectors, 20);
+assert.equal(calls, 2, "once the first probe ends the next beat probes again");
 assert.equal(inventorySchema.parse(stored(inventoryA)).devices, undefined, "an inventory saved before devices and browser still parses");
 assert.equal(inventorySchema.safeParse(stored({ ...inventoryA, devices: { error: refusal }, browser: "unknown" })).success, true);
 const id = `heartbeat-regress-${Date.now()}`;

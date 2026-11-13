@@ -133,7 +133,8 @@ const platformReadinessSchema = z.object({
 export type PlatformReadiness = z.infer<typeof platformReadinessSchema>;
 const devicesReadinessSchema = z.union([z.object({ ios: platformReadinessSchema, android: platformReadinessSchema }), refusedSchema]);
 export type DevicesReadiness = z.infer<typeof devicesReadinessSchema>;
-const browserReadinessSchema = z.union([z.object({ ready: z.literal(true) }), refusedSchema]);
+/** `answers`: T3's preview tools respond here; rendering is proven by the devices test job, not this probe. */
+const browserReadinessSchema = z.union([z.object({ answers: z.literal(true) }), refusedSchema]);
 export type BrowserReadiness = z.infer<typeof browserReadinessSchema>;
 
 export const inventorySchema = z.object({
@@ -157,7 +158,7 @@ export const inventorySchema = z.object({
   slack: known(slackReadinessSchema).optional(),
   /** iOS Simulator and Android Emulator readiness from T3's device_list. Optional for the same reason. */
   devices: known(devicesReadinessSchema).optional(),
-  /** Whether T3's preview browser answers on this machine. Optional for the same reason. */
+  /** Whether T3's preview tools answer on this machine. Optional for the same reason. */
   browser: known(browserReadinessSchema).optional(),
 });
 export type Inventory = z.infer<typeof inventorySchema>;

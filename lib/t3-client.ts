@@ -254,25 +254,29 @@ export async function readDeviceFrame(call: DeviceCall): Promise<Buffer | null> 
 export const deviceFrame = (host: JobHost) => withMcp(host, ["orchestration:read"], (call) => readDeviceFrame(call));
 
 const LOCAL_DEVICE_HOST = "local";
-const deviceList = z.object({
-  hostStatuses: z.record(z.string(), z.object({ status: z.string() })),
-  hosts: z.array(
-    z.object({
-      id: z.string(),
-      platforms: z.array(z.object({ platform: z.string(), available: z.boolean() })),
-      agentDeviceInstalled: z.boolean(),
-    }),
-  ),
-  devices: z.array(z.object({ hostId: z.string(), platform: z.string(), booted: z.boolean() })),
+// Only this machine's entries are parsed, so another device host's odd shape cannot spoil local readiness.
+const deviceList = z.object({ hostStatuses: z.record(z.string(), z.unknown()), hosts: z.array(z.unknown()), devices: z.array(z.unknown()) });
+const localHostEntry = z.object({
+  id: z.literal(LOCAL_DEVICE_HOST),
+  platforms: z.array(z.object({ platform: z.string(), available: z.boolean() })),
+  agentDeviceInstalled: z.boolean(),
 });
+const localDevice = z.object({ hostId: z.literal(LOCAL_DEVICE_HOST), platform: z.string(), booted: z.boolean() });
 
-/** This machine's iOS and Android readiness from a device_list result; other device hosts do not count. */
-export function deviceReadiness(list: unknown): { ios: PlatformReadiness; android: PlatformReadiness } {
-  const { hostStatuses, hosts, devices } = deviceList.parse(list);
-  const status = hostStatuses[LOCAL_DEVICE_HOST]?.status ?? "missing";
-  const host = hosts.find((h) => h.id === LOCAL_DEVICE_HOST);
+/** This machine's iOS and Android readiness from a device_list result; an unexpected shape is an error, not a throw. */
+export function deviceReadiness(list: unknown): DevicesReadiness {
+  const parsed = deviceList.safeParse(list);
+  if (!parsed.success) return { error: "device_list answered in an unexpected shape" };
+  const { hostStatuses, hosts, devices } = parsed.data;
+  const statusOf = z.object({ status: z.string() }).safeParse(hostStatuses[LOCAL_DEVICE_HOST]);
+  const status = statusOf.success ? statusOf.data.status : "missing";
+  const host = hosts.map((h) => localHostEntry.safeParse(h)).find((h) => h.success)?.data;
+  const local = devices.flatMap((d) => {
+    const one = localDevice.safeParse(d);
+    return one.success ? [one.data] : [];
+  });
   const platform = (name: "ios" | "android"): PlatformReadiness => {
-    const own = devices.filter((d) => d.hostId === LOCAL_DEVICE_HOST && d.platform === name);
+    const own = local.filter((d) => d.platform === name);
     const reason =
       status !== "ready"
         ? `device host ${status}`
@@ -298,10 +302,14 @@ const refused = <T>(probe: () => Promise<T>) =>
   });
 
 export const readDevices = (call: ProbeCall): Promise<DevicesReadiness> => refused(async () => deviceReadiness(await call("device_list", {})));
+/**
+ * Whether T3's preview tools answer on this machine. Not whether a page renders: preview_status's `available`
+ * describes the calling thread's panel, and a runner session has none; the devices test job proves rendering.
+ */
 export const readBrowser = (call: ProbeCall): Promise<BrowserReadiness> =>
   refused(async () => {
-    await call("preview_status", {});
-    return { ready: true as const };
+    const status = await call("preview_status", {});
+    return status !== null && typeof status === "object" ? { answers: true as const } : { error: "preview_status answered in an unexpected shape" };
   });
 // ponytail: no simctl fallback when T3 refuses a thread-less session; add one when a deploy shows the refusal.
 export const probeDevices = (host: JobHost) => withMcp(host, ["orchestration:read"], readDevices);

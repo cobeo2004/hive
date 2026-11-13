@@ -126,8 +126,30 @@ export function inventoryCollectors(): InventoryCollectors {
 /** A T3 probe that stalls is unknown after this, well inside the 60 s beat. */
 const PROBE_MS = 30_000;
 
+/**
+ * A probe still running from an earlier beat: the next beat reports unknown instead of starting another, so a
+ * stalled T3 never piles up sessions. A timeout cannot cancel the call; withMcp's CLI timeouts end it and its
+ * finally revokes the session. ponytail: no AbortSignal through withMcp; add one if a probe outlives those timeouts.
+ */
+const inFlight = new WeakMap<() => Promise<unknown>, Promise<unknown>>();
+
 export async function collectInventory(collectors: InventoryCollectors, probeMs = PROBE_MS): Promise<Inventory> {
-  const probe = <T>(collect: () => Promise<T>) => settle(() => withTimeout(collect, probeMs, () => {}));
+  const probe = <T>(collect: () => Promise<T>) => {
+    if (inFlight.has(collect)) return Promise.resolve<typeof UNKNOWN>(UNKNOWN);
+    const running = collect();
+    inFlight.set(collect, running);
+    running.then(
+      () => inFlight.delete(collect),
+      () => inFlight.delete(collect),
+    );
+    return settle(() =>
+      withTimeout(
+        () => running,
+        probeMs,
+        () => {},
+      ),
+    );
+  };
   const [runnerSha, t3, connect, projects, repos, harnesses, sandbox, slack, devices, browser] = await Promise.all([
     settle(collectors.runnerSha),
     settle(collectors.t3),
