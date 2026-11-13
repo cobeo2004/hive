@@ -10,7 +10,7 @@ updated: 3588135
   (`lib/auth/server.ts:22-49`). The admin plugin's HTTP routes and TOTP disable/reveal routes are
   closed; roles change only through Members.
 - **Member** = TOTP enabled and setup done; **admin** = member with `role === "admin"`
-  (`lib/auth/owner.ts:11-18`). The last admin can't be demoted (`lib/members.ts:8-21`).
+  (`lib/auth/owner.ts:11-18`). The last admin can't be demoted (`lib/members.ts:39-42`, under a row lock).
 - **Proxy.** No session → 401 for APIs, sign-in redirect for pages; unfinished TOTP/setup → only
   `/setup` (`proxy.ts:7-24`). Public: `auth/*`, `api/auth|slack|ingest|webhooks`.
 - **Setup token.** `bun scripts/setup-token.ts` prints a 1-hour link that works only while no admin

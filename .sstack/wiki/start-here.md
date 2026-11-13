@@ -5,9 +5,11 @@ updated: 3588135
 
 # Start here
 
-Hive turns a Linear issue into a PR. The panel (`app/`) only reads and writes Postgres; the runner
-(`runner/`, one per pool Mac) is the only process that touches T3, git, Modal and GitHub. They talk
-through rows: the panel writes `intents`, the runner takes them, agents report back through ingest.
+Hive turns a Linear issue into a PR. Job execution belongs to the runner (`runner/`, one per pool
+Mac): it alone runs T3 threads, git and sandboxes. The panel (`app/`) reads and writes Postgres, and
+its admin actions also call integrations directly: GitHub for the add-repo list and Rebuild
+(`app/actions/repositories.ts:38`, `:102`) and Modal to save repo secrets (`:85`). The two talk through
+rows: the panel writes `intents`, the runner takes them, agents report back through ingest.
 
 | Task touches | Open |
 |---|---|

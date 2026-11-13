@@ -11,9 +11,11 @@ updated: 3588135
 - **Agent.** Unless main already has a valid recipe, the runner runs an agent on
   `playbooks/onboarding.md` on `hive/onboarding`; it writes a result file the runner checks against
   `resultSchema` (`runner/onboarding.ts:73-101`, `:391-457`).
-- **After the recipe.** Missing secrets → `needs_input` (names stored, values in the Modal secret
-  `mf-repo-<owner>-<name>`); else `building` (`lib/onboarding.ts:96-120`).
-- **Warm image.** Built from the base image, snapshotted, the old one deleted, then `snapshotSstack`
+- **After the recipe** (`afterRecipe`, `lib/onboarding.ts:114-119`). A local repo is `ready` at once,
+  even with missing secrets; it builds an image only once it runs in the cloud. A cloud repo with
+  missing secrets → `needs_input` (names stored, values in the Modal secret `mf-repo-<owner>-<name>`);
+  else `rebuilding` if it has an image, `building` if not.
+- **Warm image (cloud only).** Built from the base image, snapshotted, the old one deleted, then `snapshotSstack`
   (`runner/onboarding.ts:525-585`). A push touching the recipe, or a new base image, rebuilds it.
   Jobs launch from the warm image if it still fits the base (`lib/onboarding.ts:138-162`).
 - **Panel.** The Repositories page reads only the DB (`lib/repositories.ts:99-112`); GitHub is called
