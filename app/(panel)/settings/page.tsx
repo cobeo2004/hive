@@ -4,6 +4,7 @@ import { ForbiddenCard } from "@/components/auth/forbidden-card";
 import { LinearSettingsSection } from "@/components/panel/linear-settings";
 import { PanelHeader } from "@/components/panel/panel-header";
 import { SettingsForm } from "@/components/panel/settings-form";
+import { GithubLinkSection } from "@/components/panel/github-link";
 import { FormSkeleton, PageSkeleton } from "@/components/panel/skeletons";
 import { TeamPoolSection } from "@/components/panel/team-pool";
 import { listMembers } from "@/app/actions/members";
@@ -28,7 +29,12 @@ async function Panel() {
   const [saved, accounts, sources] = await Promise.all([linearSettings(db), poolAccounts(db, viewerOf(user)), readSourceChoice(db)]);
   const linear = { saved, userName: await linearUserName(process.env.LINEAR_API_KEY, saved.hiveUserId) };
   const admin = isAdmin(user);
-  const teamPool = <TeamPoolSection accounts={accounts} pool={loadLimits().pool} readOnly={!admin} />;
+  const teamPool = (
+    <>
+      <GithubLinkSection />
+      <TeamPoolSection accounts={accounts} pool={loadLimits().pool} readOnly={!admin} />
+    </>
+  );
   if (!admin)
     return (
       <>
