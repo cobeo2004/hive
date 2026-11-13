@@ -415,6 +415,11 @@ try {
   assert.match([...comments.values()][0]!, /names test-repos-\d+\/legacy, which is disabled/);
   assert.equal((await db.select().from(auditLog).where(eq(auditLog.job_id, jid))).length, 1, "and one audit row");
 
+  // R25f: each repo links to its Workflow page, whose segment decodes back to the repo (Q41).
+  const { workflowHref } = await import("../components/panel/repositories");
+  assert.equal(workflowHref(A), `/repositories/${OWNER_NS}%2Ffactory-demo/workflow`);
+  assert.equal(decodeURIComponent(workflowHref(A).split("/")[2]!), A, "the workflow page reads the repo back from its segment");
+
   console.log("repositories regressions passed");
 } catch (error) {
   console.error(error);
