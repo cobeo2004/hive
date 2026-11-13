@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/db/client";
-import { cancelLogin, disconnectOwnAccount, loginForCard, readLogin, writeCode, writeLogin } from "@/lib/account-logins";
+import { cancelLogin, disconnectOwnAccount, loginForCard, readLogin, setAccountShared, writeCode, writeLogin } from "@/lib/account-logins";
 import { currentUser } from "@/lib/auth/server";
 import { addPoolAccount as add, disconnectPoolAccount as disconnect, renamePoolAccount as rename } from "@/lib/pool-accounts";
 
@@ -40,4 +40,9 @@ export async function cancelAccountLogin(loginId: string) {
 /** Your own account only; anyone else's id is 403 (Q21). */
 export async function disconnectMyAccount(accountId: string) {
   return disconnectOwnAccount(db, await member(), String(accountId));
+}
+
+/** Share your own account with the team pool, or stop; anyone else's id is 403. */
+export async function shareMyAccount(accountId: string, shared: boolean) {
+  return setAccountShared(db, await member(), String(accountId), shared === true);
 }

@@ -1,6 +1,8 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { eq, like } from "drizzle-orm";
 import type { ExecOptions } from "../lib/exec";
 import type { JobHost } from "../lib/host";
@@ -31,7 +33,7 @@ const { factorySchema, TEST_MACHINE_ID } = await import("../lib/config");
 const { canReclaim, canReclaimSql, stopDeliverable, stopDeliverableSql } = await import("../runner/binding");
 const { and, sql } = await import("drizzle-orm");
 const { launchEntries, maybeStarted, MaybeStartedError, mobileRepos, parseThreadId, placeMobile, startLead, startThread } = await import("../runner/launch");
-const { launchInSandboxes } = await import("../runner/launch");
+const { launchInSandboxes, NO_ACCOUNT } = await import("../runner/launch");
 const { LOCAL_CONFIG, startUnattended, unattendedConfig } = await import("../runner/unattended");
 const { isMobileSnapshot } = await import("../lib/execution");
 const { hosts, localHost } = await import("../lib/host");
@@ -837,7 +839,29 @@ try {
     "the account is leased to the local job",
   );
   assert.equal((await db.select().from(jobs).where(eq(jobs.key, cloud)))[0]!.machine_id, null, "the cloud job is not claimed");
-  Object.assign(sandboxRuntime, { account: async () => "wait" });
+  // R27d: no own, shared or pool account and no runner login: the job stays queued and says to connect one.
+  const blocked = `${id}-no-account`;
+  await db.insert(jobs).values(linearJob(blocked, blocked, { stage: "queued" }));
+  const slots = sandboxRuntime.slots;
+  Object.assign(sandboxRuntime, { account: async () => null, slots: () => [] });
+  assert.deepEqual(await launchInSandboxes([{ ...entry(blocked), harness: { provider: "codex", model: "m" } }], slot), [], "no thread starts");
+  const queued = (await db.select().from(jobs).where(eq(jobs.key, blocked)))[0]!;
+  assert.deepEqual([queued.stage, queued.stage_summary, queued.machine_id], ["queued", NO_ACCOUNT, null], "R27d: the job asks its owner to connect an account");
+  // A configured runner login that is only marked unusable is not the owner's to fix: no "connect an account" note.
+  const unusable = `${id}-slot-unusable`;
+  await db.insert(jobs).values(linearJob(unusable, unusable, { stage: "queued" }));
+  const health = sandboxRuntime.slotHealthPath;
+  const healthFile = join(mkdtempSync(join(tmpdir(), "hive-health-")), "health.json");
+  writeFileSync(healthFile, JSON.stringify([{ slot: "/slot-a", status: "unusable", reason: "test", at: new Date().toISOString(), authMtimeMs: 1 }]));
+  const mtime = sandboxRuntime.slotAuthMtime;
+  Object.assign(sandboxRuntime, { slots: () => ["/slot-a"], slotHealthPath: healthFile, slotAuthMtime: () => 1 });
+  assert.deepEqual(await launchInSandboxes([{ ...entry(unusable), harness: { provider: "codex", model: "m" } }], slot), [], "no thread starts");
+  assert.notEqual(
+    (await db.select().from(jobs).where(eq(jobs.key, unusable)))[0]!.stage_summary,
+    NO_ACCOUNT,
+    "an unusable runner login is not the owner's to fix",
+  );
+  Object.assign(sandboxRuntime, { account: async () => "wait", slots, slotHealthPath: health, slotAuthMtime: mtime });
   // 1.3 on an untracked harness, whatever status T3 settled on: with a PR open the job stays at pr with one note and is never relaunched; with none it fails for the next account.
   const openPr = "https://github.com/ski043/factory-demo/pull/1";
   const posted: { jobKey?: string; stage?: string }[] = [];

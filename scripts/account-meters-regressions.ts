@@ -11,7 +11,7 @@ const { accountMeters } = await import("../lib/account-meters");
 const pair = newKeyPair();
 const TOKEN = "sk-ant-oat-meters-secret-token";
 const sealed = seal(TOKEN, pair.publicKey);
-const METER_KEYS = ["fiveHour", "id", "kind", "label", "ownerId", "ownerName", "provider", "weekly"];
+const METER_KEYS = ["fiveHour", "id", "kind", "label", "ownerId", "ownerName", "provider", "shared", "weekly"];
 const users = ["meters-a", "meters-b", "meters-admin"];
 const ids = ["m-a-claude", "m-a-codex", "m-b-claude", "m-pool-60", "m-pool-82", "m-pool-key", "m-pool-gone"];
 const acct = (id: string, owner: string | null, provider: "claude" | "codex", kind: "subscription" | "api_key", label: string, disconnected = false) => ({

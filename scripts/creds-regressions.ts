@@ -47,6 +47,7 @@ const row = (id: string, owner_id: string | null, extra: Partial<Parameters<type
   id,
   owner_id,
   provider: "claude" as const,
+  shared: false,
   sealed: Buffer.alloc(0),
   disconnected_at: null,
   created_at: new Date(1_700_000_000_000 + n++),

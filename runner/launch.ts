@@ -123,6 +123,8 @@ export async function startLead(
   );
 }
 
+/** A queued sandbox job with no account to run on (R27d). */
+export const NO_ACCOUNT = "Connect an account in Settings → Your accounts";
 const PENDING_STALE_MS = 120_000;
 /** A sandbox launch creates, clones and starts T3 before its thread exists, so its marker stays fresh longer. */
 const SANDBOX_PENDING_STALE_MS = 15 * 60_000;
@@ -524,17 +526,18 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
   let room = limits.maxParallel - (await sandboxesInFlight(slot.id));
   // claude and codex are the job's owner's or pool's accounts (R9a); null means the runner's own login.
   const leases = new Map<string, { marker: string; slot: string | null; choice: HarnessChoice; claude: Account | null; codex: Account | null }>();
-  const poolWait = async (key: string) => {
-    const POOL_WAIT = "Waiting for the team pool";
+  // Why a queued job is not starting, shown on its card; the claim replaces it.
+  const queuedNote = async (key: string, note: string, event: string) => {
     await db
       .update(jobsTable)
-      .set({ stage_summary: POOL_WAIT })
+      .set({ stage_summary: note })
       .where(
-        and(eq(jobsTable.key, key), eq(jobsTable.stage, "queued"), isNull(jobsTable.machine_id), sql`${jobsTable.stage_summary} is distinct from ${POOL_WAIT}`),
+        and(eq(jobsTable.key, key), eq(jobsTable.stage, "queued"), isNull(jobsTable.machine_id), sql`${jobsTable.stage_summary} is distinct from ${note}`),
       );
-    runtime.log("sandbox:pool-wait", { key });
+    runtime.log(event, { key });
     return false;
   };
+  const poolWait = (key: string) => queuedNote(key, "Waiting for the team pool", "sandbox:pool-wait");
   const loginOf = (slot: string): CodexLogin => ({ slot, auth: runtime.slotAuth(slot) });
   // Account errors carry an account id or fixed text, never a secret.
   const accountError = (event: string, key: string, error: unknown) =>
@@ -572,12 +575,13 @@ export async function launchInSandboxes(pending: readonly LaunchEntry[], slot: L
       }
       if (codex === "wait") return releaseLaunch(key, marker).then(() => poolWait(key));
       // A subscription is leased like a slot, so it runs in one job anywhere, local or here (Codex rotates its refresh token). A pool API key never rotates: any number of sandboxes share it.
-      const codexSlot =
-        !needsCodexSlot(choice.provider) || codex?.kind === "api_key"
-          ? null
-          : await leaseCodexSlot(key, marker, codex ? [`account:${codex.id}`] : usableSlots(limits));
+      const slots = codex ? [`account:${codex.id}`] : usableSlots(limits);
+      const codexSlot = !needsCodexSlot(choice.provider) || codex?.kind === "api_key" ? null : await leaseCodexSlot(key, marker, slots);
       if (codexSlot === undefined) {
         await releaseLaunch(key, marker);
+        // R27d: no own, shared or pool account and no runner login configured: the owner has to connect one. Configured logins
+        // that are only marked unusable are the runner's problem, not the owner's, so that stays sandbox:no-slot.
+        if (!codex && sandboxRuntime.slots(limits).length === 0) return queuedNote(key, NO_ACCOUNT, "sandbox:account-needed");
         runtime.log("sandbox:no-slot", { key, slots: limits.codexSlots.length });
         return false;
       }

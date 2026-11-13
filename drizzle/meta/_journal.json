@@ -337,6 +337,13 @@
       "when": 1794527753487,
       "tag": "0047_user_github_link",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794530508353,
+      "tag": "0048_agent_account_shared",
+      "breakpoints": true
     }
   ]
 }

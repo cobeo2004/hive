@@ -90,6 +90,19 @@ try {
   assert.equal(await second.pick(entry(keys.two, "codex")), true);
   assert.equal(await second.lease(keys.two, "pending:two"), false, "the account is leased to the first job and no pool account exists");
   assert.equal(await slotOf(keys.one), `account:${U}-codex`);
+  // R27d: a teammate's shared Codex subscription beats waiting too, in its owner's home where resealLocal looks for it.
+  const SHARED = '{"tokens":{"refresh_token":"v-1"}}';
+  await db.insert(agentAccounts).values({ ...account(`${V}-codex`, "codex", SHARED), owner_id: V, shared: true });
+  assert.equal(await second.pick(entry(keys.two, "codex")), true);
+  assert.equal(await second.lease(keys.two, "pending:two"), true, "a shared account beats waiting");
+  second.harness(entry(keys.two, "codex"));
+  assert.equal(readFileSync(join(credsDir(V, "codex"), "auth.json"), "utf8"), SHARED, "the shared login is its owner's auth.json");
+  second.discard(keys.two);
+  await teardownSandbox((await db.select().from(jobs).where(eq(jobs.key, keys.two)))[0]!);
+  await db
+    .update(agentAccounts)
+    .set({ shared: false })
+    .where(eq(agentAccounts.id, `${V}-codex`));
   await db.insert(agentAccounts).values([{ ...account(`${U}-pool-sub`, "codex", "not-a-key", true), kind: "subscription" as const }, poolCodex]);
   assert.equal(await second.pick(entry(keys.two, "codex")), true);
   assert.equal(await second.lease(keys.two, "pending:two"), true, "a free pool account beats waiting");

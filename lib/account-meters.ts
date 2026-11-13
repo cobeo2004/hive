@@ -15,6 +15,8 @@ export type MeterAccount = {
   /** Null for a team pool account. */
   ownerId: string | null;
   ownerName: string | null;
+  /** The owner lends it to the team pool (R27d). */
+  shared: boolean;
   fiveHour: Reading | null;
   weekly: Reading | null;
 };
@@ -39,6 +41,7 @@ export async function accountMeters(db: Db, viewer: Viewer | null): Promise<Acco
       kind: agentAccounts.kind,
       label: agentAccounts.label,
       ownerId: agentAccounts.owner_id,
+      shared: agentAccounts.shared,
       ownerName: user.name,
       ownerEmail: user.email,
     })

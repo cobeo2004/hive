@@ -2,7 +2,7 @@ import { createHash, createPrivateKey, createPublicKey } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { db } from "../db/client";
 import { agentAccounts } from "../db/schema";
 import { credsProvider, recordRunAccount, seal, unseal, type CredsProvider } from "../lib/creds";
@@ -109,7 +109,7 @@ export function localAccounts(rt: LocalRuntime) {
         return false;
       }
     },
-    /** After the claim: a Codex account goes to one job at a time. When the owner's is busy a free pool account is used; with none the job waits. */
+    /** After the claim: a Codex account goes to one job at a time. When the owner's is busy a free pool account (or one a teammate shares, R27d) is used; with none the job waits. */
     async lease(key: string, marker: string) {
       const one = held.get(key);
       if (!one || credsProvider(one.driver) !== "codex") return true;
@@ -118,12 +118,21 @@ export function localAccounts(rt: LocalRuntime) {
         .select()
         .from(agentAccounts)
         .where(
-          and(isNull(agentAccounts.owner_id), eq(agentAccounts.provider, "codex"), eq(agentAccounts.kind, "api_key"), isNull(agentAccounts.disconnected_at)),
+          and(
+            eq(agentAccounts.provider, "codex"),
+            isNull(agentAccounts.disconnected_at),
+            or(
+              and(isNull(agentAccounts.owner_id), eq(agentAccounts.kind, "api_key")),
+              and(eq(agentAccounts.shared, true), ne(agentAccounts.owner_id, one.scope)),
+            ),
+          ),
         );
       for (const row of pool) {
         if (!(await rt.lease(key, marker, `${LOCAL_SLOT}${row.id}`))) continue;
-        // A pool account is an API key; Codex reads it from auth.json.
-        held.set(key, { ...one, id: row.id, scope: `pool-${row.id}`, secret: JSON.stringify({ OPENAI_API_KEY: unseal(row.sealed, privateKey()) }) });
+        // Codex reads an API key from auth.json as OPENAI_API_KEY; a shared subscription is its owner's auth.json, kept in the owner's home so resealLocal finds it.
+        const secret = unseal(row.sealed, privateKey());
+        const scope = row.owner_id ?? `pool-${row.id}`;
+        held.set(key, { ...one, id: row.id, scope, secret: row.kind === "api_key" ? JSON.stringify({ OPENAI_API_KEY: secret }) : secret });
         return true;
       }
       held.delete(key);
