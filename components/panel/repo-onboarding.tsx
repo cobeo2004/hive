@@ -177,7 +177,13 @@ export function AddRepository() {
   );
 }
 
-function Secrets({ row, panelTakesSecrets }: { row: RepoSettingsRow; panelTakesSecrets: boolean }) {
+/** A Hive panel (hive.css .hv-panel). */
+export const PANEL = "flex min-w-0 flex-col gap-3.5 rounded-xl border bg-card p-5 text-sm";
+/** hive.css .hv-log: the night code block, dark in both themes. */
+const LOG = "overflow-auto rounded-lg border bg-[#0b0b0c] px-4 py-3.5 font-mono text-xs leading-[19px] text-[#e5e5e5]";
+const SIDE = cn(PANEL, "gap-2.5 p-4.5 [&>h3]:text-[17px] [&>h3]:font-semibold");
+
+function Secrets({ row, panelTakesSecrets, canEdit }: { row: RepoSettingsRow; panelTakesSecrets: boolean; canEdit: boolean }) {
   const router = useRouter();
   const detail = parseDetail(row.onboarding_detail);
   const env = detail.recipe?.env ?? [];
@@ -186,6 +192,7 @@ function Secrets({ row, panelTakesSecrets }: { row: RepoSettingsRow; panelTakesS
   const [failure, setFailure] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   if (env.length === 0) return null;
+  const takes = canEdit && panelTakesSecrets;
   const save = () => {
     setFailure(null);
     startTransition(async () => {
@@ -199,9 +206,9 @@ function Secrets({ row, panelTakesSecrets }: { row: RepoSettingsRow; panelTakesS
     });
   };
   return (
-    <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-medium">Secrets</h3>
-      <p className="text-sm text-muted-foreground">
+    <section aria-label="Secrets" className={SIDE}>
+      <h3>Secrets</h3>
+      <p className="text-xs text-muted-foreground">
         Values go straight to the secret every cloud sandbox of this repo gets. The factory keeps only their names.
       </p>
       {env.map((e) => (
@@ -215,7 +222,7 @@ function Secrets({ row, panelTakesSecrets }: { row: RepoSettingsRow; panelTakesS
               </Badge>
             )}
           </FieldLabel>
-          {panelTakesSecrets ? (
+          {takes ? (
             <Input
               id={`secret-${e.name}`}
               type="password"
@@ -225,19 +232,19 @@ function Secrets({ row, panelTakesSecrets }: { row: RepoSettingsRow; panelTakesS
               placeholder={set.has(e.name) ? "Paste to replace" : "Paste the value"}
             />
           ) : (
-            <code className="rounded-md bg-muted px-2 py-1 font-mono text-xs">
+            <code className={cn("rounded-md bg-muted px-2 py-1 font-mono text-xs break-all", !canEdit && "hidden")}>
               bun scripts/repo-secret.ts {row.repo} {e.name}
             </code>
           )}
           {e.purpose && <FieldDescription>{e.purpose}</FieldDescription>}
         </Field>
       ))}
-      {!panelTakesSecrets && (
-        <p className="text-sm text-muted-foreground">
+      {canEdit && !panelTakesSecrets && (
+        <p className="text-xs text-muted-foreground">
           This panel has no cloud sandbox token, so run each command on the runner Mac; it asks for the value without showing it.
         </p>
       )}
-      {panelTakesSecrets && (
+      {takes && (
         <div>
           <Button size="sm" onClick={save} disabled={pending || Object.values(values).every((v) => v.trim() === "")}>
             {pending && <Spinner data-icon="inline-start" />}
@@ -250,12 +257,46 @@ function Secrets({ row, panelTakesSecrets }: { row: RepoSettingsRow; panelTakesS
           {failure}
         </p>
       )}
+    </section>
+  );
+}
+
+/** Beside Project setup, as on the canvas: Secrets, the warm image and the repo's notes for agents. */
+export function OnboardingSide({ row, panelTakesSecrets, canEdit }: { row: RepoSettingsRow; panelTakesSecrets: boolean; canEdit: boolean }) {
+  const detail = parseDetail(row.onboarding_detail);
+  const versions = detail.image?.base.versions;
+  return (
+    <div className="flex min-w-0 flex-[1_1_260px] flex-col gap-4">
+      <Secrets key={(detail.secretsSet ?? []).join(",")} row={row} panelTakesSecrets={panelTakesSecrets} canEdit={canEdit} />
+      <section aria-label="Warm image" className={SIDE}>
+        <h3>Warm image</h3>
+        <p className="text-xs text-muted-foreground">
+          {detail.image ? (
+            <>
+              Built <ShortTime date={new Date(detail.image.builtAt)} /> at <span className="font-mono">{detail.image.commit.slice(0, 7)}</span>
+              {versions &&
+                ` · ${IMAGE_COMPONENTS.filter((c) => versions[c])
+                  .map((c) => `${componentName(c)} ${versions[c]}`)
+                  .join(", ")}`}
+            </>
+          ) : (
+            "None yet: cloud sandbox jobs start from the base image."
+          )}
+        </p>
+      </section>
+      <section aria-label="Repo notes for agents" className={SIDE}>
+        <h3>Repo notes for agents</h3>
+        <p className="text-xs text-muted-foreground">
+          <span className="font-mono">.sstack/playbooks/factory.md</span> adds repo-only notes on top of the Hive playbook. Accepted sstack lessons live in
+          AGENTS.md under “Things agents get wrong”.
+        </p>
+      </section>
     </div>
   );
 }
 
-/** Where onboarding stands, the recipe, the warm image and the secrets, with Retry and Rebuild. */
-export function OnboardingSection({ row, panelTakesSecrets }: { row: RepoSettingsRow; panelTakesSecrets: boolean }) {
+/** Project setup: where onboarding stands and the recipe with its checks; Retry and Rebuild for an admin. */
+export function OnboardingSection({ row, canEdit }: { row: RepoSettingsRow; canEdit: boolean }) {
   const router = useRouter();
   const detail = parseDetail(row.onboarding_detail);
   const [failure, setFailure] = useState<string | null>(null);
@@ -272,12 +313,11 @@ export function OnboardingSection({ row, panelTakesSecrets }: { row: RepoSetting
   const recipe = detail.recipe;
   const checks = recipe ? CHECKS.filter((name) => recipe.checks[name]) : [];
   const result = (name: string) => detail.checks?.find((c) => c.name === name);
-  const versions = detail.image?.base.versions;
 
   return (
-    <div className="flex flex-col gap-4 px-4.5 py-4">
+    <section aria-label="Project setup" className={cn(PANEL, "flex-[1_1_360px]")}>
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-medium">Onboarding</h3>
+        <h3 className="text-[15px] font-semibold">Project setup</h3>
         {state ? (
           <OnboardingBadge state={state} />
         ) : (
@@ -289,7 +329,7 @@ export function OnboardingSection({ row, panelTakesSecrets }: { row: RepoSetting
       <p className={cn("text-sm", state === "failed" || state === "needs_input" ? "text-warning" : "text-muted-foreground")}>
         {state ? stateLine(state, detail) : "Registered before onboarding. Its cloud sandbox jobs start from the base image and set themselves up."}
       </p>
-      {detail.failure?.log && <pre className="max-h-48 overflow-auto rounded-md bg-muted p-2 font-mono text-xs whitespace-pre-wrap">{detail.failure.log}</pre>}
+      {detail.failure?.log && <pre className={cn(LOG, "max-h-48 whitespace-pre-wrap")}>{detail.failure.log}</pre>}
       {detail.summary && <p className="text-sm">{detail.summary}</p>}
       {recipe && (
         <div className="flex flex-col gap-2 text-sm">
@@ -307,7 +347,7 @@ export function OnboardingSection({ row, panelTakesSecrets }: { row: RepoSetting
           {(recipe.system?.length ?? 0) > 0 && <p className="text-muted-foreground">System packages: {recipe.system!.join(", ")}</p>}
           <div>
             <p className="text-muted-foreground">Setup</p>
-            <ul className="font-mono text-xs">
+            <ul className={cn(LOG, "mt-1")}>
               {recipe.setup.map((cmd, i) => (
                 <li key={i}>{cmd}</li>
               ))}
@@ -336,17 +376,7 @@ export function OnboardingSection({ row, panelTakesSecrets }: { row: RepoSetting
           )}
         </div>
       )}
-      {detail.image && (
-        <p className="text-sm text-muted-foreground">
-          Warm image built <ShortTime date={new Date(detail.image.builtAt)} /> at <span className="font-mono text-xs">{detail.image.commit.slice(0, 7)}</span>
-          {versions &&
-            ` · ${IMAGE_COMPONENTS.filter((c) => versions[c])
-              .map((c) => `${componentName(c)} ${versions[c]}`)
-              .join(", ")}`}
-        </p>
-      )}
-      <Secrets key={(detail.secretsSet ?? []).join(",")} row={row} panelTakesSecrets={panelTakesSecrets} />
-      <div className="flex flex-wrap gap-2">
+      <div className={cn("flex flex-wrap gap-2", !canEdit && "hidden")}>
         <Button variant="outline" size="sm" disabled={pending || Boolean(detail.run)} onClick={() => act(retryOnboarding)}>
           {state ? "Retry onboarding" : "Onboard"}
         </Button>
@@ -366,6 +396,6 @@ export function OnboardingSection({ row, panelTakesSecrets }: { row: RepoSetting
           {failure}
         </p>
       )}
-    </div>
+    </section>
   );
 }

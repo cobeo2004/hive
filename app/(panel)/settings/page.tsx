@@ -5,10 +5,13 @@ import { LinearSettingsSection } from "@/components/panel/linear-settings";
 import { PanelHeader } from "@/components/panel/panel-header";
 import { SettingsForm } from "@/components/panel/settings-form";
 import { GithubLinkSection } from "@/components/panel/github-link";
+import { SettingsSection } from "@/components/panel/settings-section";
 import { FormSkeleton, PageSkeleton } from "@/components/panel/skeletons";
 import { TeamPoolSection } from "@/components/panel/team-pool";
+import { YourAccounts } from "@/components/panel/your-accounts";
 import { listMembers } from "@/app/actions/members";
 import { db } from "@/db/client";
+import { accountMeters } from "@/lib/account-meters";
 import { currentUser } from "@/lib/auth/server";
 import { isAdmin } from "@/lib/auth/owner";
 import { loadLimits } from "@/lib/config";
@@ -26,12 +29,16 @@ async function Panel() {
   // Settings is admin-only (R4); an engineer sees only Settings → Linear, read-only (R7a).
   const user = await currentUser();
   if (!user) return <ForbiddenCard reason="admin" />;
-  const [saved, accounts, sources] = await Promise.all([linearSettings(db), poolAccounts(db, viewerOf(user)), readSourceChoice(db)]);
+  const viewer = viewerOf(user);
+  const [saved, accounts, sources, meters] = await Promise.all([linearSettings(db), poolAccounts(db, viewer), readSourceChoice(db), accountMeters(db, viewer)]);
   const linear = { saved, userName: await linearUserName(process.env.LINEAR_API_KEY, saved.hiveUserId) };
   const admin = isAdmin(user);
   const teamPool = (
     <>
       <GithubLinkSection />
+      <SettingsSection id="your-accounts" title="Your accounts" description="Jobs you own run on your own subscriptions first, then on the team pool.">
+        <YourAccounts accounts={meters.mine} manage />
+      </SettingsSection>
       <TeamPoolSection accounts={accounts} pool={loadLimits().pool} readOnly={!admin} />
     </>
   );
