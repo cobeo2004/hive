@@ -60,7 +60,8 @@ export const loginForCard = (login: LoginRow) => login && { status: login.status
 export async function disconnectOwnAccount(database: Db, userId: string, accountId: string, at = new Date()) {
   const rows = await database
     .update(agentAccounts)
-    .set({ disconnected_at: at, sealed: Buffer.alloc(0) })
+    // Sharing ends too: reconnecting later starts unshared, so nobody's key goes back into the pool without them choosing it again.
+    .set({ disconnected_at: at, sealed: Buffer.alloc(0), shared: false })
     .where(and(eq(agentAccounts.id, accountId), eq(agentAccounts.owner_id, userId)))
     .returning({ id: agentAccounts.id });
   return rows.length ? ({ ok: true } as const) : ({ ok: false, status: 403, message: "You can only disconnect your own accounts." } as const);

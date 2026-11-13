@@ -157,7 +157,11 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
     <div className="flex flex-col gap-2.5 rounded-[10px] bg-(--surface-2) p-3.5">
       <div className="flex items-center justify-between gap-2">
         <b className="font-semibold">{title}</b>
-        {account ? <Badge variant="success">{provider === "cursor" ? "Connected" : "Signed in"}</Badge> : <Badge variant="outline">Team pool</Badge>}
+        {account ? (
+          <Badge variant="success">{provider === "cursor" ? "Connected" : "Signed in"}</Badge>
+        ) : (
+          <Badge variant="outline">{provider === "cursor" ? "Not connected" : "Team pool"}</Badge>
+        )}
       </div>
       <span className="text-xs text-muted-foreground">{note}</span>
       {apiKey !== null ? (
@@ -246,9 +250,14 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
         )
       ) : account ? (
         <>
-          <Meter label="5-hour window" reading={account.fiveHour} title={title} />
-          <Meter label="Weekly" reading={account.weekly} title={title} />
-          {manage && (
+          {account.kind !== "api_key" && (
+            <>
+              <Meter label="5-hour window" reading={account.fiveHour} title={title} />
+              <Meter label="Weekly" reading={account.weekly} title={title} />
+            </>
+          )}
+          {/* ponytail: no job leases a Cursor key yet, so sharing one would do nothing; m3-09e turns this on with the sandbox lease. */}
+          {manage && provider !== "cursor" && (
             <label className="flex items-start justify-between gap-3 text-sm">
               <span className="flex flex-col gap-0.5">
                 <span>Share with the team pool</span>
@@ -262,7 +271,9 @@ function AccountCard({ provider, account, manage }: { provider: Provider; accoun
           {manage &&
             (confirming ? (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm">Disconnect {title}? Your jobs fall back to the team pool.</span>
+                <span className="text-sm">
+                  Disconnect {title}?{provider === "cursor" ? "" : " Your jobs fall back to the team pool."}
+                </span>
                 <Button size="sm" variant="destructive" loading={pending} onClick={disconnect}>
                   Disconnect
                 </Button>

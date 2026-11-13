@@ -72,7 +72,7 @@ try {
   assert.equal(gone!.sealed.length, 0, "sealed is emptied");
   assert.deepEqual(await connectApiKey(db, "cursor-me", KEY, pair.publicKey), { ok: true });
   const [back] = await own("cursor-me");
-  assert.deepEqual([back!.id, back!.disconnected_at, unseal(back!.sealed, pair.privateKey)], [row!.id, null, KEY]);
+  assert.deepEqual([back!.id, back!.disconnected_at, back!.shared, unseal(back!.sealed, pair.privateKey)], [row!.id, null, false, KEY]);
 
   // A pasted key writes no intent: nothing a runner logs carries it.
   const after = await db.select({ detail: intents.detail }).from(intents);
