@@ -102,7 +102,7 @@ The chain `sstack-workflow show` prints is `recon`, `plan`, `implement`, `gate`,
 - **In** "**Wiki.**", you write the pages, in this thread: add or refresh pages under `.sstack/wiki/` for what this run learned that the code doesn't show, including what children flagged in their reports, and fix every page `index` marks `[stale]` whose `paths` this run changed. Then run `sstack-wiki index` and `sstack-wiki lint`; a lint error is fixed before the PR. The pages land in this job's PR. Children never write pages: a child's brief asks it to put wiki-worthy findings in its report.
 - **Replace** "Rebase/merge base" with: Merge the base branch; never rebase a pushed branch.
 - **Replace** "the user's explicit yes (unattended: none, see above) before commit, push or PR, and before publishing media" with: Gate 4 as in "Gates in an unattended run". Commit with Conventional Commits prefixed by the issue key, as in `UNI-482 fix(linking): replay the pending invite link after auth restores`. Start the PR body with `Linear: [UNI-482](<issue url>)`.
-- **After** `sstack-pr-media <pr> <run>/media/* --edit-body`, start `babysit` on that PR right away.
+- **After** opening the PR and before you report `pr`, run `sstack-pr-media <pr> <run>/media/* --edit-body` so the body carries the `<!-- sstack-media -->` Before and After section. Hive hands a PR that changes UI files to a person when its body has no such section. Then start `babysit` on that PR right away.
 
 #### Always
 

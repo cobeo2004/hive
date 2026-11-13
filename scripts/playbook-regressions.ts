@@ -134,6 +134,11 @@ const gates = section("## Gates in an unattended run");
 assert.ok(gates.includes("SSTACK_UNATTENDED") && gates.includes("SSTACK_PLAN_GATE"), "the gates name both sstack env switches");
 assert.ok(gates.includes("[unattended] plan_gate"), "and the config the plan gate falls back to");
 assert.ok(section("#### pr").includes("sstack-wiki lint"), "the pr step keeps sstack's wiki update and its lint");
+assert.match(
+  section("#### pr"),
+  /After\*\* opening the PR and before you report `pr`, run `sstack-pr-media <pr> <run>\/media\/\* --edit-body`/,
+  "the lead publishes the PR's Before and After media after opening it and before reporting pr (R24.1)",
+);
 assert.ok(
   playbook.includes("`factory-verify`") && playbook.includes("hooks/verify.ts"),
   "it names factory-verify by PATH and by the factory root, not by a repo path",

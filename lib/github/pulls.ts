@@ -51,7 +51,7 @@ const mergeableOf = (mergeable: boolean | null): Mergeable => (mergeable === nul
 
 const messageOf = (json: unknown) => z.object({ message: z.string() }).safeParse(json).data?.message ?? "";
 
-type PullDetail = { state: PullState; mergeable: Mergeable; headSha: string; baseRef: string };
+type PullDetail = { state: PullState; mergeable: Mergeable; headSha: string; baseRef: string; body: string };
 
 const fileSchema = z.object({
   filename: z.string(),
@@ -307,8 +307,8 @@ export function pullsClient({ api, tokens }: { api: string; tokens: TokenSource 
     async pullDetail(url: string): Promise<PullDetail> {
       const { repo, number } = parsePullUrl(url);
       const { json } = await request(repo, "GET", `/repos/${repo}/pulls/${number}`);
-      const pull = pullSchema.extend({ mergeable: z.boolean().nullable(), base: z.object({ ref: z.string() }) }).parse(json);
-      return { state: stateOf(pull), mergeable: mergeableOf(pull.mergeable), headSha: pull.head.sha, baseRef: pull.base.ref };
+      const pull = pullSchema.extend({ mergeable: z.boolean().nullable(), base: z.object({ ref: z.string() }), body: z.string().nullish() }).parse(json);
+      return { state: stateOf(pull), mergeable: mergeableOf(pull.mergeable), headSha: pull.head.sha, baseRef: pull.base.ref, body: pull.body ?? "" };
     },
 
     /**

@@ -72,3 +72,13 @@ const UI_GLOBS = ["**/*.tsx", "**/*.jsx", "**/*.vue", "**/*.svelte", "**/*.astro
 
 /** The changed files a merge should have media for. */
 export const uiFiles = (paths: readonly string[]) => paths.filter((path) => matchesAny(path, UI_GLOBS));
+
+const SECTION_START = "<!-- sstack-media -->";
+const SECTION_END = "<!-- /sstack-media -->";
+
+/** Whether a PR body has the Before and After section `sstack-pr-media --edit-body` writes, with something in it. */
+export function hasMediaSection(body: string) {
+  const start = body.indexOf(SECTION_START);
+  const end = start < 0 ? -1 : body.indexOf(SECTION_END, start);
+  return end >= 0 && body.slice(start + SECTION_START.length, end).trim() !== "";
+}
