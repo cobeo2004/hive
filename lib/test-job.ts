@@ -13,6 +13,8 @@ type Check = { name: string; ok: boolean; detail: string };
 type Media = { file: string; bytes: Uint8Array };
 
 const PORT = 4173;
+/** The repo test jobs run against unless the canary is told otherwise. */
+export const TEST_JOB_REPO = "ski043/factory-playground";
 const DEVICE_MEDIA = ["after-browser.png", "after-ios.png", "after-android.png"] as const;
 
 /** A PNG's width and height from its IHDR chunk, or null for anything else. */
@@ -55,8 +57,8 @@ const STEPS: Record<TestJobVariant, string> = {
 7. Open the pull request and report \`pr\` with the three screenshots attached to your assessment as \`media\`, one caption each naming where it was taken.`,
 };
 
-export function testJobDescription(variant: TestJobVariant) {
-  return `Factory canary, filed by scripts/canary.ts to check a rollout. Its pull request is for the owner to read and close, never to merge.
+export function testJobDescription(variant: TestJobVariant, filedBy = "scripts/canary.ts") {
+  return `Factory canary, filed by ${filedBy} to check a rollout. Its pull request is for the owner to read and close, never to merge.
 
 ${PAGE}
 
