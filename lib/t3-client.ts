@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { ExecOptions } from "./exec";
 import { HostAsleepError, HostGoneError, localHost, type JobHost } from "./host";
+import type { BrowserReadiness, DevicesReadiness, PlatformReadiness } from "./machine";
 import { SANDBOX_HOME } from "./sandbox";
 import { forbidInTest } from "./test-mode";
 
@@ -17,7 +18,7 @@ const LIST_SUBAGENTS_PAGES = 20;
 const CLI = { timeoutMs: 60_000, maxBuffer: 16 * 1024 * 1024 };
 
 /** A tool T3 answered with its failure, such as runtime_mode_escalation_denied; carries T3's message. */
-class T3ToolError extends Error {}
+export class T3ToolError extends Error {}
 
 export type SubagentThread = { threadId: string; status: string; latestRunId: string | null };
 export type InterruptOutcome = { kind: "requested" } | { kind: "idle" } | { kind: "refused"; reason: string };
@@ -251,3 +252,65 @@ export async function readDeviceFrame(call: DeviceCall): Promise<Buffer | null> 
 
 /** One bearer session for both tools, not two. */
 export const deviceFrame = (host: JobHost) => withMcp(host, ["orchestration:read"], (call) => readDeviceFrame(call));
+
+const LOCAL_DEVICE_HOST = "local";
+// Only this machine's entries are parsed, so another device host's odd shape cannot spoil local readiness.
+const deviceList = z.object({ hostStatuses: z.record(z.string(), z.unknown()), hosts: z.array(z.unknown()), devices: z.array(z.unknown()) });
+const localHostEntry = z.object({
+  id: z.literal(LOCAL_DEVICE_HOST),
+  platforms: z.array(z.object({ platform: z.string(), available: z.boolean() })),
+  agentDeviceInstalled: z.boolean(),
+});
+const localDevice = z.object({ hostId: z.literal(LOCAL_DEVICE_HOST), platform: z.string(), booted: z.boolean() });
+
+/** This machine's iOS and Android readiness from a device_list result; an unexpected shape is an error, not a throw. */
+export function deviceReadiness(list: unknown): DevicesReadiness {
+  const parsed = deviceList.safeParse(list);
+  if (!parsed.success) return { error: "device_list answered in an unexpected shape" };
+  const { hostStatuses, hosts, devices } = parsed.data;
+  const statusOf = z.object({ status: z.string() }).safeParse(hostStatuses[LOCAL_DEVICE_HOST]);
+  const status = statusOf.success ? statusOf.data.status : "missing";
+  const host = hosts.map((h) => localHostEntry.safeParse(h)).find((h) => h.success)?.data;
+  const local = devices.flatMap((d) => {
+    const one = localDevice.safeParse(d);
+    return one.success ? [one.data] : [];
+  });
+  const platform = (name: "ios" | "android"): PlatformReadiness => {
+    const own = local.filter((d) => d.platform === name);
+    const reason =
+      status !== "ready"
+        ? `device host ${status}`
+        : !host?.platforms.some((p) => p.platform === name && p.available)
+          ? `${name} not available`
+          : !host.agentDeviceInstalled
+            ? "agent-device not installed"
+            : own.length === 0
+              ? `no ${name} devices`
+              : undefined;
+    return { ready: !reason, ...(reason && { reason }), devices: own.length, booted: own.filter((d) => d.booted).length };
+  };
+  return { ios: platform("ios"), android: platform("android") };
+}
+
+type ProbeCall = (tool: "device_list" | "preview_status", args: Record<string, unknown>) => Promise<unknown>;
+
+/** T3 refusing the call (a thread-less session, a missing scope) is the answer, stored as `{error}`. */
+const refused = <T>(probe: () => Promise<T>) =>
+  probe().catch((error: unknown) => {
+    if (error instanceof T3ToolError) return { error: error.message };
+    throw error;
+  });
+
+export const readDevices = (call: ProbeCall): Promise<DevicesReadiness> => refused(async () => deviceReadiness(await call("device_list", {})));
+/**
+ * Whether T3's preview tools answer on this machine. Not whether a page renders: preview_status's `available`
+ * describes the calling thread's panel, and a runner session has none; the devices test job proves rendering.
+ */
+export const readBrowser = (call: ProbeCall): Promise<BrowserReadiness> =>
+  refused(async () => {
+    const status = await call("preview_status", {});
+    return status !== null && typeof status === "object" ? { answers: true as const } : { error: "preview_status answered in an unexpected shape" };
+  });
+// ponytail: no simctl fallback when T3 refuses a thread-less session; add one when a deploy shows the refusal.
+export const probeDevices = (host: JobHost) => withMcp(host, ["orchestration:read"], readDevices);
+export const probeBrowser = (host: JobHost) => withMcp(host, ["orchestration:read"], readBrowser);

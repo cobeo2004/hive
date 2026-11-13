@@ -120,6 +120,23 @@ export type SandboxReadiness = z.infer<typeof sandboxReadinessSchema>;
 export const slackReadinessSchema = z.object({ configured: z.boolean(), owner: z.boolean() });
 export type SlackReadiness = z.infer<typeof slackReadinessSchema>;
 
+/** What T3 answered when it refused a probe, stored as is. */
+const refusedSchema = z.object({ error: z.string() });
+
+/** Whether agents can drive one simulator platform on this machine; `reason` names the first check that failed. */
+const platformReadinessSchema = z.object({
+  ready: z.boolean(),
+  reason: z.string().optional(),
+  devices: z.number().int().nonnegative(),
+  booted: z.number().int().nonnegative(),
+});
+export type PlatformReadiness = z.infer<typeof platformReadinessSchema>;
+const devicesReadinessSchema = z.union([z.object({ ios: platformReadinessSchema, android: platformReadinessSchema }), refusedSchema]);
+export type DevicesReadiness = z.infer<typeof devicesReadinessSchema>;
+/** `answers`: T3's preview tools respond here; rendering is proven by the devices test job, not this probe. */
+const browserReadinessSchema = z.union([z.object({ answers: z.literal(true) }), refusedSchema]);
+export type BrowserReadiness = z.infer<typeof browserReadinessSchema>;
+
 export const inventorySchema = z.object({
   runnerSha: known(z.string()),
   t3: known(
@@ -139,6 +156,10 @@ export const inventorySchema = z.object({
   sandbox: known(sandboxReadinessSchema).optional(),
   /** Whether the runner's env has SLACK_BOT_TOKEN and SLACK_OWNER_USER_ID; never their values. Optional for the same reason. */
   slack: known(slackReadinessSchema).optional(),
+  /** iOS Simulator and Android Emulator readiness from T3's device_list. Optional for the same reason. */
+  devices: known(devicesReadinessSchema).optional(),
+  /** Whether T3's preview tools answer on this machine. Optional for the same reason. */
+  browser: known(browserReadinessSchema).optional(),
 });
 export type Inventory = z.infer<typeof inventorySchema>;
 
