@@ -8,7 +8,7 @@ import { eq, inArray } from "drizzle-orm";
 
 const { db } = await import("../db/client");
 const { repoSstackConfig } = await import("../db/schema");
-const { snapshotDeps, snapshotSstack } = await import("../runner/sstack-snapshot");
+const { snapshotDeps, snapshotSstack, WIKI_FILE_MAX, WIKI_TOTAL_MAX } = await import("../runner/sstack-snapshot");
 
 const SSTACK = "acme/sstack";
 const BARE = "acme/bare";
@@ -134,6 +134,20 @@ try {
   assert.equal(after.sha, before.sha, "the row keeps its sha");
   assert.equal(after.read_at.getTime(), before.read_at.getTime(), "the row keeps its read_at");
   assert.deepEqual(await snapshotSstack(SSTACK), { repo: SSTACK, sha: fourth, files: 8 }, "with the remote back, the snapshot lands");
+
+  // 7. wiki pages are bounded: one over the per-page cap is left out, and pages past the total cap are too
+  const big = "x".repeat(WIKI_FILE_MAX + 1);
+  const fill = "y".repeat(WIKI_FILE_MAX);
+  const fillers = Object.fromEntries(Array.from({ length: WIKI_TOTAL_MAX / WIKI_FILE_MAX + 1 }, (_, i) => [`.sstack/wiki/f${i}.md`, fill]));
+  commit(repoDir, { ".sstack/wiki/big.md": big, ...fillers }, "big wiki");
+  await snapshotSstack(SSTACK);
+  const bounded = (await rowOf(SSTACK))!.files;
+  assert.equal(bounded[".sstack/wiki/big.md"], undefined, "a page over WIKI_FILE_MAX is not stored");
+  const wikiBytes = Object.entries(bounded)
+    .filter(([path]) => path.startsWith(".sstack/wiki/"))
+    .reduce((sum, [, text]) => sum + Buffer.byteLength(text), 0);
+  assert.ok(wikiBytes <= WIKI_TOTAL_MAX, `wiki total ${wikiBytes} stays within WIKI_TOTAL_MAX`);
+  assert.equal(bounded[".sstack/config.toml"], "workflow = 'newer'\n", "config files are still stored");
 
   console.log("sstack-snapshot regressions passed");
 } catch (error) {
