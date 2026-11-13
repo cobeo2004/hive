@@ -149,6 +149,7 @@ Grilled 2026-11-10; R2–R6 rewritten by that grill. Decisions: `.sstack/runs/m1
 | R17 | `factory-verify` runs `.sstack/project.toml`'s `verify` list when present, else the recorded recipe, else `package.json` scripts. Trusted commands are the ones recorded at onboarding. | `hooks/verify.ts`, `lib/recipe.ts`, `lib/trusted-checks.ts`, `lib/evidence.ts` | A PR that edits `verify` to `true` gets `untrusted` evidence. |
 | R18 | Repository onboarding runs sstack `setup` (unattended) to write `.sstack/product.md` and `project.toml`, keeps `.factory/setup.json` for runtimes, install and secret names, and opens one PR with both. | `lib/repo-onboarding.ts`, `playbooks/onboarding.md`, `runner/onboarding.ts` | Onboarding a fixture repo opens a PR containing both files and the repo reaches Ready. |
 | R19 | Children dispatched by sstack show in the job's Lineage with harness, model, role and duration, from `.sstack/runs/index.jsonl`, and their cost counts toward the job's spend where it can be read. | `lib/spend.ts`, `lib/transcript.ts` | A job with an implement child on pi shows that child in Run detail. |
+| R40 | Every onboarded repo keeps an sstack wiki (`.sstack/wiki/`, committed): onboarding's unattended `setup` seeds it in the onboarding PR, and job threads update its pages in the `pr` step. Children report findings; only the lead thread writes pages. Requires the R12 pin to include the sstack wiki (`170f1f5` or later). | `runner/onboarding.ts`, `playbooks/onboarding.md`, `playbooks/factory.md`, `lib/sandbox.ts` (sstack pin) | The fixture onboarding PR contains `.sstack/wiki/index.md` and `sstack-wiki lint` reports 0 errors. |
 
 ### M5. Workflow configuration
 
@@ -171,6 +172,7 @@ Grilled 2026-11-10; R2–R6 rewritten by that grill. Decisions: `.sstack/runs/m1
 |---|---|---|---|
 | R25 | The panel matches the Hive canvas: sidebar with running jobs, breadcrumb bar, dark by default, Unibuz blue for selection and lime only for PR ready. Routes stay marshal-factory's. | `app/(panel)/`, `components/` (shadcn), `app/globals.css` | Each canvas screen has a matching route; light and dark both pass WCAG AA for text. |
 | R26 | Run detail shows the live T3 device the agent is driving, the thread log, the timeline, Lineage, evidence and the merge decision. | run detail route, `lib/run-links.ts`, `lib/t3-client.ts` | A running mobile job shows its device view to its owner. |
+| R41 | The Repository page shows the repo's sstack wiki as a read-only link graph (pages as nodes, links as edges, stale pages marked) with a page view, read from the runner's snapshot of main, never from git in the panel. | `runner/sstack-snapshot.ts` (`WANTED`), `repo_sstack_config.files`, `app/(panel)/repositories/` | A repo whose main has three linked wiki pages shows three nodes and their edges; a repo with no pages shows an empty state. |
 
 ---
 

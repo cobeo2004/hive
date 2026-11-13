@@ -49,6 +49,7 @@ merges on its own only where a repository allows it.
 
 ## Deeper docs
 
+- [The sstack wiki](wiki/index.md) — how the parts connect, why, and the traps; start at `start-here`.
 - [docs/prd.md](../docs/prd.md) — requirements per milestone, each naming the files it changes.
 - [docs/glossary.md](../docs/glossary.md) — one name per concept; `grill` and `work` add terms here.
 - [docs/operations.md](../docs/operations.md) — how each part behaves: stages, evidence, merge
