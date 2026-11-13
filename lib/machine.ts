@@ -35,7 +35,7 @@ export const projectsSchema = z.discriminatedUnion("source", [
 export type Projects = z.infer<typeof projectsSchema>;
 
 /** What a sandbox image holds that the config pins; any difference means rebuilding it. */
-export const IMAGE_COMPONENTS = ["t3", "claudeCode", "codex", "cursorAgent", "playwrightMcp", "pstack", "playbooks"] as const;
+export const IMAGE_COMPONENTS = ["t3", "claudeCode", "codex", "cursorAgent", "playwrightMcp", "sstack", "playbooks"] as const;
 export type ImageComponent = (typeof IMAGE_COMPONENTS)[number];
 export const imageVersionsSchema = z
   .object({
@@ -44,7 +44,7 @@ export const imageVersionsSchema = z
     codex: z.string(),
     cursorAgent: z.string(),
     playwrightMcp: z.string(),
-    pstack: z.string(),
+    sstack: z.string(),
     playbooks: z.string(),
   })
   .partial();
@@ -62,8 +62,8 @@ export function componentName(component: ImageComponent) {
       return "Cursor CLI";
     case "playwrightMcp":
       return "Playwright MCP";
-    case "pstack":
-      return "PStack";
+    case "sstack":
+      return "sstack";
     case "playbooks":
       return "Factory playbooks";
     default: {

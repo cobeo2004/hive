@@ -52,9 +52,8 @@ export const browserServer = {
  */
 export const IMAGE_BUNDLES = ["hooks/report.ts", "hooks/budget.ts", "hooks/verify.ts", "mcp/factory-report.ts"] as const;
 
-/** PStack's marketplace, cloned at the pinned commit, and the plugin both CLIs install from it. */
-export const PSTACK_DIR = "/opt/pstack";
-export const PSTACK_PLUGIN = "pstack@pstack-claude";
+/** sstack, cloned at the pinned commit; sstack-install links its skills for both CLIs. */
+export const SSTACK_DIR = "/opt/sstack";
 
 export const sandboxImageSchema = z.object({
   imageId: z.string().min(1),
@@ -66,7 +65,7 @@ export const sandboxImageSchema = z.object({
 });
 export type SandboxImage = z.infer<typeof sandboxImageSchema>;
 
-type Pins = Pick<SandboxLimits, "t3Version" | "claudeCodeVersion" | "codexVersion" | "cursorAgentVersion" | "playwrightMcpVersion" | "pstack">;
+type Pins = Pick<SandboxLimits, "t3Version" | "claudeCodeVersion" | "codexVersion" | "cursorAgentVersion" | "playwrightMcpVersion" | "sstack">;
 
 /** The playbooks the factory ships with its image, by file name under playbooks/. */
 export const PLAYBOOK_FILES = ["factory.md", "onboarding.md"] as const;
@@ -95,8 +94,8 @@ export async function installPlaybooks(fs: { writeText(text: string, path: strin
   return playbooksVersion((file) => copied.get(file)!);
 }
 
-/** PStack by its version and a commit prefix, so a moved pin at the same version still differs. */
-export const pstackVersion = (pstack: Pins["pstack"]) => `${pstack.version}@${pstack.commit.slice(0, 12)}`;
+/** sstack by its commit prefix. */
+export const sstackVersion = (commit: string) => commit.slice(0, 12);
 
 export const pinnedVersions = (limits: Pins): Required<ImageVersions> => ({
   t3: limits.t3Version,
@@ -104,14 +103,14 @@ export const pinnedVersions = (limits: Pins): Required<ImageVersions> => ({
   codex: limits.codexVersion,
   cursorAgent: limits.cursorAgentVersion,
   playwrightMcp: limits.playwrightMcpVersion,
-  pstack: pstackVersion(limits.pstack),
+  sstack: sstackVersion(limits.sstack.commit),
   playbooks: playbooksVersion(),
 });
 
 export const builtVersions = (image: SandboxImage): ImageVersions => ({ t3: image.t3Version, ...image.versions });
 
 /** The version a CLI's --version output names, or null when it names none. */
-export function parseVersion(component: Exclude<ImageComponent, "pstack" | "playbooks">, output: string) {
+export function parseVersion(component: Exclude<ImageComponent, "sstack" | "playbooks">, output: string) {
   const pattern = (() => {
     switch (component) {
       case "t3":
@@ -131,20 +130,6 @@ export function parseVersion(component: Exclude<ImageComponent, "pstack" | "play
     }
   })();
   return pattern.exec(output.trim())?.[1] ?? null;
-}
-
-const pluginListSchema = z.array(
-  z.object({ id: z.string(), version: z.string().optional(), enabled: z.boolean().optional(), installPath: z.string().optional() }),
-);
-
-/** PStack's entry in `claude plugin list --json` when it is installed and enabled, else null. */
-export function enabledPstack(output: string) {
-  try {
-    const plugin = pluginListSchema.parse(JSON.parse(output)).find((p) => p.id === PSTACK_PLUGIN);
-    return plugin?.enabled ? plugin : null;
-  } catch {
-    return null;
-  }
 }
 
 /** The stored image, or null when none was built or it is unreadable. */
@@ -211,7 +196,7 @@ export function sandboxReadiness(
 ): SandboxReadiness {
   const loggedIn = limits.codexSlots.filter((slot) => existsSync(slotAuthPath(slot)));
   const unusable = loggedIn.filter((slot) => slotUnusable(health, slot, slotAuthMtime(slot))).length;
-  const { t3Version, claudeCodeVersion, codexVersion, cursorAgentVersion, playwrightMcpVersion, pstack } = limits;
+  const { t3Version, claudeCodeVersion, codexVersion, cursorAgentVersion, playwrightMcpVersion, sstack } = limits;
   return {
     modal: Boolean(env.MODAL_TOKEN_ID) || existsSync(join(homedir(), ".modal.toml")),
     claude: Boolean(runnerDefaultClaudeToken(env)),
@@ -226,7 +211,7 @@ export function sandboxReadiness(
       codexVersion &&
       cursorAgentVersion &&
       playwrightMcpVersion &&
-      pstack && { pinnedVersions: pinnedVersions({ t3Version, claudeCodeVersion, codexVersion, cursorAgentVersion, playwrightMcpVersion, pstack }) }),
+      sstack && { pinnedVersions: pinnedVersions({ t3Version, claudeCodeVersion, codexVersion, cursorAgentVersion, playwrightMcpVersion, sstack }) }),
     ...(limits.maxParallel && { maxParallel: limits.maxParallel }),
   };
 }

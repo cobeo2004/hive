@@ -4,12 +4,10 @@ import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { ModalClient } from "modal";
-import { z } from "zod";
 import { SANDBOX_IMAGE_PATH, type SandboxLimits } from "./config";
 import { imageDrift, rebuildText, type ImageVersions } from "./machine";
 import type { SandboxHandle } from "./modal-host";
 import {
-  enabledPstack,
   FACTORY_ROOT,
   GITHUB_TOKEN_PATH,
   IMAGE_BUNDLES,
@@ -17,10 +15,10 @@ import {
   parseVersion,
   pinnedVersions,
   PLAYBOOK_FILES,
-  PSTACK_DIR,
-  PSTACK_PLUGIN,
-  pstackVersion,
+  SANDBOX_HOME,
   SANDBOX_PLAYBOOKS,
+  SSTACK_DIR,
+  sstackVersion,
   type SandboxImage,
 } from "./sandbox";
 import { forbidInTest } from "./test-mode";
@@ -31,7 +29,7 @@ import { forbidInTest } from "./test-mode";
 // entry points are bundled here with Bun, one self-contained file each at the path the wiring
 // names, so the sandbox needs no checkout and no install; `factory-verify` on PATH runs
 // hooks/verify.ts. A sandbox from the base gets those files and the factory's playbooks,
-// and its filesystem snapshot, kept indefinitely, is the image. T3, Claude Code, Codex, the Cursor CLI, Playwright MCP and PStack
+// and its filesystem snapshot, kept indefinitely, is the image. T3, Claude Code, Codex, the Cursor CLI, Playwright MCP and sstack
 // install at the versions factory.sandbox pins, and the build fails unless the sandbox reports
 // exactly those, holds this checkout's playbooks and runs the hook bundles; only then is the new
 // image id written, so a failed build leaves the old image in place.
@@ -57,15 +55,18 @@ exec bun ${FACTORY_ROOT}/hooks/verify.ts "$@"
 
 export type BuildLimits = Pick<
   SandboxLimits,
-  "appName" | "t3Version" | "claudeCodeVersion" | "codexVersion" | "cursorAgentVersion" | "playwrightMcpVersion" | "pstack"
+  "appName" | "t3Version" | "claudeCodeVersion" | "codexVersion" | "cursorAgentVersion" | "playwrightMcpVersion" | "sstack"
 >;
 type Log = (message: string) => void;
 /** Starts the build sandbox from the base layers; regressions pass a fake one. */
 type OpenBuildSandbox = (limits: BuildLimits, log: Log) => Promise<SandboxHandle>;
 
+/** Where sstack-install links sstack's skills: Claude's, and the one Codex reads. */
+const SKILL_DIRS = [`${SANDBOX_HOME}/.claude/skills`, `${SANDBOX_HOME}/.agents/skills`];
+
 /** The Dockerfile commands for the base layers, at the pinned versions. */
 export const baseLayers = (limits: BuildLimits) => [
-  "RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates procps unzip && rm -rf /var/lib/apt/lists/*",
+  "RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates procps unzip ffmpeg && rm -rf /var/lib/apt/lists/*",
   "RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg" +
     ' && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list' +
     " && apt-get update && apt-get install -y --no-install-recommends gh && rm -rf /var/lib/apt/lists/*",
@@ -76,11 +77,11 @@ export const baseLayers = (limits: BuildLimits) => [
   cursorAgentLayer(limits.cursorAgentVersion),
   // The playwright CLI bundled with the pinned package installs the Chromium that exact version drives, with its OS libraries.
   `RUN npm i -g @playwright/mcp@${limits.playwrightMcpVersion} && cd "$(npm root -g)/@playwright/mcp" && npx --no-install playwright install --with-deps chromium && rm -rf /var/lib/apt/lists/*`,
-  // Neither CLI pins a marketplace to a commit, so each adds the checkout as a local marketplace.
-  `RUN git init -q ${PSTACK_DIR} && git -C ${PSTACK_DIR} fetch -q --depth 1 https://github.com/${limits.pstack.repo}.git ${limits.pstack.commit}` +
-    ` && git -C ${PSTACK_DIR} checkout -q FETCH_HEAD` +
-    ` && claude plugin marketplace add ${PSTACK_DIR} && claude plugin install ${PSTACK_PLUGIN}` +
-    ` && codex plugin marketplace add ${PSTACK_DIR} && codex plugin add ${PSTACK_PLUGIN}`,
+  // sstack-install links skills only into skill dirs and instruction files that exist; Codex reads ~/.agents/skills.
+  `RUN git init -q ${SSTACK_DIR} && git -C ${SSTACK_DIR} fetch -q --depth 1 https://github.com/${limits.sstack.repo}.git ${limits.sstack.commit}` +
+    ` && git -C ${SSTACK_DIR} checkout -q FETCH_HEAD` +
+    ` && mkdir -p ${SKILL_DIRS.join(" ")} ${SANDBOX_HOME}/.codex && touch ${SANDBOX_HOME}/.claude/CLAUDE.md ${SANDBOX_HOME}/.codex/AGENTS.md` +
+    ` && ${SSTACK_DIR}/bin/sstack-install && ln -s ${SSTACK_DIR}/bin/sstack-* /usr/local/bin/`,
   install("/usr/local/bin/git-credential-factory", credentialHelper),
   install("/usr/local/bin/gh", ghWrapper),
   install("/usr/local/bin/factory-verify", verifyWrapper),
@@ -125,20 +126,16 @@ async function sh(sandbox: SandboxHandle, script: string, timeoutMs = 120_000) {
   return out.trim();
 }
 
-const codexPluginsSchema = z.object({ installed: z.array(z.object({ pluginId: z.string(), version: z.string(), enabled: z.boolean() })) });
-
 /**
- * PStack as both CLIs see it: enabled for claude and codex, from the pinned checkout, with its
- * skills on disk. Its version string when all of that holds, else undefined.
+ * sstack as the image holds it: the checkout's commit prefix when its skills are linked for both CLIs
+ * and sstack-wiki runs from PATH (outside a repo it finds no wiki and exits 0), else undefined.
  */
-async function pstackInImage(sandbox: SandboxHandle, limits: BuildLimits, log: Log) {
-  const plugin = enabledPstack(await sh(sandbox, "claude plugin list --json"));
-  const commit = await sh(sandbox, `git -C ${PSTACK_DIR} rev-parse HEAD`);
-  const codex = codexPluginsSchema.parse(JSON.parse(await sh(sandbox, "codex plugin list --json"))).installed.find((p) => p.pluginId === PSTACK_PLUGIN);
-  if (!plugin?.version || !plugin.installPath || !codex?.enabled || codex.version !== plugin.version) return undefined;
-  const skills = Number(await sh(sandbox, `ls ${plugin.installPath}/skills | wc -l`));
-  log(`PStack ${plugin.version} at ${commit.slice(0, 12)}: ${skills} skills in ${plugin.installPath}, enabled for codex too`);
-  return skills > 0 ? pstackVersion({ ...limits.pstack, version: plugin.version, commit }) : undefined;
+async function sstackInImage(sandbox: SandboxHandle, log: Log) {
+  const commit = await sh(sandbox, `git -C ${SSTACK_DIR} rev-parse HEAD`);
+  const linked = await Promise.all(SKILL_DIRS.map(async (dir) => Number(await sh(sandbox, `find ${dir} -maxdepth 1 -lname '${SSTACK_DIR}/*' | wc -l`))));
+  const wiki = await sh(sandbox, "cd /tmp && sstack-wiki lint");
+  log(`sstack at ${sstackVersion(commit)}: ${linked.join(" and ")} skills in ${SKILL_DIRS.join(" and ")}; sstack-wiki: ${wiki}`);
+  return linked.every((n) => n > 0) && wiki.includes("no wiki") ? sstackVersion(commit) : undefined;
 }
 
 /** Writes through a temp file and a rename, owner-only, so a runner reading it never sees half a file. */
@@ -232,7 +229,7 @@ export async function buildSandboxImage({
       codex: parseVersion("codex", await sh(sandbox, "codex --version")) ?? undefined,
       cursorAgent: parseVersion("cursorAgent", await sh(sandbox, "cursor-agent --version")) ?? undefined,
       playwrightMcp: parseVersion("playwrightMcp", await sh(sandbox, "playwright-mcp --version")) ?? undefined,
-      pstack: await pstackInImage(sandbox, limits, log),
+      sstack: await sstackInImage(sandbox, log),
       playbooks,
     };
     const drift = imageDrift(built, pinned);
@@ -240,7 +237,7 @@ export async function buildSandboxImage({
     log(
       `versions: ${Object.entries(built)
         .map(([component, version]) => `${component} ${version}`)
-        .join(" | ")} | bun ${await sh(sandbox, "bun --version")}`,
+        .join(" | ")} | bun ${await sh(sandbox, "bun --version")} | ${(await sh(sandbox, "ffmpeg -version")).split("\n")[0]}`,
     );
     await sh(sandbox, `cd /tmp && echo '{}' | bun ${FACTORY_ROOT}/hooks/report.ts && echo '{}' | bun ${FACTORY_ROOT}/hooks/budget.ts`);
     // Outside a git repo factory-verify refuses with exit 2, which shows the bundle loads.
