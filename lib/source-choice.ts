@@ -12,6 +12,6 @@ export const SOURCE_COPY: Record<SourceChoice, { title: string; note: string }> 
   both: { title: "Both", note: "Each source claims its own work." },
 };
 
-/** The steps of /setup: only an admin chooses the sources (R13), and nobody sets up Linear when GitHub Issues is the only source (R14). */
+/** The steps of /setup: only an admin chooses the sources (R13), nobody sets up Linear when GitHub Issues is the only source (R14), and everyone gets Agents (R27). */
 export const setupSteps = (role: "admin" | "engineer", sources: SourceChoice) =>
-  ["Account", ...(role === "admin" ? ["Sources"] : []), ...(sources === "github" ? [] : ["Linear"]), "Done"] as const;
+  ["Account", ...(role === "admin" ? ["Sources"] : []), ...(sources === "github" ? [] : ["Linear"]), "Agents", "Done"] as const;

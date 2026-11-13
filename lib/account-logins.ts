@@ -6,7 +6,7 @@ import * as schema from "../db/schema";
 // The panel's half of connecting an account (R9b): the login row and the intent that tells a runner to run the login. It never sees a token.
 
 type Db = NodePgDatabase<typeof schema>;
-const { accountLogins, intents } = schema;
+const { accountLogins, agentAccounts, intents } = schema;
 
 const LOGIN_TTL_MS = 10 * 60_000;
 
@@ -49,3 +49,17 @@ export const readLogin = (database: Db, userId: string, loginId: string) =>
     .from(accountLogins)
     .where(and(eq(accountLogins.id, loginId), eq(accountLogins.user_id, userId)))
     .then(([login]) => login ?? null);
+
+type LoginRow = Awaited<ReturnType<typeof readLogin>>;
+/** What the card may show. A Claude row's code is the one the user pasted back, so only Codex's device code goes to the browser. */
+export const loginForCard = (login: LoginRow) => login && { status: login.status, url: login.url, code: login.provider === "codex" ? login.code : null };
+
+/** Disconnects the user's own account (R27, Q21): the sealed token is wiped. Anyone else's account, or a pool one, is 403. */
+export async function disconnectOwnAccount(database: Db, userId: string, accountId: string, at = new Date()) {
+  const rows = await database
+    .update(agentAccounts)
+    .set({ disconnected_at: at, sealed: Buffer.alloc(0) })
+    .where(and(eq(agentAccounts.id, accountId), eq(agentAccounts.owner_id, userId)))
+    .returning({ id: agentAccounts.id });
+  return rows.length ? ({ ok: true } as const) : ({ ok: false, status: 403, message: "You can only disconnect your own accounts." } as const);
+}
