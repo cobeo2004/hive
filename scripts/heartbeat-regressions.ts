@@ -6,12 +6,25 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 
 const { db } = await import("../db/client");
+const { checkMachineNow } = await import("../lib/machine-check");
 const { jobs, machines } = await import("../db/schema");
-const { isOnline, heartbeatSchema, inventorySchema, parseHeartbeat } = await import("../lib/machine");
+const { deviceChips, isOnline, heartbeatSchema, inventorySchema, parseHeartbeat, sandboxChips } = await import("../lib/machine");
 const { parseConnectStatus, readProjects } = await import("../lib/t3-state");
 const { deviceReadiness, readBrowser, readDevices, T3ToolError } = await import("../lib/t3-client");
-const { collectHeartbeat, collectInventory, createBeat, identify, inventoryReporter, parseDf, parseOrigin, parseVmStat, writeHeartbeat, writeInventory } =
-  await import("../runner/heartbeat");
+const {
+  checkNowWatcher,
+  collectHeartbeat,
+  collectInventory,
+  createBeat,
+  identify,
+  inventoryStale,
+  inventoryReporter,
+  parseDf,
+  parseOrigin,
+  parseVmStat,
+  writeHeartbeat,
+  writeInventory,
+} = await import("../runner/heartbeat");
 const { claimLaunch, releaseLaunch } = await import("../runner/ops");
 const { linearJob } = await import("./fixtures");
 
@@ -366,6 +379,113 @@ try {
 } finally {
   await db.delete(jobs).where(eq(jobs.key, id));
   await db.delete(machines).where(eq(machines.id, machine.id));
+}
+
+// dc-2: Settings → Machines chips. Green ready, amber with the reason or T3's error, grey when not known.
+{
+  const ready = { ready: true, devices: 2, booted: 1 };
+  const chips = (extra: object) => deviceChips(inventorySchema.parse({ ...inventoryA, ...extra }));
+  assert.deepEqual(
+    chips({ browser: { answers: true }, devices: { ios: ready, android: { ready: false, reason: "no android devices", devices: 0, booted: 0 } } }),
+    [
+      { label: "Browser", tone: "ready", text: "T3 preview answers" },
+      { label: "iOS", tone: "ready", text: "2 devices · 1 booted" },
+      { label: "Android", tone: "warn", text: "no android devices" },
+    ],
+    "ready shows the device count, not ready its reason; the browser never claims more than that T3 answers",
+  );
+  assert.deepEqual(
+    chips({ browser: { error: "preview tools refused" }, devices: { error: "device_list timed out" } }).map((c) => [c.tone, c.text]),
+    [
+      ["warn", "preview tools refused"],
+      ["warn", "device_list timed out"],
+      ["warn", "device_list timed out"],
+    ],
+    "T3's error is shown as is, amber",
+  );
+  assert.deepEqual(
+    chips({ browser: "unknown", devices: "unknown" }).map((c) => [c.tone, c.text]),
+    Array(3).fill(["none", "unknown"]),
+    "a probe that failed is grey unknown",
+  );
+  assert.deepEqual(
+    deviceChips(inventoryA).map((c) => [c.tone, c.text]),
+    Array(3).fill(["none", "not checked yet"]),
+    "an inventory from before the probes is not checked yet",
+  );
+  assert.equal(deviceChips(null)[0]!.text, "not checked yet", "no inventory at all is not checked yet");
+  const sandbox = { modal: true, claude: true, codexSlots: 0, image: true };
+  assert.equal(sandboxChips(inventoryA), null, "no sandbox report, no sandbox chips");
+  assert.equal(sandboxChips(inventorySchema.parse({ ...inventoryA, sandbox: { ...sandbox, modal: false } })), null, "no Modal, no sandbox chips");
+  assert.deepEqual(
+    sandboxChips(
+      inventorySchema.parse({
+        ...inventoryA,
+        sandbox: { ...sandbox, imageInfo: { t3Version: "1", builtAt: "2026-11-14T00:00:00Z", factoryCommit: "c", versions: { playwrightMcp: "0.0.40" } } },
+      }),
+    ),
+    [
+      { label: "Browser", tone: "ready", text: "Playwright MCP 0.0.40" },
+      { label: "iOS", tone: "none", text: "not on this machine" },
+      { label: "Android", tone: "none", text: "not on this machine" },
+    ],
+    "the sandbox browser is the image's Playwright MCP pin; simulators are not on a sandbox",
+  );
+}
+
+// dc-2: "Check now" nulls one machine's inventory_at, admin only; that machine's runner collects once, others do nothing.
+{
+  const mine = { id: `${machine.id}-check-mine`, name: "Mine", idFrom: "config" as const };
+  const other = { id: `${machine.id}-check-other`, name: "Other", idFrom: "config" as const };
+  const at = new Date("2026-11-14T00:00:00Z");
+  const inventoryAt = async (id: string) => (await db.select().from(machines).where(eq(machines.id, id)))[0]!.inventory_at;
+  try {
+    for (const m of [mine, other]) {
+      await writeHeartbeat(m, { cpu: "unknown", memory: "unknown", disk: "unknown", capacity: "unknown" }, at);
+      await writeInventory(m.id, inventoryA, at);
+    }
+    const person = (role: string) => async () => ({ email: "admin@example.com", role, twoFactorEnabled: true, setupDoneAt: at });
+    for (const user of [async () => null, person("user")]) {
+      const outcome = await checkMachineNow({ db, user }, mine.id);
+      assert.equal(outcome.ok, false, "only an admin can check a machine");
+      assert.deepEqual(await inventoryAt(mine.id), at, "a refused check leaves the inventory time");
+    }
+    assert.deepEqual(await checkMachineNow({ db, user: person("admin") }, mine.id), { ok: true });
+    assert.equal(await inventoryAt(mine.id), null, "Check now nulls that machine's inventory time");
+    assert.deepEqual(await inventoryAt(other.id), at, "and no other machine's");
+    assert.equal((await checkMachineNow({ db, user: person("admin") }, "no-such-machine")).ok, false, "an unknown machine is refused");
+
+    const fresh: unknown[] = [];
+    const watcher = (id: string) =>
+      checkNowWatcher(
+        () => inventoryStale(id),
+        async (options) => {
+          fresh.push(options);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          await writeInventory(id, inventoryA, new Date());
+        },
+        () => {},
+      );
+    const otherRunner = watcher(other.id);
+    await otherRunner();
+    assert.deepEqual(fresh, [], "another machine's runner ignores this machine's Check now");
+    const myRunner = watcher(mine.id);
+    await Promise.all([myRunner(), myRunner(), myRunner()]);
+    assert.deepEqual(fresh, [{ fresh: true }], "a burst of notifications runs one fresh inventory");
+    assert.notEqual(await inventoryAt(mine.id), null, "the fresh inventory lands");
+    await myRunner();
+    assert.equal(fresh.length, 1, "a notification after the inventory landed runs nothing");
+
+    // The real beat writes the fresh inventory even when nothing changed, so checking always ends.
+    const beat = createBeat({ machine: mine, heartbeatCollectors: ok, inventoryCollectors: stubCollectors, inventoryMs: 600_000, log: () => {} });
+    await beat();
+    await checkMachineNow({ db, user: person("admin") }, mine.id);
+    await beat({ fresh: true });
+    assert.notEqual(await inventoryAt(mine.id), null, "an unchanged inventory is written again for Check now");
+  } finally {
+    await db.delete(machines).where(eq(machines.id, mine.id));
+    await db.delete(machines).where(eq(machines.id, other.id));
+  }
 }
 
 console.log("heartbeat regressions passed");

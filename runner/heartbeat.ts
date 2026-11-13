@@ -181,9 +181,10 @@ const hashOf = (inventory: Inventory) => createHash("sha256").update(JSON.string
 
 export function inventoryReporter(write: (inventory: Inventory) => Promise<boolean>) {
   let written: string | undefined;
-  return async (inventory: Inventory): Promise<"written" | "unchanged" | "missing"> => {
+  /** `force` writes an unchanged inventory too, so a "Check now" always lands a new inventory_at. */
+  return async (inventory: Inventory, force = false): Promise<"written" | "unchanged" | "missing"> => {
     const hash = hashOf(inventory);
-    if (hash === written) return "unchanged";
+    if (hash === written && !force) return "unchanged";
     if (!(await write(inventory))) return "missing";
     written = hash;
     return "written";
@@ -215,6 +216,8 @@ export function createBeat({
   let inventoryAt: number | undefined;
   /** Bumped by each fresh request, so an inventory collected before it does not count as fresh. */
   let freshAsked = 0;
+  /** The last fresh request an inventory write answered; a fresh request writes even an unchanged inventory. */
+  let freshWritten = 0;
   async function beatOnce(withInventory: boolean) {
     const started = now();
     const heartbeat = await collectHeartbeat(heartbeatCollectors);
@@ -228,7 +231,8 @@ export function createBeat({
     if (!withInventory || (inventoryAt !== undefined && now() - inventoryAt < inventoryMs)) return;
     const collectedAt = now();
     const asked = freshAsked;
-    const result = await report(await collectInventory(inventory));
+    const result = await report(await collectInventory(inventory), asked > freshWritten);
+    if (result !== "missing") freshWritten = Math.max(freshWritten, asked);
     if (result !== "missing" && asked === freshAsked) inventoryAt = collectedAt;
     log("inventory", { ms: now() - collectedAt, result });
   }
@@ -259,4 +263,24 @@ export function createBeat({
       running = false;
     }
   };
+}
+
+/** True when the panel's "Check now" nulled this machine's inventory_at and no inventory has landed since. */
+export async function inventoryStale(machineId: string) {
+  const [row] = await db.select({ at: machines.inventory_at }).from(machines).where(eq(machines.id, machineId));
+  return row !== undefined && row.at === null;
+}
+
+/**
+ * The runner's handler for a machines notification. hive_changes names only the table, so it reads its own
+ * row and another machine's change runs nothing here. One check at a time, so the heartbeats that notify
+ * while the fresh inventory runs start no second one.
+ */
+export function checkNowWatcher(stale: () => Promise<boolean>, beat: (options: { fresh: true }) => Promise<void>, log: Log) {
+  let checking: Promise<unknown> | undefined;
+  return () =>
+    (checking ??= stale()
+      .then((s) => (s ? beat({ fresh: true }) : undefined))
+      .catch((error) => log("checkNow:error", { error: message(error) }))
+      .finally(() => (checking = undefined)));
 }

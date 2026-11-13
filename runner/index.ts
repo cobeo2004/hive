@@ -13,7 +13,7 @@ const { and, asc, eq, isNull } = await import("drizzle-orm");
 const { db } = await import("../db/client");
 const { intents, jobs } = await import("../db/schema");
 const ops = await import("./ops");
-const { createBeat, inventoryCollectors, systemCollectors, thisMachine } = await import("./heartbeat");
+const { checkNowWatcher, createBeat, inventoryCollectors, inventoryStale, systemCollectors, thisMachine } = await import("./heartbeat");
 const { closeBroadcast, deliveryFor, expirePairings, INTENT_ATTEMPTS, leaseIntent, loggable, receiptIntent, recordReceipt } = await import("./intents");
 const { expireLogins, handleAccountLogin } = await import("./account-login");
 const { launchQueued } = await import("./launch");
@@ -303,12 +303,15 @@ async function checkJobs() {
 }
 function onTable(table: string) {
   if (table === "intents") void openIntents().then(takeIntents);
+  // "Check now" on Settings nulled a machine's inventory_at; only this machine's own row runs a fresh inventory.
+  if (table === "machines") void checkNow();
   // ponytail: a burst of job changes during one check is covered by that check or the next tick.
   if (table === "jobs")
     jobsCheck ??= checkJobs()
       .catch((error) => log("listen:jobs-error", { error: String(error) }))
       .finally(() => (jobsCheck = undefined));
 }
+const checkNow = checkNowWatcher(() => inventoryStale(machine.id), beat, log);
 const listener = keepListening({
   listen: async (onClose) => {
     const client = await listen(onTable, onClose);
