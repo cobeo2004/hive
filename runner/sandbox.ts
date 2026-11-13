@@ -12,11 +12,9 @@ import {
   browserServer,
   CODEX_AUTH,
   CODEX_HOME,
-  enabledPstack,
   FACTORY_ROOT,
   GITHUB_TOKEN_PATH,
   INGEST_CONFIG_PATH,
-  PSTACK_PLUGIN,
   readSandboxImage,
   readSlotHealth,
   REPO_DIR,
@@ -133,8 +131,8 @@ const t3Settings = (choice: HarnessChoice, hasClaude: boolean) => ({
 
 /**
  * Codex gets the factory-report server too, and has no hooks, so the server posts each report_stage
- * itself for the job its env names. It goes after the image's config, which holds the PStack
- * marketplace and plugin. An onboarding run names no job and has no ingest config, so it posts nothing.
+ * itself for the job its env names. It goes after any config the image holds. An onboarding run names
+ * no job and has no ingest config, so it posts nothing.
  */
 function codexConfig(image: string | null = null, job?: { key: string; attempt: number; repo: string }) {
   const { command, args } = reportServer(FACTORY_ROOT);
@@ -143,15 +141,6 @@ function codexConfig(image: string | null = null, job?: { key: string; attempt: 
     `[mcp_servers.factory-report]\ncommand = ${JSON.stringify(command)}\nargs = ${JSON.stringify(args)}\nenv = { ${env.join(", ")} }\n` +
     `\n[mcp_servers.${BROWSER_SERVER}]\ncommand = ${JSON.stringify(browserServer.command)}\nargs = ${JSON.stringify(browserServer.args)}\n`;
   return image?.trim() ? `${image.trimEnd()}\n\n${servers}` : servers;
-}
-
-/** Whether the sandbox's claude has PStack enabled; a launch without it only warns. */
-async function pstackEnabled(host: JobHost) {
-  try {
-    return enabledPstack((await host.run("claude", ["plugin", "list", "--json"], { timeoutMs: 30_000 })).stdout) !== null;
-  } catch {
-    return false;
-  }
 }
 
 /** Just what the hooks read: where to report. */
@@ -291,7 +280,6 @@ export async function setupSandbox(host: JobHost, setup: SandboxSetup, codexMode
   if (setup.warm) await refreshWarmCheckout(host, setup.repo, setup.warm.setup);
   else await host.run("git", ["clone", "--quiet", `https://github.com/${setup.repo}.git`, REPO_DIR], { timeoutMs: 300_000 });
   await wire(host);
-  if (!(await pstackEnabled(host))) sandboxRuntime.log("sandbox:no-pstack", { repo: setup.repo, plugin: PSTACK_PLUGIN });
   await startT3(host);
   await host.run(host.t3, ["project", "add", REPO_DIR, "--title", setup.repo.split("/").pop()!], { timeoutMs: 60_000 });
   return { choice, ...(fallback && { fallback }) };

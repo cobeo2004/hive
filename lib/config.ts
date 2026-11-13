@@ -29,15 +29,14 @@ export const sandboxSchema = z
     /** Cursor CLI build, from the tarball Cursor's official installer (cursor.com/install) downloads. */
     cursorAgentVersion: z.string().default("2026.11.11-b912975"),
     playwrightMcpVersion: z.string().default("0.0.83"),
-    /** The PStack marketplace repo at a commit; version is the plugin version that commit declares. */
-    pstack: z
+    /** The sstack repo at a commit, which the image clones and installs with sstack-install. */
+    sstack: z
       .object({
-        repo: z.string().default("michael-denyer/pstack-claude"),
+        repo: z.string().default("cobeo2004/sstack"),
         commit: z
           .string()
           .regex(/^[0-9a-f]{40}$/)
-          .default("614d2f9791ddf73e0654c9be5a42c5a48d8f5ba0"),
-        version: z.string().default("0.9.69"),
+          .default("170f1f51308c736cfe71ae4398231b8febb0073d"),
       })
       .prefault({}),
     /** Cores and MiB a sandbox reserves, and the most it may burst to. */
