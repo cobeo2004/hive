@@ -32,8 +32,9 @@ export function ForbiddenCard({ reason }: { reason: keyof typeof COPY }) {
     }
   }
 
+  // Sized here, not by the parent: it also renders inside panel pages (Settings, Workflow), not only in AuthFrame.
   return (
-    <>
+    <div className="flex w-full max-w-[420px] flex-col gap-5">
       <AuthHeading description={copy.description} title={copy.title} />
       <Button className="w-full" onClick={switchAccount} disabled={pending} size="lg">
         {copy.action}
@@ -43,6 +44,6 @@ export function ForbiddenCard({ reason }: { reason: keyof typeof COPY }) {
           {failure}
         </p>
       )}
-    </>
+    </div>
   );
 }
