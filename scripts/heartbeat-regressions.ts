@@ -482,6 +482,31 @@ try {
     await checkMachineNow({ db, user: person("admin") }, mine.id);
     await beat({ fresh: true });
     assert.notEqual(await inventoryAt(mine.id), null, "an unchanged inventory is written again for Check now");
+
+    // An ordinary collection that began before the click and lands after it must not answer the click.
+    await checkMachineNow({ db, user: person("admin") }, mine.id);
+    await writeInventory(mine.id, inventoryB, new Date(), false);
+    assert.equal(await inventoryAt(mine.id), null, "an ordinary inventory write keeps a Check now's null");
+    const restarted = createBeat({ machine: mine, heartbeatCollectors: ok, inventoryCollectors: stubCollectors, inventoryMs: 600_000, log: () => {} });
+    await restarted();
+    assert.notEqual(await inventoryAt(mine.id), null, "a runner's first inventory is fresh, so a new machine stops checking");
+
+    // A fresh inventory that keeps failing to land is retried once per retryMs, not on every heartbeat's notification.
+    let clock = 0;
+    let tries = 0;
+    const failing = checkNowWatcher(
+      async () => true,
+      async () => {
+        tries++;
+      },
+      () => {},
+      { now: () => clock },
+    );
+    for (let i = 0; i < 3; i++) await failing();
+    assert.equal(tries, 1, "notifications after a failed fresh inventory do not loop it");
+    clock = 60_000;
+    await failing();
+    assert.equal(tries, 2, "it is retried after retryMs");
   } finally {
     await db.delete(machines).where(eq(machines.id, mine.id));
     await db.delete(machines).where(eq(machines.id, other.id));

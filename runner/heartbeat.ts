@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { cpus, hostname, loadavg, totalmem } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { machines } from "../db/schema";
 import { loadConfig } from "../lib/config";
@@ -172,20 +172,25 @@ export async function writeHeartbeat(machine: Machine, heartbeat: Heartbeat, now
     .onConflictDoUpdate({ target: machines.id, set: { name: machine.name, last_seen_at: now, heartbeat } });
 }
 
-export async function writeInventory(machineId: string, inventory: Inventory, now: Date) {
-  const updated = await db.update(machines).set({ inventory, inventory_at: now }).where(eq(machines.id, machineId)).returning({ id: machines.id });
+/**
+ * Only a fresh write fills a null inventory_at: a "Check now" that nulled it after an ordinary collection
+ * began is still owed a fresh inventory, so that collection's write keeps the null.
+ */
+export async function writeInventory(machineId: string, inventory: Inventory, now: Date, fresh = true) {
+  const at = fresh ? now : sql`case when ${machines.inventory_at} is null then null else ${now.toISOString()}::timestamptz end`;
+  const updated = await db.update(machines).set({ inventory, inventory_at: at }).where(eq(machines.id, machineId)).returning({ id: machines.id });
   return updated.length > 0;
 }
 
 const hashOf = (inventory: Inventory) => createHash("sha256").update(JSON.stringify(inventory)).digest("hex");
 
-export function inventoryReporter(write: (inventory: Inventory) => Promise<boolean>) {
+export function inventoryReporter(write: (inventory: Inventory, fresh: boolean) => Promise<boolean>) {
   let written: string | undefined;
   /** `force` writes an unchanged inventory too, so a "Check now" always lands a new inventory_at. */
   return async (inventory: Inventory, force = false): Promise<"written" | "unchanged" | "missing"> => {
     const hash = hashOf(inventory);
     if (hash === written && !force) return "unchanged";
-    if (!(await write(inventory))) return "missing";
+    if (!(await write(inventory, force))) return "missing";
     written = hash;
     return "written";
   };
@@ -211,11 +216,11 @@ export function createBeat({
   log: Log;
   now?: () => number;
 }) {
-  const report = inventoryReporter((value) => writeInventory(machine.id, value, new Date(now())));
+  const report = inventoryReporter((value, fresh) => writeInventory(machine.id, value, new Date(now()), fresh));
   let running = false;
   let inventoryAt: number | undefined;
-  /** Bumped by each fresh request, so an inventory collected before it does not count as fresh. */
-  let freshAsked = 0;
+  /** Bumped by each fresh request, so an inventory collected before it does not count as fresh. Starts at 1: a runner's first inventory is fresh. */
+  let freshAsked = 1;
   /** The last fresh request an inventory write answered; a fresh request writes even an unchanged inventory. */
   let freshWritten = 0;
   async function beatOnce(withInventory: boolean) {
@@ -276,11 +281,22 @@ export async function inventoryStale(machineId: string) {
  * row and another machine's change runs nothing here. One check at a time, so the heartbeats that notify
  * while the fresh inventory runs start no second one.
  */
-export function checkNowWatcher(stale: () => Promise<boolean>, beat: (options: { fresh: true }) => Promise<void>, log: Log) {
+export function checkNowWatcher(
+  stale: () => Promise<boolean>,
+  beat: (options: { fresh: true }) => Promise<void>,
+  log: Log,
+  { now = Date.now, retryMs = 60_000 } = {},
+) {
   let checking: Promise<unknown> | undefined;
+  let failedAt = Number.NEGATIVE_INFINITY;
   return () =>
-    (checking ??= stale()
-      .then((s) => (s ? beat({ fresh: true }) : undefined))
+    (checking ??= (async () => {
+      if (now() - failedAt < retryMs || !(await stale())) return;
+      await beat({ fresh: true });
+      // A fresh inventory that did not land (a failing write, a beat already running) waits retryMs before
+      // the next try, so the heartbeats' own notifications do not loop it.
+      if (await stale()) failedAt = now();
+    })()
       .catch((error) => log("checkNow:error", { error: message(error) }))
       .finally(() => (checking = undefined)));
 }
