@@ -1,6 +1,6 @@
 # Hive
 
-Unibuz's internal software factory: it turns Linear issues into pull requests while you watch. Hive is a fork of [marshal-factory](https://github.com/ski043/marshal-factory) (pinned at `999ad20`); see [docs/prd.md](docs/prd.md) for what changes and [docs/glossary.md](docs/glossary.md) for the names this repo uses (job, lead thread, child, stage, evidence, media).
+A personal software factory: it turns Linear issues into pull requests while you watch. Hive is a fork of [marshal-factory](https://github.com/ski043/marshal-factory) (pinned at `999ad20`); see [docs/prd.md](docs/prd.md) for what changes and [docs/glossary.md](docs/glossary.md) for the names this repo uses (job, lead thread, child, stage, evidence, media).
 
 You label an issue in Linear, file one from the panel, or send one from Slack. A runner on your Mac picks it up within seconds and starts a [T3 Code](https://github.com/pingdotgg/t3code) thread for it on its own branch, `hive/<KEY>`, either on the Mac itself or in its own [Modal](https://modal.com) sandbox in the cloud. The thread runs a harness (Claude Code, Codex, or another agent T3 offers, such as Cursor) and works the issue on its own: triage, investigation, implementation, verification, and a pull request. Every stage, subagent, model and dollar spent streams live to a web panel, and Slack tells you when something needs you. When the agent needs a decision, it asks on the Linear issue and continues once you reply.
 

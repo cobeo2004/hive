@@ -34,7 +34,7 @@ body{margin:0}
 <div class="lg-wrap">
   <header class="lg-top">
     <svg class="sb-hex" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="#cbfd80"></path></svg>
-    <b>Hive</b><span class="org" style="font-size: 11px; font-weight: 600; color: var(--muted); padding: 1px 6px; border: 1px solid var(--border); border-radius: 6px">Unibuz</span>
+    <b>Hive</b><span class="org" style="font-size: 11px; font-weight: 600; color: var(--muted); padding: 1px 6px; border: 1px solid var(--border); border-radius: 6px">Acme</span>
   </header>
 
   <main class="lg-main">
@@ -43,26 +43,26 @@ body{margin:0}
         <div style="display: flex; flex-direction: column; gap: 20px">
           <div style="display: flex; flex-direction: column; gap: 8px">
             <h1 class="hv-h1" style="font-size: 24px; line-height: 30px">Sign in to Hive</h1>
-            <p class="hv-sub" style="font-size: 14px; line-height: 21px">Hive is private to the Unibuz tailnet. Your Tailscale login is your Hive account, so there is no password.</p>
+            <p class="hv-sub" style="font-size: 14px; line-height: 21px">Hive is private to the Acme tailnet. Your Tailscale login is your Hive account, so there is no password.</p>
           </div>
           <div class="idrow">
             <span class="av">SN</span>
-            <span class="who"><b>Simon Nguyen</b><span class="hv-meta">simon@unibuz.com.au</span></span>
+            <span class="who"><b>Simon Nguyen</b><span class="hv-meta">simon@example.com</span></span>
             <span class="ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>Verified</span>
           </div>
           <a class="hv-btn hv-btn--primary full" href="Onboarding.dc.html">Continue as Simon</a>
-          <p class="hv-hint">Signed in from <span class="hv-mono">simon-mbp</span> on <span class="hv-mono">unibuz-tail.ts.net</span>. To use another account, switch accounts in the Tailscale app and reload.</p>
+          <p class="hv-hint">Signed in from <span class="hv-mono">simon-mbp</span> on <span class="hv-mono">my-tail.ts.net</span>. To use another account, switch accounts in the Tailscale app and reload.</p>
         </div>
       </sc-if>
 
       <sc-if value="{{isDomain}}" hint-placeholder-val="{{false}}">
         <div style="display: flex; flex-direction: column; gap: 20px">
           <div style="display: flex; flex-direction: column; gap: 8px">
-            <h1 class="hv-h1" style="font-size: 24px; line-height: 30px">Use your Unibuz account</h1>
-            <p class="hv-sub" style="font-size: 14px; line-height: 21px">Tailscale says you’re <span style="color: var(--ink)">simon.nguyen@gmail.com</span>. Hive only lets in accounts ending in <span style="color: var(--ink)">@unibuz.com.au</span>.</p>
+            <h1 class="hv-h1" style="font-size: 24px; line-height: 30px">Use your Acme account</h1>
+            <p class="hv-sub" style="font-size: 14px; line-height: 21px">Tailscale says you’re <span style="color: var(--ink)">simon.nguyen@gmail.com</span>. Hive only lets in accounts ending in <span style="color: var(--ink)">@example.com</span>.</p>
           </div>
           <ol class="steps">
-            <li><span>Open the Tailscale app and switch to your Unibuz account.</span></li>
+            <li><span>Open the Tailscale app and switch to your Acme account.</span></li>
             <li><span>Reload this page.</span></li>
           </ol>
           <button class="hv-btn hv-btn--primary full">Reload</button>
@@ -73,7 +73,7 @@ body{margin:0}
         <div style="display: flex; flex-direction: column; gap: 20px">
           <div style="display: flex; flex-direction: column; gap: 8px">
             <h1 class="hv-h1" style="font-size: 24px; line-height: 30px">You don’t have access yet</h1>
-            <p class="hv-sub" style="font-size: 14px; line-height: 21px">You’re on the tailnet as <span style="color: var(--ink)">minh@unibuz.com.au</span>, but not in the group that can reach Hive.</p>
+            <p class="hv-sub" style="font-size: 14px; line-height: 21px">You’re on the tailnet as <span style="color: var(--ink)">minh@example.com</span>, but not in the group that can reach Hive.</p>
           </div>
           <div class="idrow">
             <span class="av">MT</span>
@@ -86,7 +86,7 @@ body{margin:0}
     </div>
   </main>
 
-  <footer class="lg-foot"><span>Unibuz internal tool</span><a href="#" style="color: var(--muted)">Help</a></footer>
+  <footer class="lg-foot"><span>Personal software factory</span><a href="#" style="color: var(--muted)">Help</a></footer>
 </div>
 </div>
 </x-dc>

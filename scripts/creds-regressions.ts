@@ -83,8 +83,8 @@ await db.delete(runs).where(inArray(runs.job_key, Object.values(keys)));
 await db.delete(jobs).where(inArray(jobs.key, Object.values(keys)));
 await db.delete(user).where(inArray(user.id, [A, B]));
 await db.insert(user).values([
-  { id: A, name: "A", email: "creds-a@unibuz.com.au", role: "engineer" },
-  { id: B, name: "B", email: "creds-b@unibuz.com.au", role: "engineer" },
+  { id: A, name: "A", email: "creds-a@example.com", role: "engineer" },
+  { id: B, name: "B", email: "creds-b@example.com", role: "engineer" },
 ]);
 await db
   .insert(jobs)

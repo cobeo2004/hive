@@ -49,8 +49,8 @@ const decode = (segment: string) => {
 
 export function crumbsOf(pathname: string): string[] {
   const segments = pathname.split("/").filter(Boolean);
-  if (segments.length === 0) return ["Unibuz", "Jobs"];
-  return ["Unibuz", ...segments.map((s) => CRUMBS[s] ?? decode(s).replace(/^./, (c) => c.toUpperCase()))];
+  if (segments.length === 0) return ["Hive", "Jobs"];
+  return ["Hive", ...segments.map((s) => CRUMBS[s] ?? decode(s).replace(/^./, (c) => c.toUpperCase()))];
 }
 
 const TONES = ["bg-primary/15 text-info", "bg-success/15 text-success", "bg-warning/15 text-warning"] as const;

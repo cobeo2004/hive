@@ -219,7 +219,7 @@ try {
   const params = { params: Promise.resolve({ key: KEY, index: "2" }) } as never;
   signIn(null);
   assert.equal((await proxy(mediaRequest())).status, 401, "no session, no media");
-  signIn({ id: "u", email: "e@unibuz.com.au", name: "E", role: "engineer", twoFactorEnabled: true, setupDoneAt: DONE });
+  signIn({ id: "u", email: "e@example.com", name: "E", role: "engineer", twoFactorEnabled: true, setupDoneAt: DONE });
   assert.ok((await proxy(mediaRequest())).headers.has("x-middleware-next"), "a finished user passes the proxy");
   const whole = await GET(mediaRequest(), params);
   assert.equal(whole.status, 200);

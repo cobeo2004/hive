@@ -5,7 +5,7 @@ One name per thing. `grill` and `work` add settled terms here. Terms marked (mar
 **Job** (marshal-factory): one Linear issue Hive is working, with its branch `hive/<KEY>`, attempts, evidence and PR.
 _Avoid_: task, ticket (a ticket is the Linear issue itself), run.
 
-**Attempt** (marshal-factory): one try at a job on its own branch (`hive/UNI-7-a2` for the second). A retry is a new attempt.
+**Attempt** (marshal-factory): one try at a job on its own branch (`hive/ENG-7-a2` for the second). A retry is a new attempt.
 _Avoid_: retry run, rerun.
 
 **Owner**: the user a job belongs to. The issue's assignee, else its creator. The owner's subscriptions run the job and the owner's Inbox gets its questions.
@@ -86,7 +86,7 @@ _Avoid_: onboarding (that means repository onboarding), wizard.
 **Setup token**: the one-time link `bun scripts/setup-token.ts` prints. It creates the first admin and is refused once an admin exists. With `--reset <email>` the script makes a password-reset link instead.
 _Avoid_: bootstrap key, admin password.
 
-**Invite**: a one-time link an admin makes in Settings → Members. It is bound to one `@unibuz.com.au` email, valid for 7 days, and the only way to get an account after the first admin. Hive never emails it.
+**Invite**: a one-time link an admin makes in Settings → Members. It is bound to one email, valid for 7 days, and the only way to get an account after the first admin. Hive never emails it.
 _Avoid_: sign-up (it's closed), access request.
 
 **Public paths**: the only routes that answer without a session, each checking its own signature: `/api/ingest` (reporter Bearer), `/api/webhooks/*` (Linear or GitHub HMAC) and `/api/slack/*` (Slack signature). When Tailscale hides the panel, Funnel exposes only these.

@@ -11,11 +11,11 @@ const DONE = new Date("2026-11-10T00:00:00Z");
 const USERS: Record<Who, object | null> = {
   anonymous: null,
   // Just accepted a setup or invite link: no TOTP yet.
-  enrolling: { id: "u1", email: "new@unibuz.com.au", name: "New", role: "engineer", twoFactorEnabled: false, setupDoneAt: null },
+  enrolling: { id: "u1", email: "new@example.com", name: "New", role: "engineer", twoFactorEnabled: false, setupDoneAt: null },
   // TOTP on, but setup not finished.
-  unfinished: { id: "u2", email: "half@unibuz.com.au", name: "Half", role: "engineer", twoFactorEnabled: true, setupDoneAt: null },
-  engineer: { id: "u3", email: "eng@unibuz.com.au", name: "Eng", role: "engineer", twoFactorEnabled: true, setupDoneAt: DONE },
-  admin: { id: "u4", email: "admin@unibuz.com.au", name: "Admin", role: "admin", twoFactorEnabled: true, setupDoneAt: DONE },
+  unfinished: { id: "u2", email: "half@example.com", name: "Half", role: "engineer", twoFactorEnabled: true, setupDoneAt: null },
+  engineer: { id: "u3", email: "eng@example.com", name: "Eng", role: "engineer", twoFactorEnabled: true, setupDoneAt: DONE },
+  admin: { id: "u4", email: "admin@example.com", name: "Admin", role: "admin", twoFactorEnabled: true, setupDoneAt: DONE },
 };
 function signInAs(who: Who) {
   const user = USERS[who];

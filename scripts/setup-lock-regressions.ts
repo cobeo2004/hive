@@ -14,7 +14,7 @@ await reset();
 try {
   const tokens = await Promise.all(Array.from({ length: 8 }, () => createLink("setup", null, 3_600_000)));
   const attempts = Promise.allSettled(
-    tokens.map((token, i) => acceptSetup(token, { name: `S${i}`, email: `s${i}@unibuz.com.au`, password: "correct horse battery staple 42" })),
+    tokens.map((token, i) => acceptSetup(token, { name: `S${i}`, email: `s${i}@example.com`, password: "correct horse battery staple 42" })),
   );
   const timeout = new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), 15_000).unref());
   const results = await Promise.race([attempts, timeout]);

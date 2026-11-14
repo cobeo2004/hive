@@ -73,7 +73,7 @@ body{margin:0}
         <p class="desc">{{roleDesc}}</p>
         <div class="grid2">
           <div class="hv-field"><label for="nm">Name</label><input id="nm" class="hv-input" value="Simon Nguyen"></div>
-          <div class="hv-field"><label for="em">Email</label><input id="em" class="hv-input" value="simon@unibuz.com.au" readonly><span class="hv-hint">From your Tailscale login.</span></div>
+          <div class="hv-field"><label for="em">Email</label><input id="em" class="hv-input" value="simon@example.com" readonly><span class="hv-hint">From your Tailscale login.</span></div>
         </div>
         <div class="rows">
           <div class="r">
@@ -200,8 +200,8 @@ class Component extends DCLogic {
         start: () => this.setAgent(id, 'pending'), finish: () => this.setAgent(id, 'ready') };
     };
     const agents = [
-      agentRow('claude', { mark: 'CC', name: 'Claude Code', line: ag.claude === 'ready' ? 'Claude Max · simon@unibuz.com.au' : 'Claude Pro or Max subscription', cta: 'Sign in', readyText: 'Ready', hint: 'Open the link and enter this code to sign in with Claude.', code: 'QJKF-WRTB', open: 'Open claude.ai' }),
-      agentRow('codex', { mark: 'CX', name: 'Codex', line: ag.codex === 'ready' ? 'ChatGPT Pro · simon@unibuz.com.au' : 'ChatGPT Plus or Pro subscription', cta: 'Sign in with ChatGPT', readyText: 'Ready', hint: 'Open the link and enter this code to sign in with ChatGPT.', code: 'H7MP-2XKD', open: 'Open chatgpt.com' }),
+      agentRow('claude', { mark: 'CC', name: 'Claude Code', line: ag.claude === 'ready' ? 'Claude Max · simon@example.com' : 'Claude Pro or Max subscription', cta: 'Sign in', readyText: 'Ready', hint: 'Open the link and enter this code to sign in with Claude.', code: 'QJKF-WRTB', open: 'Open claude.ai' }),
+      agentRow('codex', { mark: 'CX', name: 'Codex', line: ag.codex === 'ready' ? 'ChatGPT Pro · simon@example.com' : 'ChatGPT Plus or Pro subscription', cta: 'Sign in with ChatGPT', readyText: 'Ready', hint: 'Open the link and enter this code to sign in with ChatGPT.', code: 'H7MP-2XKD', open: 'Open chatgpt.com' }),
       { mark: 'PI', name: 'pi', line: 'Runs sstack’s implement role on DeepSeek. Shared by the team.', locked: true, rowCls: 'r dim' },
       { mark: 'CU', name: 'Cursor', line: 'Not set up on the runners yet. Admins add it in Settings.', locked: true, rowCls: 'r dim' }
     ];
@@ -223,7 +223,7 @@ class Component extends DCLogic {
       roleLine: admin ? 'Manages connections, the team pool, repositories and workflows.' : 'Works jobs, connects your own agents, reviews PRs.',
       roleChip: admin ? 'First user' : 'Set by an admin',
       linearIdle: s.linear === 'idle', linearReady: s.linear === 'ready',
-      linearLine: s.linear === 'ready' ? 'Simon Nguyen in the Unibuz workspace' : 'Sign in with your Unibuz Linear account',
+      linearLine: s.linear === 'ready' ? 'Simon Nguyen in the Acme workspace' : 'Sign in with your Acme Linear account',
       linkLinear: () => this.setState({ linear: 'ready' }),
       canBack: step > 0 && step < 3, showSkip: step === 1, notLast: step < 3, isLast: step === 3,
       nextLabel: nextLabels[step] || 'Continue',

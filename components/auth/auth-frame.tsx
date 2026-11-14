@@ -16,12 +16,11 @@ export function AuthFrame({ children }: { children: ReactNode }) {
       <header className="flex items-center gap-2.5 px-7 py-5">
         <HiveMark />
         <b className="text-[15px] font-bold tracking-tight">Hive</b>
-        <span className="rounded-md border px-1.5 text-[11px] font-semibold text-muted-foreground">Unibuz</span>
       </header>
       <main className="flex flex-1 items-start justify-center px-4 pt-24 pb-12">
         <div className="flex w-full max-w-[420px] flex-col gap-5">{children}</div>
       </main>
-      <footer className="px-7 py-5 text-xs text-muted-foreground">Unibuz internal tool</footer>
+      <footer className="px-7 py-5 text-xs text-muted-foreground">Personal software factory</footer>
     </div>
   );
 }

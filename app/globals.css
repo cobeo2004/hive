@@ -108,7 +108,7 @@
 }
 
 /*
- * Hive's look, from design/screens/hive.css: T3 Code's shell with Unibuz accents. Blue is selection and
+ * Hive's look, from design/screens/hive.css: T3 Code's shell with Hive's accents. Blue is selection and
  * focus; lime is only for PR ready and the Inbox count. The Hive tokens come first with hive.css's
  * values, then the shadcn variables point at them. The one change is light --success-soft (see there).
  * hive.css has no faint text level, so --faint is the muted text: anything fainter fails AA. hive.css's --muted is text, so it lives in

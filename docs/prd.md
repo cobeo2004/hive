@@ -2,7 +2,7 @@
 
 Owner: Simon Nguyen · Status: draft for `grill` · Last updated: 2026-11-10
 
-Hive is Unibuz's internal software factory. It is a fork of [marshal-factory](https://github.com/ski043/marshal-factory) (pinned at `999ad20`, 2026-10-31) that keeps its runner, stages, evidence and merge logic and changes four things: many users instead of one owner, self-hosted with its own sign-in instead of Vercel, Neon Auth and Neon Realtime, [sstack](https://github.com/cobeo2004/sstack) instead of PStack, and per-engineer agent subscriptions. Agents run through [T3 Code](https://github.com/pingdotgg/t3code) (pinned at `965ddc1d`); skills are sstack (pinned at `6e1ab59`).
+Hive is a personal software factory. It is a fork of [marshal-factory](https://github.com/ski043/marshal-factory) (pinned at `999ad20`, 2026-10-31) that keeps its runner, stages, evidence and merge logic and changes four things: many users instead of one owner, self-hosted with its own sign-in instead of Vercel, Neon Auth and Neon Realtime, [sstack](https://github.com/cobeo2004/sstack) instead of PStack, and per-engineer agent subscriptions. Agents run through [T3 Code](https://github.com/pingdotgg/t3code) (pinned at `965ddc1d`); skills are sstack (pinned at `6e1ab59`).
 
 Design reference: the Hive canvas (screens for sign in, first-run setup, Jobs, Run detail, Inbox, Repositories, Settings, Workflow). The factory playbook draft is `playbooks/factory.md` in this fork.
 
@@ -21,7 +21,7 @@ Engineers assign or label a Linear issue, and Hive runs coding agents on it thro
 
 ## Who it's for
 
-- **Engineers at Unibuz**: hand off well-scoped Linear issues, answer the agent's questions, review its PRs, and connect their own Claude and ChatGPT subscriptions.
+- **Engineers (the owner and anyone they invite)**: hand off well-scoped Linear issues, answer the agent's questions, review its PRs, and connect their own Claude and ChatGPT subscriptions.
 - **Admins** (Simon first): connect Linear, GitHub and Slack, onboard repositories, set each repo's merge mode and workflow, manage the team account pool and the machines.
 
 ## Main flows
@@ -60,20 +60,20 @@ These are marshal-factory's parts (see its `docs/operations.md` § Parts), with 
 
 ## Problem
 
-Unibuz engineers spend time on well-scoped issues (bugs with a clear repro, small features) that an agent could finish, but there is no shared way to hand one off. A person can run Claude Code or Codex on their own laptop; nobody can do it for the team, unattended, with proof it works. marshal-factory solves this for one owner on a public Vercel deployment with PStack. Unibuz needs it for every engineer, private to the company, on Simon's own skill set.
+Engineers spend time on well-scoped issues (bugs with a clear repro, small features) that an agent could finish, but there is no shared way to hand one off. A person can run Claude Code or Codex on their own laptop; nobody can do it for the team, unattended, with proof it works. marshal-factory solves this for one owner on a public Vercel deployment with PStack. The owner needs it for every engineer, private to the company, on Simon's own skill set.
 
 ## Affected users and systems
 
-- Engineers and admins at Unibuz.
-- Unibuz repositories: `unibuz-mobile` (Expo), `unibuz-web`, `unibuz-api` first.
-- Linear (Unibuz workspace), GitHub (unibuz org), Slack (Unibuz workspace), the Unibuz tailnet.
+- The owner and the engineers and admins they invite.
+- The owner's repositories: a mobile app (Expo), a web app and an API first.
+- The owner's Linear workspace, GitHub account, Slack workspace and tailnet.
 - The fork itself, sstack (one change, R14) and the runner Macs.
 
 ## Constraints
 
 - **Fork, don't rewrite.** Change marshal-factory's existing modules behind small seams so upstream fixes still merge. Keep its tests passing: `bun run test:regressions` runs every `scripts/*-regressions.ts` against a throwaway database on any Postgres (R29, `docs/operations.md` § Testing).
 - **Licence.** marshal-factory has no LICENSE file; Simon has written permission from its author (settled in M1).
-- **Private by default.** Every panel page needs a signed-in Hive user with TOTP. Accounts come only from the setup token or an admin's invite, bound to an `@unibuz.com.au` email. Tailscale may additionally hide the panel.
+- **Private by default.** Every panel page needs a signed-in Hive user with TOTP. Accounts come only from the setup token or an admin's invite, bound to one email. Tailscale may additionally hide the panel.
 - **Self-hostable.** Running Hive and its tests needs only Postgres; no Neon, Vercel or Tailscale account.
 - **Agents never merge.** Only the runner merges, following each repo's merge mode, and it reverts a merge that turns the base branch red (marshal-factory's existing behaviour).
 - **Credentials stay per person.** One engineer's subscription is never used for another's job unless it is in the team pool. Admins see usage, never tokens.
@@ -82,11 +82,11 @@ Unibuz engineers spend time on well-scoped issues (bugs with a clear repro, smal
 
 ## Goal
 
-Any Unibuz engineer can hand a Linear issue to Hive and get back a reviewable PR with proof it works, from a Hive the company hosts itself, optionally hidden on its tailnet.
+Any invited engineer can hand a Linear issue to Hive and get back a reviewable PR with proof it works, from a Hive the owner hosts, optionally hidden on their tailnet.
 
 ## Done when
 
-On a fresh Linear issue in `unibuz-mobile` with a reproducible iOS bug, labelled `hive` and assigned to an opted-in engineer (not Simon):
+On a fresh Linear issue in the mobile repo with a reproducible iOS bug, labelled `hive` and assigned to an opted-in engineer (not Simon):
 
 1. The job appears on that engineer's Jobs board within 60 seconds, and the panel returns no page to a request without a signed-in, TOTP-verified session.
 2. The lead thread runs on that engineer's Claude subscription, with stages triage → investigating → planning → implementing → verifying → pr.
@@ -110,14 +110,14 @@ Grilled 2026-11-10; R2–R6 rewritten by that grill. Decisions: `.sstack/runs/m1
 | # | Requirement | Builds on | Check |
 |---|---|---|---|
 | R2 | Self-hosted: `bun run start` on a pool Mac under a LaunchAgent; `scripts/rollout.ts` step 1 builds and restarts the panel instead of waiting for Vercel. Tailscale `serve`/Funnel in front is optional and documented; the app reads no Tailscale headers. | `scripts/rollout.ts`, `docs/operations.md`, `README.md`; `vercel.json` stays unused | Rollout brings the panel up at the new commit with no Vercel status; the docs cover the Tailscale and plain setups. |
-| R3 | Identity comes from self-hosted Better Auth (Drizzle adapter, email and password) instead of Neon Auth. Sign-up is closed; invites only, for `@unibuz.com.au` emails. One `currentUser()` replaces every session read. | `proxy.ts`, `lib/auth/`, `app/auth/`, `app/api/auth/`, `components/auth/`, `app/actions/*`, `app/api/jobs/*`, `lib/new-job-deps.ts`, the owner-email allowlist variable (removed) | No session → `/auth/sign-in` (pages) or 401 (`/api/*` outside R30's public paths). Sign-up without an invite is refused. |
+| R3 | Identity comes from self-hosted Better Auth (Drizzle adapter, email and password) instead of Neon Auth. Sign-up is closed; invites only, each bound to one email. One `currentUser()` replaces every session read. | `proxy.ts`, `lib/auth/`, `app/auth/`, `app/api/auth/`, `components/auth/`, `app/actions/*`, `app/api/jobs/*`, `lib/new-job-deps.ts`, the owner-email allowlist variable (removed) | No session → `/auth/sign-in` (pages) or 401 (`/api/*` outside R30's public paths). Sign-up without an invite is refused. |
 | R4 | Roles `admin` and `engineer` on Better Auth's user table (`admin` plugin). The setup-token user is the first admin; admins change roles in Settings → Members; the last admin can't be demoted. Members may view, file jobs and act on the inbox; Settings, Repositories edits, repo onboarding and T3 pairing are admin-only. | `db/schema.ts`, new migration, the `isOwner` checks in `lib/*` | An invited user is `engineer` and gets 403 on admin sections; demoting the only admin is refused. |
 | R5 | First-run setup at `/setup` (not "onboarding"): Account → Done in M1. Account shows name, email, role, TOTP enrolment (R33) and the Slack match (R6); Done offers admins "Add a repository". | new `app/(panel)/setup`, `proxy.ts` or panel layout | A new user lands in setup once; finishing it lands on Jobs and never shows setup again. |
 | R6 | Slack buttons and `/factory` work for any Hive user: the clicker's email (`users.info`, bot scope `users:read.email`) picks the Hive user the action runs as; no match → ephemeral "Sign in to Hive first". `SLACK_OWNER_USER_ID` stays only as the notification target. | `lib/slack-interactions.ts`, `lib/slack-new-job.ts`, `lib/slack-route-deps.ts`, Slack manifest | An engineer's Approve in Slack records them as the approver; an unknown Slack user records nothing. |
 | R29 | The regression harness runs on any Postgres: a throwaway `hive_test_<id>` database on `TEST_DATABASE_URL`'s server, migrated and dropped per run. | `scripts/test-branch.ts`, `scripts/test-guard`, `lib/test-mode.ts`, `.sstack/project.toml` | `bun run test:regressions` passes with no `neon` CLI. |
 | R30 | Ingest runs as panel routes `/api/ingest` and `/api/webhooks/[source]`, reusing the ingest handler. Only those and `/api/slack/*` skip the session; each checks its signature. `neon.ts` and every Neon package and every Neon Auth variable are removed. | `functions/ingest/index.ts`, `proxy.ts`, `neon.ts`, `package.json` | Each public path rejects an unsigned request; every other path needs a session. |
 | R31 | Live updates through Postgres `LISTEN`/`NOTIFY`: triggers notify `hive_changes` with the table name; one SSE route `/api/live` (session required) tells the panel which feeds to refetch; the runner listens to wake early, its tick stays the real loop. | `lib/live-queries.ts`, `components/panel/sealed.ts`, `components/panel/realtime-root.tsx`, `app/api/live/*`, `runner/realtime.ts`, `runner/index.ts`, new migration | The board updates within 2 seconds of a stage report; the runner takes a new intent before its next tick. |
-| R32 | `bun scripts/setup-token.ts` prints a one-time `/setup?token=…` link (1 hour, stored hashed, only while no admin exists); `--reset <email>` prints a one-time reset link. Admins make one-time invite links (7 days, one Unibuz email) and reset links in Settings → Members. Nothing is emailed. | new script, Settings → Members | Each link works once; the setup token is refused once an admin exists. |
+| R32 | `bun scripts/setup-token.ts` prints a one-time `/setup?token=…` link (1 hour, stored hashed, only while no admin exists); `--reset <email>` prints a one-time reset link. Admins make one-time invite links (7 days, one email) and reset links in Settings → Members. Nothing is emailed. | new script, Settings → Members | Each link works once; the setup token is refused once an admin exists. |
 | R33 | TOTP is required for every user, enrolled in setup's Account step (Better Auth `twoFactor`), backup codes shown once. | `lib/auth/`, `components/auth/credentials-form.tsx`, `/setup` | A correct password without a TOTP code reaches no panel page; a backup code works once. |
 
 ### M2. Ownership and pickup
@@ -170,7 +170,7 @@ Grilled 2026-11-10; R2–R6 rewritten by that grill. Decisions: `.sstack/runs/m1
 
 | # | Requirement | Builds on | Check |
 |---|---|---|---|
-| R25 | The panel matches the Hive canvas: sidebar with running jobs, breadcrumb bar, dark by default, Unibuz blue for selection and lime only for PR ready. Routes stay marshal-factory's. | `app/(panel)/`, `components/` (shadcn), `app/globals.css` | Each canvas screen has a matching route; light and dark both pass WCAG AA for text. |
+| R25 | The panel matches the Hive canvas: sidebar with running jobs, breadcrumb bar, dark by default, blue for selection and lime only for PR ready. Routes stay marshal-factory's. | `app/(panel)/`, `components/` (shadcn), `app/globals.css` | Each canvas screen has a matching route; light and dark both pass WCAG AA for text. |
 | R26 | Run detail shows the live T3 device the agent is driving, the thread log, the timeline, Lineage, evidence and the merge decision. | run detail route, `lib/run-links.ts`, `lib/t3-client.ts` | A running mobile job shows its device view to its owner. |
 | R41 | The Repository page shows the repo's sstack wiki as a read-only link graph (pages as nodes, links as edges, stale pages marked) with a page view, read from the runner's snapshot of main, never from git in the panel. | `runner/sstack-snapshot.ts` (`WANTED`), `repo_sstack_config.files`, `app/(panel)/repositories/` | A repo whose main has three linked wiki pages shows three nodes and their edges; a repo with no pages shows an empty state. |
 
@@ -183,16 +183,15 @@ Settled; `grill` does not reopen these.
 - Hive is a fork of marshal-factory, not a rewrite.
 - Agents run through T3 Code. Harnesses: Claude Code and Codex for the lead; any T3 provider for dispatched roles.
 - Skills are sstack, not PStack. Per-role routing uses sstack's own `.sstack/roles/*.toml`; there is no separate Hive workflow file.
-- Access is Hive's own: Better Auth with password and required TOTP, accounts only by setup token or invite, Unibuz emails only. Tailscale may hide the panel but is optional (M1 grill, replacing "Tailscale-only, no passwords").
+- Access is Hive's own: Better Auth with password and required TOTP, accounts only by setup token or invite. Tailscale may hide the panel but is optional (M1 grill, replacing "Tailscale-only, no passwords").
 - Self-hostable: any Postgres, no Neon, Vercel or Tailscale account required (M1 grill).
 - Billing: owner's subscription first, team pool second.
 - Merge modes stay marshal-factory's `off`, `trial` and `auto` per repository.
-- UI follows T3 Code's look with Unibuz accents.
+- UI follows T3 Code's look with Hive's own accents.
 - Images and videos may be public (to render in GitHub and Linear); everything else needs a signed-in user or a signature.
 
 ## Out of scope
 
-- Accounts for non-Unibuz emails.
 - Issue sources other than Linear.
 - Agents merging, force-pushing or pushing to a base branch.
 - Editing workflows from Slack.
@@ -209,7 +208,7 @@ The frontier for `grill`, each with a recommendation.
 5. **Where per-user tokens live.** macOS Keychain per user on each runner, Modal secrets per user, or both? → Both, written by the setup flow, never stored in Postgres.
 6. **Plan gate default.** `auto` or `inbox` for new repos? → `inbox` while a repo is on `trial`, `auto` once it moves to `auto` merging.
 7. **Licence.** Settled in M1: Simon has written permission from ski043.
-8. **Upstream.** Contribute multi-user (M1 and M2) back to marshal-factory, or keep it in the fork? → Offer it upstream; keep Unibuz specifics in the fork. M1 decided not to open the PR before M2 is done.
+8. **Upstream.** Contribute multi-user (M1 and M2) back to marshal-factory, or keep it in the fork? → Offer it upstream; keep owner specifics in the fork. M1 decided not to open the PR before M2 is done.
 11. **Repo-notes path.** Keep per-repo notes at `.agents/playbooks/factory.md` or move them to `.sstack/playbooks/factory.md`? → Decide in M4 with R13 and R18.
 12. **Machines page.** Its own page or a Settings section as on the canvas? → Own page until R25 (M7).
 9. **Mac pool.** How many Macs, and do simulators run on the host or in macOS VMs? → Two Mac minis, simulators on the host through T3 devices, three jobs per Mac.

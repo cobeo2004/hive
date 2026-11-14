@@ -38,9 +38,9 @@ const clean = async () => {
 await clean();
 try {
   await db.insert(user).values([
-    { id: "meters-a", name: "Ann", email: "meters-a@unibuz.com.au", role: "engineer" },
-    { id: "meters-b", name: "Bob", email: "meters-b@unibuz.com.au", role: "engineer" },
-    { id: "meters-admin", name: "Admin", email: "meters-admin@unibuz.com.au", role: "admin" },
+    { id: "meters-a", name: "Ann", email: "meters-a@example.com", role: "engineer" },
+    { id: "meters-b", name: "Bob", email: "meters-b@example.com", role: "engineer" },
+    { id: "meters-admin", name: "Admin", email: "meters-admin@example.com", role: "admin" },
   ]);
   await db
     .insert(agentAccounts)

@@ -338,7 +338,7 @@ try {
   await db.delete(user).where(inArray(user.id, ["sbx-owner-a", "sbx-owner-b", "sbx-owner-c"]));
   await db
     .insert(user)
-    .values(["sbx-owner-a", "sbx-owner-b", "sbx-owner-c"].map((id) => ({ id, name: id, email: `${id}@unibuz.com.au`, role: "engineer" as const })));
+    .values(["sbx-owner-a", "sbx-owner-b", "sbx-owner-c"].map((id) => ({ id, name: id, email: `${id}@example.com`, role: "engineer" as const })));
   await db.insert(agentAccounts).values([
     { id: "sbx-acct-a", owner_id: "sbx-owner-a", provider: "claude", kind: "subscription", label: "a", sealed: sealedFor("sk-ant-oat-of-a") },
     { id: "sbx-acct-b", owner_id: "sbx-owner-b", provider: "claude", kind: "subscription", label: "b", sealed: sealedFor("sk-ant-oat-of-b") },
