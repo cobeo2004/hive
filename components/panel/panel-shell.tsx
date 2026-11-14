@@ -1,6 +1,6 @@
 "use client";
 
-import { InboxIcon, KanbanIcon, type LucideIcon, MenuIcon, PanelLeftIcon, SettingsIcon } from "lucide-react";
+import { FolderGit2Icon, InboxIcon, KanbanIcon, type LucideIcon, MenuIcon, PanelLeftIcon, SettingsIcon } from "lucide-react";
 import { LayoutGroup, MotionConfig, motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -17,7 +17,7 @@ import { UserMenu, type PanelUser } from "./user-menu";
 /** The layout reads this cookie, so a reload keeps the rail collapsed. */
 export const COLLAPSED_COOKIE = "sidebar_state";
 
-type NavItem = { href: "/inbox" | "/" | "/settings"; label: string; icon: LucideIcon };
+type NavItem = { href: "/inbox" | "/" | "/settings" | "/repositories"; label: string; icon: LucideIcon };
 
 /** The canvas nav: the jobs, then the inbox of jobs that need the owner; repositories have their own sidebar section. Machines and Other activity stay reachable by URL. */
 const NAV: readonly (readonly NavItem[])[] = [
@@ -27,6 +27,9 @@ const NAV: readonly (readonly NavItem[])[] = [
     { href: "/settings", label: "Settings", icon: SettingsIcon },
   ],
 ];
+
+/** The sidebar's Repositories section is hidden while the rail is collapsed, so the rail gets this icon instead. */
+const REPOS: NavItem = { href: "/repositories", label: "Repositories", icon: FolderGit2Icon };
 
 const spring = { type: "spring", stiffness: 500, damping: 40 } as const;
 
@@ -95,7 +98,7 @@ function Nav({
         )}
       </div>
       <nav aria-label="Panel" data-collapsed={collapsed || undefined} className="flex shrink-0 flex-col gap-4 overflow-x-hidden border-b px-1.5 pt-1 pb-2">
-        {NAV.map((group) => (
+        {(collapsed ? [...NAV, [REPOS]] : NAV).map((group) => (
           <div key={group[0]!.href} className="flex flex-col gap-px">
             {group.map(({ href, label, icon: Icon }) => {
               const on = isActive(href, pathname);

@@ -50,8 +50,8 @@ const STEPS: Record<TestJobVariant, string> = {
 4. Open the pull request and report \`pr\` with that screenshot attached to your assessment as \`media\`: \`{ file: "after-page.png", caption: "The demo page with its conversions table." }\`.`,
   devices: `1. Serve the page on a free port with a static server that is already installed, for example \`python3 -m http.server <port> --directory demo\`.
 2. Open http://localhost:<port>/ in T3's browser (the preview tools) and save a screenshot to \`.sstack/runs/canary/media/after-browser.png\`.
-3. Open http://localhost:<port>/ in Safari on an iOS Simulator (the T3 device tools) and save a screenshot to \`.sstack/runs/canary/media/after-ios.png\`.
-4. Open http://10.0.2.2:<port>/ in Chrome on an Android Emulator (the T3 device tools) and save a screenshot to \`.sstack/runs/canary/media/after-android.png\`.
+3. Open http://localhost:<port>/ in Safari on an iOS Simulator (the T3 device tools), in portrait orientation (rotate the device if needed), and save a screenshot to \`.sstack/runs/canary/media/after-ios.png\`.
+4. Open http://10.0.2.2:<port>/ in Chrome on an Android Emulator (the T3 device tools), in portrait orientation (rotate the device if needed), and save a screenshot to \`.sstack/runs/canary/media/after-android.png\`.
 5. Shut down only the simulators and emulators you booted; leave the ones that were already running.
 6. Run \`factory-verify\` at your final commit.
 7. Open the pull request and report \`pr\` with the three screenshots attached to your assessment as \`media\`, one caption each naming where it was taken.`,
