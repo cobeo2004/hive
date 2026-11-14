@@ -27,6 +27,7 @@ import { useRowKeys } from "./row-keys";
 import { useFeed, type Feed } from "./live-refresh";
 import { PanelFooter, PanelHeader, type KeyHint } from "./panel-header";
 import { AddRepository, OnboardingBadge, OnboardingSection, OnboardingSide, onboardingLine, PANEL, useOnboardingRefresh } from "./repo-onboarding";
+import { wikiHref, workflowHref } from "./shell-model";
 import { useNow } from "./time";
 
 const CLOCK_TICK_MS = 30_000;
@@ -46,9 +47,6 @@ const SETTINGS_DEFAULT = "settings-default";
 
 const itemHref = (repo: string) => `/repositories?${new URLSearchParams({ repo })}`;
 const githubUrl = (repo: string) => `https://github.com/${repo}`;
-/** The repo's Workflow page (Q41); the segment is the encoded `owner/name`. */
-export const workflowHref = (repo: string) => `/repositories/${encodeURIComponent(repo)}/workflow`;
-const wikiHref = (repo: string) => `/repositories/${encodeURIComponent(repo)}/wiki`;
 
 /**
  * Where a repo's jobs can launch. Modal needs a runner that can launch there and, for an onboarded
