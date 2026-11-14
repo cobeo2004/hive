@@ -1,6 +1,6 @@
 # Hive
 
-Unibuz's internal Linear-to-PR software factory: a fork of marshal-factory at `999ad20`.
+A personal Linear-to-PR software factory: a fork of marshal-factory at `999ad20`.
 Spec: [docs/prd.md](../docs/prd.md) (R1–R26 by milestone, decisions, open questions).
 Terms: [docs/glossary.md](../docs/glossary.md) — use its names (job, lead thread, child, stage vs phase, evidence vs media).
 
@@ -13,7 +13,7 @@ merges on its own only where a repository allows it.
 
 ## Who it's for
 
-- **Engineers at Unibuz**: hand off well-scoped issues, answer the agent's questions, review its PRs,
+- **Engineers (the owner and anyone they invite)**: hand off well-scoped issues, answer the agent's questions, review its PRs,
   connect their own Claude and ChatGPT subscriptions.
 - **Admins**: connect Linear, GitHub and Slack; onboard repos; set each repo's merge mode and
   workflow; manage the team account pool and the Mac pool.
@@ -34,7 +34,7 @@ merges on its own only where a repository allows it.
 
 - **Panel** (`app/`, Next.js): Jobs, Inbox, Repositories, Machines, Settings, Workflow. Deployed on Vercel
   (`vercel.json`); Better Auth sign-in with a setup-token admin and TOTP (`lib/auth/`, `proxy.ts`).
-  The Unibuz tailnet is an optional, opt-in layer in front of it.
+  The owner's tailnet is an optional, opt-in layer in front of it.
 - **Database and live updates**: any Postgres via Drizzle (`db/schema.ts`). Triggers notify
   `hive_changes` (`drizzle/0040_live_notify.sql`); the panel follows it over SSE (`app/api/live`,
   `components/panel/live-refresh.tsx`) and the runner with `runner/realtime.ts`.

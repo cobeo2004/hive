@@ -1,6 +1,6 @@
 # Hive bundle
 
-Everything needed to start building Hive, Unibuz's Linear-issue-to-PR software factory, as a fork of [marshal-factory](https://github.com/ski043/marshal-factory) running agents through [T3 Code](https://github.com/pingdotgg/t3code) with [sstack](https://github.com/cobeo2004/sstack) skills.
+Everything needed to start building Hive, a personal Linear-issue-to-PR software factory, as a fork of [marshal-factory](https://github.com/ski043/marshal-factory) running agents through [T3 Code](https://github.com/pingdotgg/t3code) with [sstack](https://github.com/cobeo2004/sstack) skills.
 
 Pinned to what these files were written against: marshal-factory `999ad20` (2026-10-31), T3 Code `965ddc1d`, sstack `6e1ab59`.
 

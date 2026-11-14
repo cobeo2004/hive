@@ -2,13 +2,13 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { eq, inArray, sql } from "drizzle-orm";
 
-// R4, R32: Settings → Members. Admins only; the last admin can't be demoted; invites are for @unibuz.com.au.
+// R4, R32: Settings → Members. Admins only; the last admin can't be demoted; invites are for @example.com.
 const { db } = await import("../db/client");
 const { accessLinks, user } = await import("../db/schema");
 const members = await import("../lib/members");
 
-const ADMIN = "members-admin@unibuz.com.au";
-const ENG = "members-eng@unibuz.com.au";
+const ADMIN = "members-admin@example.com";
+const ENG = "members-eng@example.com";
 const ids = { admin: "members-admin", eng: "members-eng" };
 const as = (email: string, role: string, id: string) => ({ user: async () => ({ id, email, role, twoFactorEnabled: true, setupDoneAt: new Date() }) });
 const admin = as(ADMIN, "admin", ids.admin);
@@ -30,7 +30,7 @@ try {
   const refused = { ok: false, status: 403, message: members.ADMIN_ONLY };
   assert.deepEqual(await members.listMembers(engineer), refused, "an engineer can't list members");
   assert.deepEqual(await members.setMemberRole(engineer, ids.eng, "admin"), refused, "an engineer can't promote themselves");
-  assert.deepEqual(await members.createInvite(engineer, "new@unibuz.com.au"), refused, "an engineer can't invite");
+  assert.deepEqual(await members.createInvite(engineer, "new@example.com"), refused, "an engineer can't invite");
   assert.deepEqual(await members.createMemberResetLink(engineer, ADMIN), refused, "an engineer can't make reset links");
   assert.deepEqual(
     await members.listMembers({ user: async () => ({ email: ADMIN, role: "admin", twoFactorEnabled: false }) }),
@@ -63,19 +63,18 @@ try {
   await db.update(user).set({ role: "admin" }).where(eq(user.id, ids.admin));
   await db.update(user).set({ role: "engineer" }).where(eq(user.id, ids.eng));
 
-  // Invites: @unibuz.com.au only, never for an existing account; the link is copyable and lasts 7 days.
-  const gmail = await members.createInvite(admin, "someone@gmail.com");
-  assert.ok(!gmail.ok && /unibuz\.com\.au/.test(gmail.message), "an invite to a non-Unibuz email is refused");
+  // Invites: any email, never for an existing account; the link is copyable and lasts 7 days.
+  assert.ok((await members.createInvite(admin, "someone@gmail.com")).ok, "an invite works for any email domain");
   assert.equal((await members.createInvite(admin, ENG)).ok, false, "an existing member is not invited again");
-  const invite = await members.createInvite(admin, "New@Unibuz.com.au");
+  const invite = await members.createInvite(admin, "New@Example.com");
   assert.ok(invite.ok);
   assert.match(invite.url, /\/auth\/accept\?token=[\w-]{40,}$/);
-  const [link] = await db.select().from(accessLinks);
-  assert.deepEqual([link!.kind, link!.email, link!.created_by], ["invite", "new@unibuz.com.au", ids.admin]);
+  const [link] = await db.select().from(accessLinks).where(eq(accessLinks.email, "new@example.com"));
+  assert.deepEqual([link!.kind, link!.email, link!.created_by], ["invite", "new@example.com", ids.admin]);
   assert.ok(Math.abs(link!.expires_at.getTime() - Date.now() - 7 * 24 * 3_600_000) < 60_000, "valid 7 days");
 
   // Reset links: only for an existing member.
-  assert.equal((await members.createMemberResetLink(admin, "ghost@unibuz.com.au")).ok, false);
+  assert.equal((await members.createMemberResetLink(admin, "ghost@example.com")).ok, false);
   const resetLink = await members.createMemberResetLink(admin, ENG);
   assert.ok(resetLink.ok);
   assert.match(resetLink.url, /\/auth\/reset\?token=/);

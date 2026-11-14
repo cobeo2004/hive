@@ -72,7 +72,6 @@ function Nav({
           <path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="var(--lime)" />
         </svg>
         <b className={cn("text-[15px] font-bold tracking-tight text-foreground", fade, collapsed && "hidden")}>Hive</b>
-        <span className={cn("rounded-md border px-1.5 text-[11px] font-semibold text-muted-foreground", fade, collapsed && "hidden")}>Unibuz</span>
         {onToggle && (
           <RailTip
             collapsed

@@ -57,16 +57,16 @@ assert.deepEqual(keys(waitingJobs(shared, null)), [], "no viewer has nothing wai
 assert.deepEqual(keys(settledJobs(shared)), ["A-10", "A-5", "A-7"], "settled is every finished job, newest first, archived ones left out");
 assert.ok(!keys(settledJobs(shared)).includes("A-6"), "the archived merge is not settled");
 
-assert.deepEqual(crumbsOf("/"), ["Unibuz", "Jobs"]);
-assert.deepEqual(crumbsOf("/inbox"), ["Unibuz", "Inbox"]);
-assert.deepEqual(crumbsOf("/settings/linear"), ["Unibuz", "Settings", "Linear"]);
-assert.deepEqual(crumbsOf("/activity"), ["Unibuz", "Other activity"]);
-assert.deepEqual(crumbsOf("/repositories/unibuz%2Fapi"), ["Unibuz", "Repositories", "Unibuz/api"], "other segments are decoded");
+assert.deepEqual(crumbsOf("/"), ["Hive", "Jobs"]);
+assert.deepEqual(crumbsOf("/inbox"), ["Hive", "Inbox"]);
+assert.deepEqual(crumbsOf("/settings/linear"), ["Hive", "Settings", "Linear"]);
+assert.deepEqual(crumbsOf("/activity"), ["Hive", "Other activity"]);
+assert.deepEqual(crumbsOf("/repositories/acme%2Fapi"), ["Hive", "Repositories", "Acme/api"], "other segments are decoded");
 
-assert.equal(repoBadge("unibuz/unibuz-mobile").mark, "MO");
-assert.equal(repoBadge("unibuz/unibuz-api").mark, "AP");
-assert.equal(repoBadge("unibuz/unibuz-mobile").name, "unibuz-mobile");
-assert.equal(repoBadge("unibuz/unibuz-mobile").tone, repoBadge("other/unibuz-mobile").tone, "the tone follows the name");
+assert.equal(repoBadge("acme/acme-mobile").mark, "MO");
+assert.equal(repoBadge("acme/acme-api").mark, "AP");
+assert.equal(repoBadge("acme/acme-mobile").name, "acme-mobile");
+assert.equal(repoBadge("acme/acme-mobile").tone, repoBadge("other/acme-mobile").tone, "the tone follows the name");
 
 assert.equal(harnessChip("claudeAgent"), "CC");
 assert.equal(harnessChip("codex"), "CX");

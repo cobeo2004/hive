@@ -11,8 +11,8 @@ const { disconnectOwnAccount, writeLogin } = await import("../lib/account-logins
 const { finishSetup } = await import("../lib/members");
 const { saveOptIns, readOptIns, linearMatch, linearCardNote, linearUsers } = await import("../lib/opt-ins");
 
-const ME = "setup-me@unibuz.com.au";
-const OTHER = "setup-other@unibuz.com.au";
+const ME = "setup-me@example.com";
+const OTHER = "setup-other@example.com";
 const row = (email: string, twoFactorEnabled: boolean) => ({ id: `setup-${email}`, name: email, email, role: "engineer", twoFactorEnabled });
 const doneAt = async (email: string) => (await db.select({ at: user.setupDoneAt }).from(user).where(eq(user.email, email)))[0]!.at;
 const as = (email: string, twoFactorEnabled: boolean) => ({ user: async () => ({ email, role: "engineer", twoFactorEnabled }) });

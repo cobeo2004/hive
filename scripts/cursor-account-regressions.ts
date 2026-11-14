@@ -31,7 +31,7 @@ const clean = async () => {
 };
 await clean();
 try {
-  await db.insert(user).values(users.map((id) => ({ id, name: id, email: `${id}@unibuz.com.au`, role: "engineer" })));
+  await db.insert(user).values(users.map((id) => ({ id, name: id, email: `${id}@example.com`, role: "engineer" })));
   const intentsBefore = (await db.select({ id: intents.id }).from(intents)).length;
 
   // Bad input and a missing public key are refused with fixed messages that never echo the key.

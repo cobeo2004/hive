@@ -54,7 +54,7 @@ export async function memberByEmail(email: string | null): Promise<SessionUser |
   return isMember(found) ? found : null;
 }
 
-/** A copyable invite link for one @unibuz.com.au email, valid 7 days; Hive never emails it. */
+/** A copyable invite link for one email, valid 7 days; Hive never emails it. */
 export async function createInvite(deps: MembersDeps, email: string): Promise<{ ok: true; url: string; expiresAt: Date } | Refused> {
   const actor = await deps.user();
   if (!isAdmin(actor)) return forbidden;

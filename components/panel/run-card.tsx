@@ -36,7 +36,7 @@ export function prNumber(url: string | null) {
   return n !== "" && [...n].every((c) => c >= "0" && c <= "9") ? `#${n}` : null;
 }
 
-/** `hive-sandbox #1` for a GitHub issue, `UNI-142` for a Linear one, else the job key: the ticket, not the factory's internal key. */
+/** `hive-sandbox #1` for a GitHub issue, `ENG-142` for a Linear one, else the job key: the ticket, not the factory's internal key. */
 export function issueRef(card: Pick<BoardCard, "sourceLink" | "jobKey" | "id">) {
   const href = card.sourceLink?.href;
   if (href && URL.canParse(href)) {

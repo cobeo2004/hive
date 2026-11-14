@@ -7,7 +7,7 @@ when: Resolving one Linear issue unattended on a `hive/<KEY>` branch that Hive s
 
 This playbook ships with Hive, not with the repository; the first message names its path on this machine. It changes sstack's bundled `work` skill and playbooks the way a repo playbook under `.sstack/playbooks/` does, so open the bundled ones it extends and apply the changes below. A repository's `.sstack/playbooks/factory.md` may add notes about that repository; where it differs from this one, this one wins.
 
-No human reads this thread while it runs. The Hive panel, the Linear issue and the pull request are the only outputs anyone sees. The branch name carries the issue key: `hive/UNI-482` works issue `UNI-482`. The issue title, body and URL are in the first message.
+No human reads this thread while it runs. The Hive panel, the Linear issue and the pull request are the only outputs anyone sees. The branch name carries the issue key: `hive/ENG-482` works issue `ENG-482`. The issue title, body and URL are in the first message.
 
 ## Standing rules
 
@@ -101,7 +101,7 @@ The chain `sstack-workflow show` prints is `recon`, `plan`, `implement`, `gate`,
 
 - **In** "**Wiki.**", you write the pages, in this thread: add or refresh pages under `.sstack/wiki/` for what this run learned that the code doesn't show, including what children flagged in their reports, and fix every page `index` marks `[stale]` whose `paths` this run changed. Then run `sstack-wiki index` and `sstack-wiki lint`; a lint error is fixed before the PR. The pages land in this job's PR. Children never write pages: a child's brief asks it to put wiki-worthy findings in its report.
 - **Replace** "Rebase/merge base" with: Merge the base branch; never rebase a pushed branch.
-- **Replace** "the user's explicit yes (unattended: none, see above) before commit, push or PR, and before publishing media" with: Gate 4 as in "Gates in an unattended run". Commit with Conventional Commits prefixed by the issue key, as in `UNI-482 fix(linking): replay the pending invite link after auth restores`. Start the PR body with `Linear: [UNI-482](<issue url>)`.
+- **Replace** "the user's explicit yes (unattended: none, see above) before commit, push or PR, and before publishing media" with: Gate 4 as in "Gates in an unattended run". Commit with Conventional Commits prefixed by the issue key, as in `ENG-482 fix(linking): replay the pending invite link after auth restores`. Start the PR body with `Linear: [ENG-482](<issue url>)`.
 - **After** opening the PR and before you report `pr`, run `sstack-pr-media <pr> <run>/media/* --edit-body` so the body carries the `<!-- sstack-media -->` Before and After section. Hive hands a PR that changes UI files to a person when its body has no such section. Then start `babysit` on that PR right away.
 
 #### Always

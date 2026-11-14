@@ -8,7 +8,6 @@ import { auth } from "@/lib/auth/server";
 
 export type LinkKind = "setup" | "invite" | "reset";
 
-const INVITE_DOMAIN = "@unibuz.com.au";
 const INVALID_LINK = "This link is invalid or used.";
 const SETUP_BUSY = "Another setup is in progress. Try again in a moment.";
 const ADMIN_EXISTS = "An admin already exists, so setup links are closed.";
@@ -30,7 +29,6 @@ async function adminExists(tx: Tx | typeof db = db) {
 
 export async function createLink(kind: LinkKind, email: string | null, ttlMs: number, createdBy: string | null = null) {
   const bound = email === null ? null : normal(email);
-  if (kind === "invite" && !bound?.endsWith(INVITE_DOMAIN)) throw new Error(`Invites are for ${INVITE_DOMAIN} emails only.`);
   if (kind !== "setup" && !bound) throw new Error("A link needs an email.");
   if (kind === "setup" && (await adminExists())) throw new Error(ADMIN_EXISTS);
   const token = randomBytes(32).toString("base64url");

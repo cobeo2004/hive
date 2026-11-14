@@ -102,7 +102,7 @@ assert.deepEqual(read?.rateLimits, parsed.rateLimits, "a null-limits line after 
 
 await db.delete(agentAccounts).where(inArray(agentAccounts.id, Object.values(ids)));
 await db.delete(user).where(eq(user.id, U));
-await db.insert(user).values({ id: U, name: "Usage", email: "usage@unibuz.com.au", role: "engineer" });
+await db.insert(user).values({ id: U, name: "Usage", email: "usage@example.com", role: "engineer" });
 await db.insert(agentAccounts).values([account(ids.claude, "claude", "subscription"), account(ids.claudeKey, "claude", "api_key")]);
 const logged: string[] = [];
 const realLog = console.log;

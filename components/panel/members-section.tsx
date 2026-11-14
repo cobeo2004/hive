@@ -140,7 +140,7 @@ export function MembersSection({ members: initial }: { members: Member[] }) {
                 <Input
                   id="members-invite"
                   onChange={(event) => setEmail(event.target.value)}
-                  placeholder="name@unibuz.com.au"
+                  placeholder="name@example.com"
                   required
                   type="email"
                   value={email}
@@ -149,7 +149,7 @@ export function MembersSection({ members: initial }: { members: Member[] }) {
                   {inviting ? "Making link" : "Create invite"}
                 </Button>
               </div>
-              <FieldDescription>An @unibuz.com.au email. Hive does not send the link; copy it to them yourself.</FieldDescription>
+              <FieldDescription>Their email. Hive does not send the link; copy it to them yourself.</FieldDescription>
               {inviteFailure && (
                 <p role="alert" className="text-sm text-destructive">
                   {inviteFailure}

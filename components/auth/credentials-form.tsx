@@ -49,7 +49,7 @@ export function CredentialsForm() {
         <CodeForm onDone={done} />
       ) : (
         <>
-          <AuthHeading description="Hive, Unibuz's software factory." title="Sign in to Hive" />
+          <AuthHeading description="Your Linear-to-PR software factory." title="Sign in to Hive" />
           <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
             <div className="flex flex-col gap-5">
               <Controller

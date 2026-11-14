@@ -16,8 +16,8 @@ const { listMembers, memberByEmail } = await import("../lib/members");
 const { GET, POST } = await import("../app/api/auth/[...path]/route");
 
 const PASSWORD = "correct horse battery staple 42";
-const ADMIN = "flow-admin@unibuz.com.au";
-const ENG = "flow-eng@unibuz.com.au";
+const ADMIN = "flow-admin@example.com";
+const ENG = "flow-eng@example.com";
 
 /** One browser: a cookie jar that follows Set-Cookie. */
 function browser() {
@@ -152,7 +152,7 @@ try {
 
   // --- sign-up is closed, and the admin plugin's HTTP routes are shut.
   const stranger = browser();
-  assert.notEqual((await stranger.post("/sign-up/email", { email: "x@unibuz.com.au", password: PASSWORD, name: "X" })).status, 200, "sign-up is closed");
+  assert.notEqual((await stranger.post("/sign-up/email", { email: "x@example.com", password: PASSWORD, name: "X" })).status, 200, "sign-up is closed");
   assert.equal((await first.post("/admin/set-role", { userId: "x", role: "admin" })).status, 403, "even an admin can't use the admin plugin's routes");
 
   // --- an invite: a session that reaches only /setup before TOTP.

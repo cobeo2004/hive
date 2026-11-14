@@ -26,7 +26,7 @@ import { Confidence } from "./merge-decision";
 import { useRowKeys } from "./row-keys";
 import { ShortTime } from "./time";
 
-/** Badge colours: lime is PR ready only (Q66), and selection is Unibuz blue. */
+/** Badge colours: lime is PR ready only (Q66), and selection is blue. */
 const TONE: Record<BadgeTone, string> = {
   input: "bg-(--primary-soft) text-(--primary-text)",
   ready: "bg-(--lime) text-(--on-lime)",

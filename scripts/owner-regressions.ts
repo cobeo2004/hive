@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { isAdmin, isMember } from "../lib/auth/owner";
 
 // R4, R33: a member is a user with TOTP on who finished /setup; an admin is a member with the admin role.
-const admin = { email: "admin@unibuz.com.au", role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
-const engineer = { email: "eng@unibuz.com.au", role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() };
+const admin = { email: "admin@example.com", role: "admin", twoFactorEnabled: true, setupDoneAt: new Date() };
+const engineer = { email: "eng@example.com", role: "engineer", twoFactorEnabled: true, setupDoneAt: new Date() };
 
 assert.equal(isMember(engineer), true, "an engineer with TOTP is a member");
 assert.equal(isAdmin(engineer), false, "an engineer is not an admin");

@@ -19,9 +19,9 @@ const notReady: [Card, string][] = [
 ];
 for (const [card, why] of notReady) assert.equal(isPrReady(card), false, why);
 
-assert.equal(prNumber("https://github.com/unibuz/api/pull/1309"), "#1309", "a pull URL gives its number");
-assert.equal(prNumber("https://github.com/unibuz/api/pull/1309/files"), "#1309", "a tab under the pull URL gives its number");
-for (const url of ["not a url", null, "https://github.com/unibuz/api/issues/4", "https://github.com/unibuz/api/pull/abc"]) {
+assert.equal(prNumber("https://github.com/acme/api/pull/1309"), "#1309", "a pull URL gives its number");
+assert.equal(prNumber("https://github.com/acme/api/pull/1309/files"), "#1309", "a tab under the pull URL gives its number");
+for (const url of ["not a url", null, "https://github.com/acme/api/issues/4", "https://github.com/acme/api/pull/abc"]) {
   assert.equal(prNumber(url), null, `${JSON.stringify(url)} has no PR number`);
 }
 
@@ -29,7 +29,7 @@ for (const url of ["not a url", null, "https://github.com/unibuz/api/issues/4", 
 const KEY = "GH-cobeo2004-hive-sandbox-h-5a0724945e606c53e460-1";
 const ref = (href: string | null) => issueRef({ sourceLink: href ? { label: "x", href } : null, jobKey: KEY, id: "abcdef123456" });
 assert.equal(ref("https://github.com/cobeo2004/hive-sandbox/issues/1"), "hive-sandbox #1");
-assert.equal(ref("https://linear.app/unibuz/issue/UNI-142/sort-the-list"), "UNI-142");
+assert.equal(ref("https://linear.app/acme/issue/ENG-142/sort-the-list"), "ENG-142");
 assert.equal(ref("https://example.com/ticket/9"), KEY, "an unknown tracker keeps the key");
 assert.equal(ref(null), KEY);
 assert.equal(ref("https://github.com/cobeo2004/hive-sandbox/issues/1/"), "hive-sandbox #1", "a trailing slash still names the issue");

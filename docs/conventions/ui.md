@@ -11,7 +11,7 @@ Applies to `app/(panel)/**`, `app/layout.tsx`, `app/globals.css`, `components/**
 
 ## Colour, type, icons
 
-- Unibuz blue marks selection and focus. **Lime marks one thing**: a card at `pr` with every check green, plus the Inbox count badge (`isPrReady` in `components/panel/run-card.tsx`, pinned by `scripts/jobs-lime-regressions.ts`). Do not use it as decoration.
+- Blue marks selection and focus. **Lime marks one thing**: a card at `pr` with every check green, plus the Inbox count badge (`isPrReady` in `components/panel/run-card.tsx`, pinned by `scripts/jobs-lime-regressions.ts`). Do not use it as decoration.
 - Status colours come with `-soft` and `-foreground` variants (`--success`, `--warning`, `--info`, `--destructive`); use them rather than raw hex.
 - Inter and JetBrains Mono load through `next/font` in `app/layout.tsx`. Sizes are the canvas's fixed values (for example 13.5px/19px for card titles). **No fluid type**: where the `responsive-design` skill suggests `clamp()` type, this page wins.
 
@@ -41,7 +41,7 @@ Only `components/panel/workflow-flow.tsx` imports `@xyflow/react`, and `workflow
 ## Live check (required for any visible change)
 
 1. `bun run dev` (needs `.env.local` with a database and `BETTER_AUTH_SECRET`), open the page in the T3 Code browser (`preview_*` tools) or a device.
-2. Sign in with a seeded admin through the real flow: `bun scripts/setup-token.ts`, then `update two_factor set verified = true` (L32). Seeded users need `@unibuz.com.au` emails, or `createLink` refuses them (L165).
+2. Sign in with a seeded admin through the real flow: `bun scripts/setup-token.ts`, then `update two_factor set verified = true` (L32).
 3. Board cards render only with a `runs` row on a `hive/` branch (L45).
 4. Wait on `domcontentloaded` plus a selector. Never `networkidle`: the SSE stream keeps a connection open (L46).
 

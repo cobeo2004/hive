@@ -13,7 +13,7 @@ const pair = newKeyPair();
 const KEY = "sk-ant-api03-pool-admin-fake-key";
 const adminRow = "pool-admin-user";
 const member = (id: string, role: "admin" | "engineer") =>
-  ({ id, email: `${id}@unibuz.com.au`, role, twoFactorEnabled: true, setupDoneAt: new Date() }) as SessionUser;
+  ({ id, email: `${id}@example.com`, role, twoFactorEnabled: true, setupDoneAt: new Date() }) as SessionUser;
 const [admin, engineer] = [member(adminRow, "admin"), member("pool-admin-eng", "engineer")];
 const deps = (u: SessionUser, extra: { publicKey?: string } = { publicKey: pair.publicKey }) => ({ user: async () => u, db, ...extra });
 const status = (o: { ok: boolean; status?: number }) => (o.ok ? 200 : o.status);
