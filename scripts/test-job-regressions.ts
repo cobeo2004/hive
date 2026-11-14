@@ -92,4 +92,8 @@ assert.match(devicesTicket, /10\.0\.2\.2/, "the emulator reaches the host throug
 assert.match(devicesTicket, /only the simulators and emulators you booted/);
 assert.match(devicesTicket, /factory-verify/);
 
+// The checks need portrait phone PNGs, so the ticket must tell the agent to take them in portrait.
+const steps = testJobDescription("devices").split("\n");
+for (const os of ["iOS Simulator", "Android Emulator"]) assert.match(steps.find((l) => l.includes(os)) ?? "", /in portrait orientation/, `${os} step`);
+
 console.log("test-job regressions passed");
