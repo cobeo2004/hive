@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import type { JobRow } from "../db/schema";
 
 // R25b: the sidebar's Working list and counts, the breadcrumb and the small chips are pure rules.
-const { crumbsOf, elapsed, everyRepo, harnessChip, repoBadge, settledJobs, waitingJobs, workingJobs } = await import("../components/panel/shell-model");
+const { crumbsOf, elapsed, harnessChip, isCurrent, repoBadge, settledJobs, waitingJobs, wikiHref, workflowHref, workingJobs } = await import(
+  "../components/panel/shell-model"
+);
 
 const T = (minutes: number) => new Date(1_800_000_000_000 + minutes * 60_000);
 const job = (key: string, over: Partial<JobRow>) =>
@@ -77,13 +79,12 @@ assert.equal(elapsed(18 * 60e3), "18m");
 assert.equal(elapsed(3 * 3600e3), "3h");
 assert.equal(elapsed(2 * 86400e3), "2d");
 
-console.log("shell regressions passed");
+// The Repositories section links each repo's pages and marks the one shown, encoded segment or not.
+assert.equal(workflowHref("cobeo2004/hive"), "/repositories/cobeo2004%2Fhive/workflow");
+assert.equal(wikiHref("cobeo2004/hive"), "/repositories/cobeo2004%2Fhive/wiki");
+assert.ok(isCurrent(wikiHref("cobeo2004/hive"), "/repositories/cobeo2004%2Fhive/wiki"));
+assert.ok(isCurrent(wikiHref("cobeo2004/hive"), "/repositories/cobeo2004/hive/wiki"));
+assert.ok(!isCurrent(wikiHref("cobeo2004/hive"), "/repositories/cobeo2004%2Fhive/workflow"));
+assert.ok(!isCurrent(wikiHref("cobeo2004/hive"), "/repositories/cobeo2004%2Fhive-web/wiki"));
 
-// The sidebar's View all links show every repo even when the cookie remembers one.
-const { repoFilter } = await import("../lib/repo-filter");
-const { inboxHref, jobsHref } = await import("../components/panel/job-view");
-for (const href of [everyRepo(inboxHref()), everyRepo(jobsHref("list"))]) {
-  const params = new URL(href, "http://x").searchParams;
-  assert.equal(repoFilter(params.get("repo"), "cobeo2004/hive"), null, `${href} overrides a remembered repo`);
-}
-assert.equal(everyRepo(jobsHref("list")), "/?view=list&repo=all");
+console.log("shell regressions passed");

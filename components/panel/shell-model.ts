@@ -1,7 +1,6 @@
 import type { JobRow } from "@/db/schema";
 import { type ArchiveJob, isFinished, splitArchived } from "@/lib/archive";
 import { inboxItems, ownedBy, type Viewer } from "@/lib/inbox";
-import { ALL_REPOS } from "@/lib/repo-filter";
 
 // What the sidebar and the breadcrumb bar show, as pure rules so the regressions cover them.
 
@@ -75,5 +74,9 @@ export function elapsed(ms: number) {
   return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
 }
 
-/** The sidebar lists every repo, so its View all links override the remembered repo filter. */
-export const everyRepo = (href: string) => `${href}${href.includes("?") ? "&" : "?"}repo=${ALL_REPOS}`;
+/** The repo's Workflow page (Q41); the segment is the encoded `owner/name`. */
+export const workflowHref = (repo: string) => `/repositories/${encodeURIComponent(repo)}/workflow`;
+export const wikiHref = (repo: string) => `/repositories/${encodeURIComponent(repo)}/wiki`;
+
+/** Whether a sidebar link is the page shown, whether or not the pathname keeps the `owner%2Fname` segment encoded. */
+export const isCurrent = (href: string, pathname: string) => decode(pathname) === decode(href);

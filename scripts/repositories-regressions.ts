@@ -416,7 +416,7 @@ try {
   assert.equal((await db.select().from(auditLog).where(eq(auditLog.job_id, jid))).length, 1, "and one audit row");
 
   // R25f: each repo links to its Workflow page, whose segment decodes back to the repo (Q41).
-  const { workflowHref } = await import("../components/panel/repositories");
+  const { workflowHref } = await import("../components/panel/shell-model");
   assert.equal(workflowHref(A), `/repositories/${OWNER_NS}%2Ffactory-demo/workflow`);
   assert.equal(decodeURIComponent(workflowHref(A).split("/")[2]!), A, "the workflow page reads the repo back from its segment");
 
