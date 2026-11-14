@@ -289,3 +289,9 @@ export function sandboxChips(inventory: Inventory | null): DeviceChip[] | null {
     { label: "Android", tone: "none", text: "not on this machine" },
   ];
 }
+
+/** Why the Settings test job cannot run: it needs an online Mac whose chips show the browser, iOS and Android ready. Null when one does. */
+export function testJobBlocker(machines: readonly { last_seen_at: Date; inventory: unknown }[], now: number): string | null {
+  const ready = machines.some((m) => isOnline(m.last_seen_at, now) && deviceChips(parseInventory(m.inventory)).every((c) => c.tone === "ready"));
+  return ready ? null : "No online Mac shows the browser, iOS and Android ready. Check now on a machine below.";
+}

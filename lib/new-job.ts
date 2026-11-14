@@ -18,7 +18,8 @@ export type NewJobDeps = {
   registry: () => Promise<Registry>;
 };
 
-export async function createJob(deps: NewJobDeps, input: unknown): Promise<NewJobOutcome> {
+/** `tags` are for server-side callers, such as the Settings test job's `review`; the New job form never sends them. */
+export async function createJob(deps: NewJobDeps, input: unknown, tags?: string[]): Promise<NewJobOutcome> {
   if (!isMember(await deps.user())) return { ok: false, status: 403, message: "Sign in to Hive to start jobs." };
   const parsed = newJobSchema.safeParse(input);
   if (!parsed.success) return { ok: false, status: 400, message: parsed.error.issues[0]?.message ?? "The job is not valid." };
@@ -35,7 +36,7 @@ export async function createJob(deps: NewJobDeps, input: unknown): Promise<NewJo
   }
   if (execution) labels.push({ group: RUNS_ON_GROUP, name: RUNS_ON_LABELS[execution] });
   try {
-    const filed = await deps.file({ ...draft, ...(labels.length > 0 && { labels }) });
+    const filed = await deps.file({ ...draft, ...(labels.length > 0 && { labels }), ...(tags && { tags }) });
     return { ok: true, identifier: filed.key, url: filed.url };
   } catch (error) {
     return { ok: false, status: 502, message: `Could not file the job: ${error instanceof Error ? error.message : String(error)}` };

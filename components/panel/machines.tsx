@@ -1,9 +1,9 @@
 "use client";
 
-import { ChevronDownIcon, FolderGit2Icon, FolderIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, FolderGit2Icon, FolderIcon, XIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
-import { checkMachineNow } from "@/app/actions/machines";
+import { checkMachineNow, runTestJob } from "@/app/actions/machines";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -14,12 +14,14 @@ import {
   parseHeartbeat,
   parseInventory,
   sandboxChips,
+  testJobBlocker,
   UNKNOWN,
   type DeviceChip,
   type Heartbeat,
   type Inventory,
   type Known,
 } from "@/lib/machine";
+import type { RunTestJobOutcome, TestJobStatus } from "@/lib/settings-test-job";
 import { cn } from "@/lib/utils";
 import { useFeed, type Feed } from "./live-refresh";
 import { Time, useNow } from "./time";
@@ -308,8 +310,68 @@ function MachineSection({ machine, now }: { machine: MachineRow; now: number | n
   );
 }
 
+const jobLink = (job: { key: string; href: string }) => (
+  <a href={job.href} className="font-mono underline-offset-2 hover:underline">
+    {job.key}
+  </a>
+);
+
+/** "Run test job": lib/test-job.ts's devices job on a ready Mac, then the latest one's checks once it settles. */
+function TestJob({ status, blocker }: { status: TestJobStatus; blocker: string | null }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [outcome, setOutcome] = useState<RunTestJobOutcome | null>(null);
+  const run = () =>
+    startTransition(async () => {
+      const result = await runTestJob();
+      setOutcome(result);
+      if (result.ok) router.refresh();
+    });
+  const last = status.last;
+  // An unsettled job stays reachable when the machines stop being ready; readiness only gates filing a new one.
+  const gate = last !== null && last.checks === null ? null : blocker;
+  return (
+    <section aria-label="Test job" className="flex flex-col gap-2 rounded-[10px] border p-3.5 text-sm">
+      <div className="flex items-start gap-3">
+        <p className="min-w-0 flex-1 text-muted-foreground">
+          Files a job on <span className="font-mono text-foreground">{status.repo}</span> that screenshots a page in the browser, the iOS Simulator and the
+          Android Emulator on a pool Mac.
+        </p>
+        <Button size="xs" variant="outline" className="shrink-0" onClick={run} disabled={pending || gate !== null}>
+          {pending ? "Filing…" : "Run test job"}
+        </Button>
+      </div>
+      {gate && <span className="text-xs text-muted-foreground">{gate}</span>}
+      {outcome && !outcome.ok && (
+        <span role="alert" className="text-xs text-destructive">
+          {outcome.message}
+        </span>
+      )}
+      {outcome?.ok && (
+        <span className="text-xs">
+          {outcome.existing ? "Still running: " : "Filed "}
+          {jobLink(outcome)}
+        </span>
+      )}
+      {last && (
+        <div className="flex flex-col gap-1 text-xs">
+          <span className="text-muted-foreground">
+            Latest {jobLink(last)} · {last.stage}
+          </span>
+          {last.checks?.map((c) => (
+            <span key={c.name} className="flex items-center gap-1.5" title={c.detail}>
+              {c.ok ? <CheckIcon className="size-3.5 text-success" /> : <XIcon className="size-3.5 text-destructive" />}
+              {c.name}
+            </span>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** Settings → Machines & devices (R25g): every runner Mac, online first. `/machines` redirects here. */
-export function MachineList({ machines }: { machines: Feed<MachineRow> }) {
+export function MachineList({ machines, testJob }: { machines: Feed<MachineRow>; testJob: TestJobStatus }) {
   const { rows } = useFeed(machines);
   const now = useNow(CLOCK_TICK_MS);
   // Online machines first, then the most recently seen.
@@ -320,15 +382,20 @@ export function MachineList({ machines }: { machines: Feed<MachineRow> }) {
           (a, b) => Number(isOnline(b.last_seen_at, now)) - Number(isOnline(a.last_seen_at, now)) || b.last_seen_at.getTime() - a.last_seen_at.getTime(),
         );
 
+  const test = <TestJob status={testJob} blocker={now === null ? "" : testJobBlocker(rows, now)} />;
   return rows.length === 0 ? (
-    <Empty className="border">
-      <EmptyHeader>
-        <EmptyTitle>No machines yet</EmptyTitle>
-        <EmptyDescription>A machine appears here as soon as its runner sends its first heartbeat.</EmptyDescription>
-      </EmptyHeader>
-    </Empty>
+    <div className="flex flex-col gap-3">
+      {test}
+      <Empty className="border">
+        <EmptyHeader>
+          <EmptyTitle>No machines yet</EmptyTitle>
+          <EmptyDescription>A machine appears here as soon as its runner sends its first heartbeat.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    </div>
   ) : (
     <div className="flex flex-col gap-3">
+      {test}
       {sorted.map((machine) => (
         <MachineSection key={machine.id} machine={machine} now={now} />
       ))}

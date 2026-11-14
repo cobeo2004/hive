@@ -26,6 +26,7 @@ import {
   type SandboxReadiness,
 } from "@/lib/machine";
 import type { LinearSettings } from "@/lib/linear-settings";
+import type { TestJobStatus } from "@/lib/settings-test-job";
 import type { SourceChoice } from "@/lib/source-choice";
 import { JobSourcesSection } from "./job-sources";
 import { LinearSettingsSection } from "./linear-settings";
@@ -252,6 +253,7 @@ function Current({ saved, harnesses }: { saved: SettingsRow | null; harnesses: r
 
 export function SettingsForm({
   machines,
+  testJob,
   members,
   saved,
   notifications,
@@ -262,6 +264,7 @@ export function SettingsForm({
 }: {
   children?: ReactNode;
   machines: Feed<MachineRow>;
+  testJob: TestJobStatus;
   members: Member[];
   saved: SettingsRow | null;
   notifications: NotificationSettingsRow | null;
@@ -452,7 +455,7 @@ export function SettingsForm({
             </Card>
           </SettingsSection>
           <SettingsSection id="machine-list" title="Machines" description="Each runner Mac: its last heartbeat, resources and T3 workspaces.">
-            <MachineList machines={machines} />
+            <MachineList machines={machines} testJob={testJob} />
           </SettingsSection>
         </SettingsGroup>
         <NotificationsCard saved={notifications} slack={slack} />

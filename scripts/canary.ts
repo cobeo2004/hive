@@ -20,7 +20,8 @@ const option = (name: string) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 const checkout = resolve(option("--checkout") ?? join(import.meta.dirname, ".."));
-const repo = option("--repo") ?? "ski043/factory-playground";
+const { TEST_JOB_REPO } = await import("../lib/test-job");
+const repo = option("--repo") ?? TEST_JOB_REPO;
 const timeoutMs = Number(option("--timeout-minutes") ?? 60) * 60_000;
 const variant = args.includes("--devices") ? "devices" : "browser";
 

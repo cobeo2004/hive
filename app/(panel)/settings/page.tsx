@@ -20,6 +20,7 @@ import { poolAccounts } from "@/lib/pool-accounts";
 import { load, machinesQuery } from "@/lib/live-queries";
 import { readNotifications } from "@/lib/notifications";
 import { readSettings } from "@/lib/settings";
+import { testJobStatus } from "@/lib/settings-test-job";
 import { readSourceChoice } from "@/lib/job-sources";
 
 async function Panel() {
@@ -55,10 +56,11 @@ async function Panel() {
     );
   // load checks the member before anything is read.
   const [machines, members] = await Promise.all([load(machinesQuery()), listMembers()]);
-  const [settings, notifications] = await Promise.all([readSettings(db), readNotifications(db)]);
+  const [settings, notifications, testJob] = await Promise.all([readSettings(db), readNotifications(db), testJobStatus(db)]);
   return (
     <SettingsForm
       machines={machines}
+      testJob={testJob}
       members={members.ok ? members.members : []}
       saved={settings}
       notifications={notifications}
