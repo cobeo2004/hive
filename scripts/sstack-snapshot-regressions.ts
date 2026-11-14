@@ -7,8 +7,8 @@ import { dirname, join } from "node:path";
 import { eq, inArray } from "drizzle-orm";
 
 const { db } = await import("../db/client");
-const { repoSstackConfig } = await import("../db/schema");
-const { snapshotDeps, snapshotSstack, WIKI_FILE_MAX, WIKI_TOTAL_MAX } = await import("../runner/sstack-snapshot");
+const { repoSettings, repoSstackConfig } = await import("../db/schema");
+const { refreshSnapshots, snapshotDeps, snapshotSstack, WIKI_FILE_MAX, WIKI_TOTAL_MAX } = await import("../runner/sstack-snapshot");
 
 const SSTACK = "acme/sstack";
 const BARE = "acme/bare";
@@ -109,16 +109,41 @@ try {
   assert.deepEqual(bare.files, {});
   assert.equal(bare.sha, bareSha);
 
-  // a repo this machine has no checkout of is skipped and writes nothing
-  assert.deepEqual(await snapshotSstack(NONE), { repo: NONE, skipped: "no checkout" });
-  assert.equal(await rowOf(NONE), undefined);
+  // a repo this machine has no checkout of (onboarded in the cloud) is read through GitHub, with the same filter
+  const cloud = { ".sstack/wiki/a.md": "# a\n", ".sstack/runs/x.md": "decoy\n", "README.md": "decoy\n" };
+  const asked: string[] = [];
+  snapshotDeps.github = (repo) => ({
+    head: async () => (asked.push(repo), "c0ffee"),
+    tree: async () => Object.entries(cloud).map(([path, text]) => ({ path, size: text.length, id: path })),
+    read: async (_sha, { id }) => cloud[id as keyof typeof cloud],
+  });
+  assert.deepEqual(await snapshotSstack(NONE), { repo: NONE, sha: "c0ffee", files: 1 });
+  assert.deepEqual((await rowOf(NONE))!.files, { ".sstack/wiki/a.md": "# a\n" });
+  assert.deepEqual(asked, [NONE], "only the repo without a checkout goes to GitHub");
 
-  // 5. two snapshots fired together run one after the other: the second finds the sha already stored
+  // 5. a snapshot that finds another of the same repo running skips instead of waiting
   const third = commit(repoDir, { ".sstack/config.toml": "workflow = 'slow'\n" }, "third");
-  const both = await Promise.all([snapshotSstack(SSTACK), snapshotSstack(SSTACK)]);
-  assert.equal((await rowOf(SSTACK))!.sha, third, "the row holds the newest commit");
-  assert.equal((await db.select().from(repoSstackConfig).where(eq(repoSstackConfig.repo, SSTACK))).length, 1, "still one row");
-  assert.equal(both.filter((result) => "unchanged" in result).length, 1, "the queued duplicate is a no-op, which only holds if they were serialized");
+  let held = () => {};
+  let unhold = () => {};
+  const holding = new Promise<void>((resolve) => {
+    held = resolve;
+  });
+  const hold = new Promise<void>((resolve) => {
+    unhold = resolve;
+  });
+  // NONE has no checkout, so it reads through the stubbed GitHub reader, which stops inside the lock until released.
+  snapshotDeps.github = () => ({
+    head: async () => (held(), await hold, "beef"),
+    tree: async () => [],
+    read: async () => "",
+  });
+  const running = snapshotSstack(NONE);
+  await holding;
+  const overlapped = await Promise.race([snapshotSstack(NONE), new Promise((resolve) => setTimeout(resolve, 5000, "waited"))]);
+  assert.deepEqual(overlapped, { repo: NONE, busy: true }, "the second returns busy at once, without waiting for the lock");
+  unhold();
+  assert.deepEqual(await running, { repo: NONE, sha: "beef", files: 0 });
+  assert.deepEqual(await snapshotSstack(SSTACK), { repo: SSTACK, sha: third, files: 8 });
 
   // 6. a failed fetch aborts and writes nothing, even though the cached origin/main holds a newer commit than the row
   const fourth = commit(repoDir, { ".sstack/config.toml": "workflow = 'newer'\n" }, "fourth");
@@ -149,6 +174,51 @@ try {
   assert.ok(wikiBytes <= WIKI_TOTAL_MAX, `wiki total ${wikiBytes} stays within WIKI_TOTAL_MAX`);
   assert.equal(bounded[".sstack/config.toml"], "workflow = 'newer'\n", "config files are still stored");
 
+  // 8. the periodic refresh picks up a merge nothing watched (the onboarding PR adding the wiki), at most once per 5 minutes
+  await db.insert(repoSettings).values([SSTACK, BARE].map((repo) => ({ repo, updated_at: new Date(), updated_by: "regression" })));
+  let clock = Date.now();
+  snapshotDeps.now = () => new Date(clock);
+  const wikiSha = commit(repoDir, { ".sstack/wiki/x.md": "# x\n" }, "onboarding PR merged");
+  assert.deepEqual(await refreshSnapshots(), { changed: [SSTACK], failed: [] });
+  const refreshed = (await rowOf(SSTACK))!;
+  assert.equal(refreshed.sha, wikiSha);
+  assert.equal(refreshed.files[".sstack/wiki/x.md"], "# x\n", "the merged wiki page reaches the snapshot");
+
+  const laterSha = commit(repoDir, { ".sstack/wiki/y.md": "# y\n" }, "hand-merged edit");
+  clock += 4 * 60_000;
+  assert.equal(await refreshSnapshots(), undefined, "a second call inside 5 minutes does nothing");
+  assert.equal((await rowOf(SSTACK))!.sha, wikiSha, "and fetches nothing");
+
+  // one repo failing does not skip the next: acme/bare sorts first and its remote is gone
+  const bareRemote = git(bareDir, "remote", "get-url", "origin");
+  git(bareDir, "remote", "set-url", "origin", "/nonexistent");
+  clock += 60_000;
+  try {
+    const result = await refreshSnapshots();
+    assert.deepEqual(result?.changed, [SSTACK], "after 5 minutes it runs again");
+    assert.deepEqual(
+      result?.failed.map((f) => f.repo),
+      [BARE],
+    );
+  } finally {
+    git(bareDir, "remote", "set-url", "origin", bareRemote);
+  }
+  assert.equal((await rowOf(SSTACK))!.sha, laterSha);
+
+  // a sweep still running when the next is due blocks it, so two never overlap
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  snapshotDeps.checkout = async (repo) => (await gate, repo === SSTACK ? repoDir : bareDir);
+  clock += 5 * 60_000;
+  const slow = refreshSnapshots();
+  clock += 5 * 60_000;
+  const overlapping = await Promise.race([refreshSnapshots(), new Promise((resolve) => setTimeout(resolve, 1000, "overlapped"))]);
+  assert.equal(overlapping, undefined, "a due sweep returns at once while one is running");
+  release();
+  await slow;
+
   console.log("sstack-snapshot regressions passed");
 } catch (error) {
   console.error(error);
@@ -156,5 +226,6 @@ try {
 } finally {
   rmSync(root, { recursive: true, force: true });
   await db.delete(repoSstackConfig).where(inArray(repoSstackConfig.repo, [SSTACK, BARE, NONE]));
+  await db.delete(repoSettings).where(inArray(repoSettings.repo, [SSTACK, BARE]));
   process.exit(process.exitCode ?? 0);
 }

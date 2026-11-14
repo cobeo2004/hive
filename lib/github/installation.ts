@@ -55,3 +55,28 @@ export async function fileOnDefaultBranch(
   const file = contentSchema.parse(json);
   return Buffer.from(file.content, "base64").toString("utf8");
 }
+
+const headSchema = z.object({ sha: z.string() });
+const treeSchema = z.object({
+  truncated: z.boolean(),
+  tree: z.array(z.object({ path: z.string(), type: z.string(), sha: z.string(), size: z.number().optional() })),
+});
+const blobSchema = z.object({ content: z.string(), encoding: z.literal("base64") });
+
+/** main read through the App: for a repo this machine has no checkout of. */
+export function mainReader(repo: RepoName, { api = GITHUB_API, tokens = installationTokens }: { api?: string; tokens?: Pick<TokenSource, "get"> } = {}) {
+  forbidInTest("the GitHub App");
+  const get = async (path: string) => (await githubRequest(api, await tokens.get(repo), "GET", path)).json;
+  return {
+    // main, as the runner checkouts read (origin/main), so every machine snapshots the same branch.
+    head: async () => headSchema.parse(await get(`/repos/${repo}/commits/main`)).sha,
+    tree: async (sha: string) => {
+      const { truncated, tree } = treeSchema.parse(await get(`/repos/${repo}/git/trees/${sha}?recursive=1`));
+      // A partial listing would silently drop files from what is stored, so it fails instead.
+      if (truncated) throw new Error(`${repo}: the tree is too large to list`);
+      return tree.filter((entry) => entry.type === "blob").map((entry) => ({ path: entry.path, size: entry.size ?? 0, id: entry.sha }));
+    },
+    read: async (_sha: string, { id }: { id: string }) =>
+      Buffer.from(blobSchema.parse(await get(`/repos/${repo}/git/blobs/${id}`)).content, "base64").toString("utf8"),
+  };
+}

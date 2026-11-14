@@ -36,6 +36,7 @@ const { baseImageIdle, rebuildBaseImage, stopBaseImage } = await import("./base-
 const { advanceOnboarding, onboardRepo, repoPushed, requestRebuild } = await import("./onboarding");
 const { pollClaudeUsage } = await import("./account-usage");
 const { syncDefaults } = await import("./sstack-defaults");
+const { refreshSnapshots } = await import("./sstack-snapshot");
 const { repoPushDetailSchema } = await import("../lib/webhooks");
 const { notifySlack, sendSlackTest, slackFromEnv } = await import("./slack");
 const { keepListening } = await import("./realtime");
@@ -354,6 +355,8 @@ setInterval(() => {
   });
   // Its own step, so a snapshot that takes minutes never pushes the tick past its timeout.
   void serial("onboarding", () => advanceOnboarding());
+  // Off the serial queue: a fetch per repo can take minutes and it only writes repo_sstack_config; it skips while a sweep runs.
+  void refreshSnapshots().catch((error) => log("sstackSnapshots:error", { error: String(error) }));
   // Off the serial queue: it only writes account_usage, and a slow Anthropic API must not hold a tick or stop delivery.
   void accountUsage()
     .then((r) => typeof r === "object" && r !== null && "error" in r && log("accountUsage:error", { error: r.error }))
